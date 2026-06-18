@@ -1,4 +1,4 @@
-import type { ApprovalRequest, AuthUser, MemoryEntry, RuntimeHealth } from "./types";
+import type { ApprovalRequest, AuthUser, Connector, MemoryEntry, ModelProvider, RuntimeHealth, Skill } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
@@ -51,6 +51,33 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(token),
     }),
+  modelProviders: (token: string) => request<ModelProvider[]>("/model-providers", { headers: authHeaders(token) }),
+  createModelProvider: (token: string, provider: { name: string; provider_type: string; base_url?: string; is_configured: boolean }) =>
+    request<ModelProvider>("/model-providers", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(provider),
+    }),
+  deleteModelProvider: (token: string, id: string) =>
+    request<{ deleted: boolean; provider_id: string }>(`/model-providers/${id}`, { method: "DELETE", headers: authHeaders(token) }),
+  skills: (token: string) => request<Skill[]>("/skills", { headers: authHeaders(token) }),
+  createSkill: (token: string, skill: { name: string; description: string; prompt_template: string; compatible_agent_roles: string[] }) =>
+    request<Skill>("/skills", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(skill),
+    }),
+  deleteSkill: (token: string, id: string) =>
+    request<{ deleted: boolean; skill_id: string }>(`/skills/${id}`, { method: "DELETE", headers: authHeaders(token) }),
+  connectors: (token: string) => request<Connector[]>("/connectors", { headers: authHeaders(token) }),
+  createConnector: (token: string, connector: { name: string; connector_type: string; config: Record<string, unknown>; is_configured: boolean }) =>
+    request<Connector>("/connectors", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(connector),
+    }),
+  deleteConnector: (token: string, id: string) =>
+    request<{ deleted: boolean; connector_id: string }>(`/connectors/${id}`, { method: "DELETE", headers: authHeaders(token) }),
   approvals: () => request<ApprovalRequest[]>("/approvals"),
   runMemory: (runId: string) => request<MemoryEntry[]>(`/runs/${runId}/memory`),
   startSecurityReviewDemo: (objective: string) =>

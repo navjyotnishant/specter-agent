@@ -14,6 +14,33 @@ export type AuthUser = {
   created_at: string;
 };
 
+export type ModelProvider = {
+  id: string;
+  name: string;
+  provider_type: "ollama" | "openai-compatible" | "anthropic-compatible" | string;
+  base_url?: string | null;
+  is_configured: number | boolean;
+  created_at: string;
+};
+
+export type Skill = {
+  id: string;
+  name: string;
+  description: string;
+  prompt_template: string;
+  compatible_agent_roles: string;
+  created_at: string;
+};
+
+export type Connector = {
+  id: string;
+  name: string;
+  connector_type: "local-codebase" | "mcp" | "github" | "jira" | "command-runner" | string;
+  config_json: string;
+  is_configured: number | boolean;
+  created_at: string;
+};
+
 export type AgentNodeConfig = {
   id: string;
   name: string;
