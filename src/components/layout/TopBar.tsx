@@ -1,9 +1,18 @@
-import { Link } from "react-router-dom";
-import { Bell, CircleDot, Database, Menu, Shield } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Bell, CircleDot, Database, LogOut, Menu, Shield, UserCircle } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 export function TopBar() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
+  };
+
   return (
     <header className="sticky top-0 z-20 border-b border-white/70 bg-[#f7fbff]/85 px-4 py-4 backdrop-blur-xl sm:px-6">
       <div className="flex items-center justify-between gap-3">
@@ -28,8 +37,16 @@ export function TopBar() {
           <Badge variant="outline" className="rounded-full border-indigo-200 bg-white px-3 py-2 text-indigo-800">
             <Shield className="mr-1 h-3.5 w-3.5" /> Approval gates
           </Badge>
+          {user && (
+            <Badge variant="outline" className="rounded-full border-slate-200 bg-white px-3 py-2 text-slate-700">
+              <UserCircle className="mr-1 h-3.5 w-3.5" /> {user.email}
+            </Badge>
+          )}
           <Button asChild className="rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700">
             <Link to="/approvals"><Bell className="mr-2 h-4 w-4" /> Pending approvals</Link>
+          </Button>
+          <Button onClick={handleLogout} variant="outline" className="rounded-2xl border-slate-200 bg-white text-slate-700 hover:bg-slate-50">
+            <LogOut className="mr-2 h-4 w-4" /> Logout
           </Button>
         </div>
       </div>

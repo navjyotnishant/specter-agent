@@ -12,7 +12,18 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'admin',
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  token_hash TEXT UNIQUE NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS model_providers (
@@ -167,6 +178,8 @@ CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_id ON workflow_runs(workfl
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_created_at ON workflow_runs(created_at);
 CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status);
 CREATE INDEX IF NOT EXISTS idx_memory_entries_run_id ON memory_entries(workflow_run_id);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_hash ON auth_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);
 """
 
 
@@ -201,3 +214,11 @@ def db_session() -> Iterator[sqlite3.Connection]:
 def initialize_database() -> None:
     with db_session() as db:
         db.executescript(SCHEMA)
+        _add_column_if_missing(db, "users", "updated_at", "TEXT")
+        db.execute("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL")
+
+
+def _add_column_if_missing(db: sqlite3.Connection, table_name: str, column_name: str, column_type: str) -> None:
+    columns = [row["name"] for row in db.execute(f"PRAGMA table_info({table_name})").fetchall()]
+    if column_name not in columns:
+        db.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")

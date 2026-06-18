@@ -7,6 +7,13 @@ export type RuntimeHealth = {
   runtime: string;
 };
 
+export type AuthUser = {
+  id: string;
+  email: string;
+  role: "admin" | "operator";
+  created_at: string;
+};
+
 export type AgentNodeConfig = {
   id: string;
   name: string;
