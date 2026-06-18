@@ -1,0 +1,7 @@
+{
+  "id": "secure-code-review",
+  "name": "Secure Code Review",
+  "description": "Review source files for insecure patterns, injection risks, unsafe auth flows, and sensitive data handling issues.",
+  "compatible_agent_roles": ["Code reviewer", "Supervisor Agent"],
+  "prompt_template": "Review the provided code context. Return findings grouped by severity with file references, evidence, impact, and remediation."
+}

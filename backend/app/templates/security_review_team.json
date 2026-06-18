@@ -1,0 +1,69 @@
+{
+  "id": "security-review-team",
+  "name": "Security Review Team",
+  "description": "Supervisor-led local security review with specialist agents, shared memory, and approval before final report.",
+  "category": "security",
+  "nodes": [
+    {
+      "id": "security-supervisor",
+      "type": "supervisorAgent",
+      "label": "Security Supervisor Agent",
+      "role": "Supervisor Agent",
+      "model": "ollama/llama3.1",
+      "strategy": "sequential_delegation",
+      "memory_scope": "team",
+      "requires_approval": true
+    },
+    {
+      "id": "code-reviewer",
+      "type": "specialistAgent",
+      "label": "Code Security Reviewer Agent",
+      "role": "Code reviewer",
+      "skills": ["secure-code-review"],
+      "tools": ["local-codebase"],
+      "memory_scope": "workflow"
+    },
+    {
+      "id": "dependency-auditor",
+      "type": "specialistAgent",
+      "label": "Dependency Vulnerability Agent",
+      "role": "Dependency auditor",
+      "skills": ["dependency-risk-review"],
+      "tools": ["local-codebase"],
+      "memory_scope": "workflow"
+    },
+    {
+      "id": "secrets-config",
+      "type": "specialistAgent",
+      "label": "Secrets & Configuration Agent",
+      "role": "Secrets and configuration reviewer",
+      "skills": ["secrets-config-review"],
+      "tools": ["local-codebase"],
+      "memory_scope": "agent_private",
+      "requires_approval": true
+    },
+    {
+      "id": "approval-final-report",
+      "type": "humanApproval",
+      "label": "Approve final report",
+      "reason": "Pause before final report generation and external updates."
+    },
+    {
+      "id": "report-writer",
+      "type": "specialistAgent",
+      "label": "Report Writer Agent",
+      "role": "Security report writer",
+      "skills": ["security-report-writer"],
+      "memory_scope": "workflow"
+    }
+  ],
+  "edges": [
+    ["security-supervisor", "code-reviewer"],
+    ["security-supervisor", "dependency-auditor"],
+    ["security-supervisor", "secrets-config"],
+    ["code-reviewer", "approval-final-report"],
+    ["dependency-auditor", "approval-final-report"],
+    ["secrets-config", "approval-final-report"],
+    ["approval-final-report", "report-writer"]
+  ]
+}

@@ -1,0 +1,14 @@
+services:
+  sdlc-command-center:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      SDLC_DATABASE_PATH: /app/data/app.db
+      SDLC_DATA_DIR: /app/data
+      SDLC_ARTIFACTS_DIR: /app/artifacts
+    volumes:
+      - ./data:/app/data
+      - ./artifacts:/app/artifacts
+      - ./secrets:/app/secrets
+      - ./codebases:/app/codebases:ro
