@@ -1,12 +1,14 @@
 from uuid import uuid4
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.db.session import db_session
 from app.runtime.auth import require_user
 
 router = APIRouter(prefix="/model-providers", tags=["model-providers"])
+SUPPORTED_PROVIDER_TYPES = {"ollama", "openai-compatible", "anthropic-compatible"}
 
 
 class ModelProviderRequest(BaseModel):
@@ -14,6 +16,27 @@ class ModelProviderRequest(BaseModel):
     provider_type: str = Field(min_length=1, max_length=80)
     base_url: str | None = None
     is_configured: bool = False
+
+    @field_validator("provider_type")
+    @classmethod
+    def validate_provider_type(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized not in SUPPORTED_PROVIDER_TYPES:
+            raise ValueError("Unsupported model provider type.")
+        return normalized
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        parsed = urlparse(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Base URL must be a valid HTTP or HTTPS URL.")
+        return normalized
 
 
 @router.get("")

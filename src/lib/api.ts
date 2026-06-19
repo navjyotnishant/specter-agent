@@ -97,6 +97,12 @@ export const api = {
       headers: authHeaders(token),
       body: JSON.stringify(provider),
     }),
+  updateModelProvider: (token: string, id: string, provider: { name: string; provider_type: string; base_url?: string; is_configured: boolean }) =>
+    request<ModelProvider>(`/model-providers/${id}`, {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify(provider),
+    }),
   deleteModelProvider: (token: string, id: string) =>
     request<{ deleted: boolean; provider_id: string }>(`/model-providers/${id}`, { method: "DELETE", headers: authHeaders(token) }),
   skills: (token: string) => request<Skill[]>("/skills", { headers: authHeaders(token) }),
