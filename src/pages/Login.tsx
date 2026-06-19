@@ -43,10 +43,10 @@ export default function Login() {
         <section>
           <Link to="/" className="mb-8 inline-flex items-center gap-3 rounded-3xl border border-white/80 bg-white/80 p-3 shadow-sm backdrop-blur-xl">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-cyan-300"><ShieldCheck className="h-6 w-6" /></span>
-            <span className="font-black">Local AI SDLC Center</span>
+            <span className="font-black">Specter Agent</span>
           </Link>
-          <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl">Welcome back to your local AI SDLC command center.</h1>
-          <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">Sign in to manage workflows, approvals, local memory, agent teams, model providers, and connector boundaries.</p>
+          <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl">Welcome back to Specter Agent.</h1>
+          <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">Sign in to manage agent workflows, approvals, evidence, model providers, and connector policies.</p>
           {needsSetup && (
             <Alert className="mt-6 rounded-2xl border-amber-200 bg-amber-50 text-amber-950">
               <AlertDescription>No admin account exists yet. <Link to="/setup" className="font-bold underline">Bootstrap setup</Link></AlertDescription>
@@ -60,7 +60,7 @@ export default function Login() {
               <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white"><Lock className="h-6 w-6" /></span>
               <div>
                 <h2 className="text-3xl font-black">Log in</h2>
-                <p className="text-slate-600">Use your local account credentials.</p>
+                <p className="text-slate-600">Use your Specter Agent credentials.</p>
               </div>
             </div>
             <form onSubmit={onSubmit} className="space-y-4">
@@ -70,7 +70,7 @@ export default function Login() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
-                <Input id="password" type="password" className="rounded-2xl" value={password} onChange={(event) => setPassword(event.target.value)} required />
+                <Input id="password" type="password" className="rounded-2xl" value={password} onChange={(event) => setPassword(event.target.value)} maxLength={72} required />
               </div>
               {error && <Alert variant="destructive" className="rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
               <Button disabled={isSubmitting} className="w-full rounded-2xl bg-indigo-600 py-6 text-white hover:bg-indigo-700">

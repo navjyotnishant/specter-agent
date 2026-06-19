@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    app_name: str = "Local Agent SDLC Command Center"
+    app_name: str = "Specter Agent"
     api_prefix: str = "/api"
     data_dir: Path = Path("/app/data")
     artifacts_dir: Path = Path("/app/artifacts")

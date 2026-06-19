@@ -180,12 +180,12 @@ export default function WorkflowBuilder() {
     setEdges(graph.edges);
     setWorkflowName(workflowQuery.data.name);
     setWorkflowDescription(workflowQuery.data.description);
-    setStatusMessage(`Loaded ${workflowQuery.data.name} from SQLite.`);
+    setStatusMessage(`Loaded ${workflowQuery.data.name}.`);
   }, [setEdges, setNodes, workflowQuery.data]);
 
   const saveMutation = useMutation({
     mutationFn: () => api.updateWorkflow(token ?? "", workflowId, { name: workflowName, description: workflowDescription, graph: { nodes, edges } }),
-    onSuccess: (workflow) => setStatusMessage(`Saved ${workflow.name} to SQLite at ${new Date().toLocaleTimeString()}.`),
+    onSuccess: (workflow) => setStatusMessage(`Saved ${workflow.name} at ${new Date().toLocaleTimeString()}.`),
     onError: (error) => setStatusMessage(error instanceof Error ? error.message : "Unable to save workflow graph."),
   });
 
@@ -207,7 +207,7 @@ export default function WorkflowBuilder() {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge className="rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">{workflowQuery.data?.is_template ? "Built-in template" : "Editable workflow"}</Badge>
-            <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">SQLite-backed graph JSON</Badge>
+            <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Auditable workflow</Badge>
             {!canUseBackend && <Badge className="rounded-full bg-amber-100 text-amber-900 hover:bg-amber-100">Preview storage</Badge>}
           </div>
           <h2 className="mt-3 text-3xl font-black text-slate-950">{workflowName} Builder</h2>

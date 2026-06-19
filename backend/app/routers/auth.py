@@ -15,11 +15,12 @@ from app.runtime.auth import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+MAX_BCRYPT_PASSWORD_BYTES = 72
 
 
 class AuthRequest(BaseModel):
     email: str
-    password: str = Field(min_length=8, max_length=256)
+    password: str = Field(min_length=8, max_length=72)
 
     @field_validator("email")
     @classmethod
@@ -28,6 +29,13 @@ class AuthRequest(BaseModel):
         if "@" not in normalized or "." not in normalized.rsplit("@", 1)[-1]:
             raise ValueError("Invalid email address")
         return normalized
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > MAX_BCRYPT_PASSWORD_BYTES:
+            raise ValueError("Password must be 72 bytes or fewer.")
+        return value
 
 
 class CreateUserRequest(AuthRequest):

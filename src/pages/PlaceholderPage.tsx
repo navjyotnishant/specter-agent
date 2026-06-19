@@ -36,7 +36,7 @@ export function PlaceholderPage({
             <CardContent className="p-5">
               <div className="mb-4 h-2 w-16 rounded-full bg-cyan-300" />
               <h3 className="font-black text-slate-950">{item}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Configured for local-first operation with auditable SQLite persistence.</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Designed for governed operations, clear ownership, and auditable outcomes.</p>
             </CardContent>
           </Card>
         ))}

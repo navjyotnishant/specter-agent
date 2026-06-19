@@ -19,7 +19,7 @@ const previewWorkflows: Workflow[] = [
   {
     id: "security-review-team",
     name: "Security Review Team",
-    description: "Supervisor-led local security review with specialist agents, shared memory, and approval before final report.",
+    description: "Supervisor-led security review with specialist agents, shared memory, and approval before final report.",
     graph: emptyGraph,
     is_template: true,
     created_at: new Date().toISOString(),
@@ -32,7 +32,7 @@ export default function Workflows() {
   const canUseBackend = Boolean(token && token !== "preview-mode");
   const queryClient = useQueryClient();
   const [name, setName] = useState("Custom SDLC Agent Team");
-  const [description, setDescription] = useState("A custom local-first workflow with agent nodes, shared memory, and approval checkpoints.");
+  const [description, setDescription] = useState("A custom governed workflow with agent nodes, shared memory, and approval checkpoints.");
   const [error, setError] = useState("");
 
   const { data = [], isLoading } = useQuery({
@@ -74,9 +74,9 @@ export default function Workflows() {
                 <GitBranch className="h-8 w-8" />
               </span>
               <div>
-                <Badge className="mb-2 rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">SQLite graph JSON</Badge>
+                <Badge className="mb-2 rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">Workflow operations</Badge>
                 <h2 className="text-3xl font-black text-slate-950">Workflows</h2>
-                <p className="mt-2 max-w-3xl text-slate-600">Create, open, and persist visual automation graphs with agent orchestration nodes.</p>
+                <p className="mt-2 max-w-3xl text-slate-600">Create, operate, and audit visual workflows with agent orchestration nodes.</p>
               </div>
             </div>
             <Button asChild className="rounded-2xl bg-indigo-600 hover:bg-indigo-700">
@@ -102,14 +102,14 @@ export default function Workflows() {
               {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Create
             </Button>
           </form>
-          {!canUseBackend && <p className="mt-3 text-sm text-slate-500">Creating workflows is available when the FastAPI backend is running. The builder can still save preview changes to browser storage.</p>}
+          {!canUseBackend && <p className="mt-3 text-sm text-slate-500">Creating workflows is available when the service is connected. Preview changes can still be saved in this browser.</p>}
           {error && <Alert variant="destructive" className="mt-4 rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
         </CardContent>
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-3">
         {isLoading && canUseBackend && (
-          <Card className="rounded-3xl border-white/80 bg-white/80 p-6 text-slate-600">Loading workflows from SQLite…</Card>
+          <Card className="rounded-3xl border-white/80 bg-white/80 p-6 text-slate-600">Loading workflows…</Card>
         )}
         {workflows.map((workflow) => (
           <Card key={workflow.id} className="rounded-3xl border-white/80 bg-white/80 transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200/70">

@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 const previewConnectors: Connector[] = [
-  { id: "local-codebase", name: "Read-only local codebases", connector_type: "local-codebase", config_json: '{"root":"/app/codebases","allowlist":["/app/codebases"],"exclusions":[".git","node_modules",".env"]}', is_configured: true, created_at: new Date().toISOString() },
+  { id: "local-codebase", name: "Approved codebase access", connector_type: "local-codebase", config_json: '{"root":"/app/codebases","allowlist":["/app/codebases"],"exclusions":[".git","node_modules",".env"]}', is_configured: true, created_at: new Date().toISOString() },
   { id: "mcp-preview", name: "MCP Tool Gateway", connector_type: "mcp", config_json: '{"servers":[]}', is_configured: false, created_at: new Date().toISOString() },
   { id: "jira-preview", name: "Jira Action Shell", connector_type: "jira", config_json: '{"write_actions_require_approval":true}', is_configured: false, created_at: new Date().toISOString() },
 ];
@@ -32,7 +32,7 @@ function parseConfig(value: string): Record<string, unknown> {
 export default function Connectors() {
   const token = getStoredToken();
   const queryClient = useQueryClient();
-  const [name, setName] = useState("Read-only local codebases");
+  const [name, setName] = useState("Approved codebase access");
   const [connectorType, setConnectorType] = useState("local-codebase");
   const [config, setConfig] = useState('{"root":"/app/codebases","allowlist":["/app/codebases"],"exclusions":[".git","node_modules",".env"]}');
   const [isConfigured, setIsConfigured] = useState(true);
@@ -66,7 +66,7 @@ export default function Connectors() {
             <div>
               <Badge className="mb-2 rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">Tool boundaries</Badge>
               <h2 className="text-3xl font-black text-slate-950">Connectors</h2>
-              <p className="mt-2 text-slate-600">Configure MCP tools, local codebase allowlists, GitHub/Jira shells, and command execution boundaries.</p>
+              <p className="mt-2 text-slate-600">Configure tool access, codebase scopes, issue-tracker actions, and command execution policies.</p>
             </div>
           </div>
         </CardContent>
@@ -96,7 +96,7 @@ export default function Connectors() {
             <div className="space-y-2"><Label>Config JSON</Label><Textarea className="min-h-28 rounded-2xl font-mono text-sm" value={config} onChange={(event) => setConfig(event.target.value)} /></div>
             <Button disabled={create.isPending || token === "preview-mode"} className="w-fit rounded-2xl bg-indigo-600 hover:bg-indigo-700">{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save connector</Button>
           </form>
-          {token === "preview-mode" && <p className="mt-3 text-sm text-slate-500">Saving connectors is available when the FastAPI backend is running.</p>}
+          {token === "preview-mode" && <p className="mt-3 text-sm text-slate-500">Saving connectors is available when the service is connected.</p>}
           {error && <Alert variant="destructive" className="mt-4 rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
         </CardContent>
       </Card>

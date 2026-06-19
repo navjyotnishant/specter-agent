@@ -7,10 +7,21 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+__pycache__/
 node_modules
 dist
 dist-ssr
 *.local
+
+# Local runtime state
+data/*
+artifacts/*
+secrets/*
+codebases/*
+!data/.gitkeep
+!artifacts/.gitkeep
+!secrets/.gitkeep
+!codebases/.gitkeep
 
 # Editor directories and files
 .vscode/*

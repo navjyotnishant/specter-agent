@@ -8,16 +8,39 @@ function authHeaders(token?: string): HeadersInit {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
+    headers: { "Content-Type": "application/json", ...options?.headers },
   });
 
   if (!response.ok) {
-    const message = await response.text().catch(() => "");
+    const message = await response.text().then(formatErrorMessage).catch(() => "");
     throw new Error(message || `Request failed: ${response.status}`);
   }
 
   return response.json() as Promise<T>;
+}
+
+function formatErrorMessage(message: string): string {
+  if (!message) return "";
+
+  try {
+    const parsed = JSON.parse(message) as { detail?: unknown };
+    if (typeof parsed.detail === "string") return parsed.detail;
+    if (Array.isArray(parsed.detail)) {
+      return parsed.detail
+        .map((item) => {
+          if (typeof item === "string") return item;
+          if (item && typeof item === "object" && "msg" in item) return String(item.msg);
+          return "";
+        })
+        .filter(Boolean)
+        .join(" ");
+    }
+  } catch {
+    return message;
+  }
+
+  return message;
 }
 
 export const api = {

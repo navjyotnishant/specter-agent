@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, CircleDot, Database, LogOut, Menu, Shield, UserCircle } from "lucide-react";
+import { Bell, CircleDot, GitBranch, LogOut, Menu, Shield, UserCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,17 +22,17 @@ export function TopBar() {
           </Button>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-black tracking-tight text-slate-950 sm:text-2xl">AI SDLC Command Center</h1>
+              <h1 className="text-xl font-black tracking-tight text-slate-950 sm:text-2xl">Specter Agent</h1>
               <Badge className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800 hover:bg-emerald-100">
-                <CircleDot className="mr-1 h-3 w-3 fill-current" /> Local runtime
+                <CircleDot className="mr-1 h-3 w-3 fill-current" /> Active workspace
               </Badge>
             </div>
-            <p className="mt-1 text-sm text-slate-600">Build, run, approve, and audit multi-agent software delivery workflows.</p>
+            <p className="mt-1 text-sm text-slate-600">Govern agent workflows, approvals, and delivery evidence.</p>
           </div>
         </div>
         <div className="hidden items-center gap-2 md:flex">
           <Badge variant="outline" className="rounded-full border-cyan-200 bg-white px-3 py-2 text-cyan-800">
-            <Database className="mr-1 h-3.5 w-3.5" /> SQLite WAL
+            <GitBranch className="mr-1 h-3.5 w-3.5" /> Workflow audit
           </Badge>
           <Badge variant="outline" className="rounded-full border-indigo-200 bg-white px-3 py-2 text-indigo-800">
             <Shield className="mr-1 h-3.5 w-3.5" /> Approval gates

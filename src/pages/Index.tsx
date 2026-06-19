@@ -1,14 +1,14 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, Bot, CheckCircle2, Database, GitBranch, Lock, ShieldCheck, Workflow } from "lucide-react";
+import { ArrowRight, Bot, CheckCircle2, GitBranch, Lock, ShieldCheck, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 
 const capabilities = [
-  { icon: Database, title: "SQLite local memory", text: "Runs, approvals, skills, providers, and structured agent memory persist in a local volume." },
-  { icon: Bot, title: "Multi-agent teams", text: "Supervisor agents coordinate specialists with separate models, tools, skills, and memory scopes." },
-  { icon: CheckCircle2, title: "Human checkpoints", text: "Pause before final reports, external writes, command execution, or any configured risky action." },
-  { icon: GitBranch, title: "SDLC workflow graph", text: "Combine AI prompts, skills, codebase scans, MCP tools, memory nodes, and approvals visually." },
+  { icon: ShieldCheck, title: "Governed automation", text: "Coordinate agent work with policy-aware controls, approvals, and auditable decisions." },
+  { icon: Bot, title: "Specialist agent teams", text: "Supervisors delegate bounded work to focused agents with clear roles and responsibilities." },
+  { icon: CheckCircle2, title: "Human checkpoints", text: "Require review before sensitive actions, final reports, or external system updates." },
+  { icon: GitBranch, title: "Visual workflows", text: "Design reusable delivery workflows with agents, skills, memory, tools, and approval gates." },
 ];
 
 const Index = () => {
@@ -25,13 +25,13 @@ const Index = () => {
               <ShieldCheck className="h-6 w-6" />
             </span>
             <span>
-              <span className="block text-sm font-semibold uppercase tracking-[0.24em] text-cyan-700">Local AI</span>
-              <span className="block text-lg font-black text-slate-950">SDLC Center</span>
+              <span className="block text-lg font-black text-slate-950">Specter Agent</span>
+              <span className="block text-sm font-semibold text-slate-500">Agentic delivery operations</span>
             </span>
           </Link>
           <div className="hidden items-center gap-2 sm:flex">
-            <Badge className="rounded-full bg-emerald-100 px-3 py-1.5 text-emerald-800 hover:bg-emerald-100">Container deployable</Badge>
-            <Badge className="rounded-full bg-cyan-100 px-3 py-1.5 text-cyan-800 hover:bg-cyan-100">SQLite default</Badge>
+            <Badge className="rounded-full bg-emerald-100 px-3 py-1.5 text-emerald-800 hover:bg-emerald-100">Governed workflows</Badge>
+            <Badge className="rounded-full bg-cyan-100 px-3 py-1.5 text-cyan-800 hover:bg-cyan-100">Audit-ready</Badge>
           </div>
           <Button asChild className="rounded-2xl bg-indigo-600 px-5 text-white hover:bg-indigo-700">
             <Link to="/dashboard">Open app</Link>
@@ -41,17 +41,17 @@ const Index = () => {
         <div className="grid flex-1 items-center gap-10 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:py-20">
           <div>
             <Badge className="mb-5 rounded-full bg-amber-100 px-4 py-2 text-amber-900 hover:bg-amber-100">
-              <Lock className="mr-2 h-4 w-4" /> Local-first multi-agent SDLC automation
+              <Lock className="mr-2 h-4 w-4" /> Enterprise agent orchestration
             </Badge>
             <h1 className="max-w-4xl text-5xl font-black leading-[0.98] tracking-tight text-slate-950 sm:text-6xl lg:text-7xl">
               Orchestrate secure software delivery with auditable AI agent teams.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-650 sm:text-xl">
-              Configure your own local or remote models, mount codebases read-only, build visual workflows, and let a supervisor agent coordinate specialist reviewers with structured memory and approval gates.
+              Define governed workflows, assign specialist agents, manage approvals, and produce traceable delivery evidence from one operational workspace.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Button asChild size="lg" className="rounded-2xl bg-indigo-600 px-6 text-white shadow-xl shadow-indigo-200 hover:bg-indigo-700">
-                <Link to="/dashboard">Launch command center <ArrowRight className="ml-2 h-5 w-5" /></Link>
+                <Link to="/dashboard">Open Specter Agent <ArrowRight className="ml-2 h-5 w-5" /></Link>
               </Button>
               <Button asChild size="lg" variant="outline" className="rounded-2xl border-slate-200 bg-white px-6 text-slate-800 hover:bg-slate-50">
                 <Link to="/workflows/security-review-team/builder">Inspect Security Review Team</Link>

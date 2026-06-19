@@ -73,7 +73,7 @@ export default function Skills() {
             <div className="space-y-2"><Label>Prompt template</Label><Textarea className="min-h-28 rounded-2xl" value={promptTemplate} onChange={(event) => setPromptTemplate(event.target.value)} /></div>
             <Button disabled={create.isPending || token === "preview-mode"} className="w-fit rounded-2xl bg-indigo-600 hover:bg-indigo-700">{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save skill</Button>
           </form>
-          {token === "preview-mode" && <p className="mt-3 text-sm text-slate-500">Saving skills is available when the FastAPI backend is running.</p>}
+          {token === "preview-mode" && <p className="mt-3 text-sm text-slate-500">Saving skills is available when the service is connected.</p>}
           {error && <Alert variant="destructive" className="mt-4 rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
         </CardContent>
       </Card>

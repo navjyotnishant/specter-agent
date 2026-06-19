@@ -57,7 +57,7 @@ export default function Users() {
             <div>
               <Badge className="mb-2 rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">Local accounts</Badge>
               <h2 className="text-3xl font-black text-slate-950">Users and roles</h2>
-              <p className="mt-2 text-slate-600">Manage local admin and operator access. Sessions are stored in SQLite and can be revoked by deleting a user.</p>
+              <p className="mt-2 text-slate-600">Manage administrator and operator access for Specter Agent.</p>
             </div>
           </div>
         </CardContent>
@@ -79,7 +79,7 @@ export default function Users() {
             </div>
             <div className="space-y-2">
               <Label>Password</Label>
-              <Input type="password" className="rounded-2xl" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />
+              <Input type="password" className="rounded-2xl" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} maxLength={72} required />
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
@@ -95,7 +95,7 @@ export default function Users() {
               {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Create
             </Button>
           </form>
-          {token === "preview-mode" && <p className="mt-3 text-sm text-slate-500">User creation is available when the FastAPI backend is running.</p>}
+          {token === "preview-mode" && <p className="mt-3 text-sm text-slate-500">User creation is available when the service is connected.</p>}
           {error && <Alert variant="destructive" className="mt-4 rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
         </CardContent>
       </Card>

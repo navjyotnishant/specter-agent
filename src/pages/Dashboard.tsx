@@ -1,14 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Activity, AlertTriangle, Bot, CheckCircle2, Clock, Database, GitBranch, Network, Play, ShieldCheck, Sparkles } from "lucide-react";
+import { Activity, AlertTriangle, Bot, CheckCircle2, Clock, FileCheck2, GitBranch, Network, Play, ShieldCheck, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const statusCards = [
-  { label: "Local runtime", value: "Active", icon: Activity, tone: "bg-emerald-100 text-emerald-800" },
-  { label: "SQLite database", value: "Healthy", icon: Database, tone: "bg-cyan-100 text-cyan-800" },
+  { label: "Workspace", value: "Active", icon: Activity, tone: "bg-emerald-100 text-emerald-800" },
+  { label: "Evidence store", value: "Healthy", icon: FileCheck2, tone: "bg-cyan-100 text-cyan-800" },
   { label: "Scheduler", value: "Active", icon: Clock, tone: "bg-indigo-100 text-indigo-800" },
   { label: "Approvals", value: "2 pending", icon: AlertTriangle, tone: "bg-amber-100 text-amber-900" },
 ];
@@ -51,7 +51,7 @@ export default function Dashboard() {
           <CardHeader className="flex flex-row items-center justify-between gap-4">
             <div>
               <CardTitle className="text-2xl font-black">Agent Teams</CardTitle>
-              <p className="mt-1 text-sm text-slate-600">Start from a built-in team or create a custom multi-agent SDLC workflow.</p>
+              <p className="mt-1 text-sm text-slate-600">Start from a built-in team or create a governed multi-agent workflow.</p>
             </div>
             <Button asChild className="rounded-2xl bg-indigo-600 hover:bg-indigo-700">
               <Link to="/workflows"><GitBranch className="mr-2 h-4 w-4" /> Workflows</Link>
@@ -77,14 +77,14 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-3xl border border-white/10 bg-white/10 p-4">
-              <p className="text-sm uppercase tracking-[0.2em] text-cyan-200">SQLite</p>
-              <p className="mt-2 text-lg font-bold">{data?.sqlite ?? "Waiting for API"}</p>
-              <p className="mt-1 break-all text-sm text-slate-300">{data?.db_path ?? "/app/data/app.db"}</p>
+              <p className="text-sm uppercase tracking-[0.2em] text-cyan-200">Workspace</p>
+              <p className="mt-2 text-lg font-bold">{data?.api === "ok" ? "Operational" : "Waiting for service"}</p>
+              <p className="mt-1 text-sm text-slate-300">Workflow data, approvals, and run evidence are available.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl bg-white/10 p-4">
-                <p className="text-sm text-slate-300">Journal</p>
-                <p className="font-bold text-cyan-200">{data?.journal_mode ?? "WAL"}</p>
+                <p className="text-sm text-slate-300">Evidence</p>
+                <p className="font-bold text-cyan-200">{data?.sqlite === "healthy" ? "Healthy" : "Pending"}</p>
               </div>
               <div className="rounded-2xl bg-white/10 p-4">
                 <p className="text-sm text-slate-300">Scheduler</p>

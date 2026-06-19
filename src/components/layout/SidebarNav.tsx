@@ -2,10 +2,8 @@ import { NavLink } from "react-router-dom";
 import {
   Bot,
   CheckCircle2,
-  Database,
   GitBranch,
   History,
-  KeyRound,
   LayoutDashboard,
   Network,
   Settings2,
@@ -33,16 +31,16 @@ export function SidebarNav() {
           <ShieldCheck className="h-6 w-6" />
         </span>
         <span>
-          <span className="block text-sm font-semibold uppercase tracking-[0.22em] text-cyan-100">Local AI</span>
-          <span className="block text-lg font-bold">SDLC Center</span>
+          <span className="block text-lg font-bold">Specter Agent</span>
+          <span className="block text-xs font-semibold text-cyan-100">Agentic delivery operations</span>
         </span>
       </NavLink>
 
       <div className="mb-5 rounded-3xl border border-cyan-100 bg-cyan-50/80 p-4 text-sm text-cyan-950">
         <div className="flex items-center gap-2 font-semibold">
-          <Database className="h-4 w-4" /> SQLite local-first
+          <ShieldCheck className="h-4 w-4" /> Governed workspace
         </div>
-        <p className="mt-1 text-cyan-800">Data, memory, approvals, and run audit trails stay in your local volume.</p>
+        <p className="mt-1 text-cyan-800">Workflows, approvals, memory, and run evidence stay organized for review.</p>
       </div>
 
       <nav className="space-y-2">

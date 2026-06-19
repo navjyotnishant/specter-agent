@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This project is a local-first AI SDLC command center for building, running, and auditing multi-agent software delivery workflows. The platform is intended to be container-deployable and centered around a local SQLite database, with local volumes for database state, artifacts, secrets/configuration, and mounted codebases.
+Specter Agent is an enterprise-grade agent orchestration platform for designing, running, approving, and auditing multi-agent software delivery workflows. The product centers on governed automation: supervisors coordinate specialist agents, human checkpoints control sensitive actions, and every run produces reviewable operational evidence.
 
 The long-term product goal is to let a user locally deploy the app, create an admin account, configure model providers and connectors, define reusable skills, then build and run supervisor-led multi-agent SDLC workflows such as a Security Review Team.
 
@@ -83,7 +83,7 @@ The frontend now includes:
 
 ### 2. Dashboard
 
-The dashboard visually communicates the product as an AI SDLC command center.
+The dashboard visually communicates Specter Agent as a governed agent-operations workspace.
 
 Implemented dashboard sections include:
 

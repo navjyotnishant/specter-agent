@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Database, KeyRound, Loader2, ShieldCheck } from "lucide-react";
+import { KeyRound, Loader2, ShieldCheck, UserCheck } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -40,20 +40,20 @@ export default function Setup() {
         <section>
           <Link to="/" className="mb-8 inline-flex items-center gap-3 rounded-3xl border border-white/80 bg-white/80 p-3 shadow-sm backdrop-blur-xl">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-cyan-300"><ShieldCheck className="h-6 w-6" /></span>
-            <span className="font-black">Local AI SDLC Center</span>
+            <span className="font-black">Specter Agent</span>
           </Link>
-          <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl">Bootstrap your local command center.</h1>
-          <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">Create the first administrator account. Credentials stay local, sessions are stored in SQLite, and the app can run fully inside your container volume.</p>
+          <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl">Create your Specter Agent administrator.</h1>
+          <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">Set up the first administrator account for governed workflows, approvals, and agent operations.</p>
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
             <div className="rounded-3xl border border-cyan-100 bg-cyan-50 p-4">
-              <Database className="mb-3 h-6 w-6 text-cyan-700" />
-              <h3 className="font-black">SQLite-backed</h3>
-              <p className="mt-1 text-sm text-slate-600">Admin account and sessions persist in `/app/data/app.db`.</p>
+              <UserCheck className="mb-3 h-6 w-6 text-cyan-700" />
+              <h3 className="font-black">Role-based access</h3>
+              <p className="mt-1 text-sm text-slate-600">Administrators manage users, workflows, providers, and operational controls.</p>
             </div>
             <div className="rounded-3xl border border-indigo-100 bg-indigo-50 p-4">
               <KeyRound className="mb-3 h-6 w-6 text-indigo-700" />
-              <h3 className="font-black">Local auth</h3>
-              <p className="mt-1 text-sm text-slate-600">Password hashes are stored with bcrypt; bearer sessions can be revoked.</p>
+              <h3 className="font-black">Secure sign-in</h3>
+              <p className="mt-1 text-sm text-slate-600">Access is protected with administrator-controlled user accounts.</p>
             </div>
           </div>
         </section>
@@ -61,7 +61,7 @@ export default function Setup() {
         <Card className="rounded-[2rem] border-white/80 bg-white/85 shadow-2xl shadow-slate-200/70 backdrop-blur-xl">
           <CardContent className="p-6 sm:p-8">
             <div className="mb-6">
-              <h2 className="text-3xl font-black">Create first admin</h2>
+              <h2 className="text-3xl font-black">Create administrator</h2>
               <p className="mt-2 text-slate-600">Use at least 8 characters for the password.</p>
             </div>
             <form onSubmit={onSubmit} className="space-y-4">
@@ -71,7 +71,7 @@ export default function Setup() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
-                <Input id="password" type="password" className="rounded-2xl" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />
+                <Input id="password" type="password" className="rounded-2xl" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} maxLength={72} required />
               </div>
               {error && <Alert variant="destructive" className="rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
               <Button disabled={isSubmitting} className="w-full rounded-2xl bg-indigo-600 py-6 text-white hover:bg-indigo-700">

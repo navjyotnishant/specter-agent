@@ -56,7 +56,7 @@ export default function Models() {
             <div>
               <Badge className="mb-2 rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">Model routing</Badge>
               <h2 className="text-3xl font-black text-slate-950">Model providers</h2>
-              <p className="mt-2 text-slate-600">Configure local and remote user-owned models for supervisors and specialist agents.</p>
+              <p className="mt-2 text-slate-600">Configure approved model endpoints for supervisors and specialist agents.</p>
             </div>
           </div>
         </CardContent>
@@ -82,7 +82,7 @@ export default function Models() {
             <div className="flex items-center gap-3 rounded-2xl border bg-slate-50 px-4 py-3"><Switch checked={isConfigured} onCheckedChange={setIsConfigured} /><Label>Configured</Label></div>
             <Button disabled={create.isPending || token === "preview-mode"} className="rounded-2xl bg-indigo-600 hover:bg-indigo-700">{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save</Button>
           </form>
-          {token === "preview-mode" && <p className="mt-3 text-sm text-slate-500">Saving providers is available when the FastAPI backend is running.</p>}
+          {token === "preview-mode" && <p className="mt-3 text-sm text-slate-500">Saving providers is available when the service is connected.</p>}
           {error && <Alert variant="destructive" className="mt-4 rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
         </CardContent>
       </Card>
