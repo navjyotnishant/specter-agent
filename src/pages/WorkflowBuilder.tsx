@@ -1,7 +1,20 @@
-import { useMemo, useState } from "react";
-import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node } from "@xyflow/react";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useParams } from "react-router-dom";
+import {
+  addEdge,
+  Background,
+  Controls,
+  MiniMap,
+  ReactFlow,
+  type Connection,
+  type Edge,
+  type Node,
+  useEdgesState,
+  useNodesState,
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Bot, CheckCircle2, Code2, Database, FileText, GitBranch, Play, ShieldCheck, Wrench } from "lucide-react";
+import { Bot, CheckCircle2, Code2, Database, FileText, GitBranch, Loader2, Play, Save, ShieldCheck, Wrench } from "lucide-react";
 import { AgentInspector } from "@/components/agents/AgentInspector";
 import { AgentTimeline } from "@/components/agents/AgentTimeline";
 import { MemoryPanel } from "@/components/memory/MemoryPanel";
@@ -9,7 +22,10 @@ import { HumanApprovalNode } from "@/components/workflow/nodes/HumanApprovalNode
 import { MemoryNode } from "@/components/workflow/nodes/MemoryNode";
 import { SpecialistAgentNode } from "@/components/workflow/nodes/SpecialistAgentNode";
 import { SupervisorAgentNode } from "@/components/workflow/nodes/SupervisorAgentNode";
-import type { AgentNodeConfig } from "@/lib/types";
+import { getStoredToken } from "@/lib/auth";
+import { api } from "@/lib/api";
+import type { AgentNodeConfig, WorkflowGraph } from "@/lib/types";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,7 +46,7 @@ const palette = [
   { category: "Memory + Context", items: [[Database, "Read Memory"], [Database, "Write Memory"], [Database, "Context Pack Builder"]] },
 ];
 
-const initialNodes: Node[] = [
+const defaultNodes: Node[] = [
   { id: "supervisor", type: "supervisorAgent", position: { x: 40, y: 160 }, data: { label: "Security Supervisor Agent", model: "ollama/llama3.1", tools: 4, skills: 4 } },
   { id: "memory-plan", type: "memory", position: { x: 390, y: 40 }, data: { label: "Write task plan", scope: "team" } },
   { id: "code", type: "specialistAgent", position: { x: 430, y: 190 }, data: { label: "Code Security Reviewer", role: "Secure code review", model: "ollama/codellama", tools: 1, skills: 1, memoryScope: "workflow" } },
@@ -40,7 +56,7 @@ const initialNodes: Node[] = [
   { id: "report", type: "specialistAgent", position: { x: 1450, y: 260 }, data: { label: "Report Writer Agent", role: "Security report writer", model: "anthropic-compatible/claude", tools: 0, skills: 1, memoryScope: "workflow" } },
 ];
 
-const initialEdges: Edge[] = [
+const defaultEdges: Edge[] = [
   { id: "e1", source: "supervisor", target: "memory-plan", animated: true },
   { id: "e2", source: "supervisor", target: "code", animated: true },
   { id: "e3", source: "supervisor", target: "deps", animated: true },
@@ -68,26 +84,146 @@ const defaultAgent: AgentNodeConfig = {
   aggregationStrategy: "Group findings by severity, evidence, affected file/component, and remediation.",
 };
 
+const nodePositions: Record<string, { x: number; y: number }> = {
+  "security-supervisor": { x: 40, y: 160 },
+  "memory-plan": { x: 390, y: 40 },
+  "code-reviewer": { x: 430, y: 190 },
+  "dependency-auditor": { x: 430, y: 390 },
+  "secrets-config": { x: 780, y: 190 },
+  "approval-final-report": { x: 1120, y: 260 },
+  "report-writer": { x: 1450, y: 260 },
+};
+
+function storageKey(workflowId: string) {
+  return `sdlc_workflow_graph_${workflowId}`;
+}
+
+function normalizeGraph(graph?: Partial<WorkflowGraph>): { nodes: Node[]; edges: Edge[] } {
+  const rawNodes = Array.isArray(graph?.nodes) ? graph.nodes : defaultNodes;
+  const rawEdges = Array.isArray(graph?.edges) ? graph.edges : defaultEdges;
+
+  const nodes = rawNodes.map((rawNode, index) => {
+    const node = rawNode as Partial<Node> & Record<string, unknown>;
+    const nodeId = String(node.id ?? `node-${index + 1}`);
+    const nodeType = String(node.type ?? "specialistAgent");
+    const position = node.position ?? nodePositions[nodeId] ?? { x: 120 + index * 260, y: 160 + (index % 3) * 140 };
+
+    return {
+      id: nodeId,
+      type: nodeType,
+      position,
+      data: node.data ?? {
+        label: node.label ?? node.name ?? nodeId,
+        role: node.role,
+        model: node.model,
+        tools: Array.isArray(node.tools) ? node.tools.length : node.tools,
+        skills: Array.isArray(node.skills) ? node.skills.length : node.skills,
+        memoryScope: node.memory_scope ?? node.memoryScope,
+        requiresApproval: node.requires_approval ?? node.requiresApproval,
+        reason: node.reason,
+        scope: node.scope ?? node.memory_scope,
+      },
+    } as Node;
+  });
+
+  const edges = rawEdges.map((rawEdge, index) => {
+    const edge = rawEdge as Partial<Edge> & Record<string, unknown>;
+    return {
+      id: String(edge.id ?? `edge-${index + 1}`),
+      source: String(edge.source),
+      target: String(edge.target),
+      animated: edge.animated !== false,
+    } as Edge;
+  }).filter((edge) => edge.source && edge.target);
+
+  return { nodes, edges };
+}
+
 export default function WorkflowBuilder() {
+  const { workflowId = "security-review-team" } = useParams();
+  const token = getStoredToken();
   const [agent, setAgent] = useState(defaultAgent);
+  const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(defaultEdges);
+  const [workflowName, setWorkflowName] = useState("Security Review Team");
+  const [workflowDescription, setWorkflowDescription] = useState("A supervisor-led multi-agent SDLC workflow with specialist reviewers, shared memory, and approval checkpoints.");
+  const [statusMessage, setStatusMessage] = useState("Preview graph loaded from built-in template.");
   const fitViewOptions = useMemo(() => ({ padding: 0.2 }), []);
+
+  const canUseBackend = Boolean(token && token !== "preview-mode");
+  const workflowQuery = useQuery({
+    queryKey: ["workflow", workflowId],
+    queryFn: () => api.workflow(token ?? "", workflowId),
+    enabled: canUseBackend,
+    retry: false,
+  });
+
+  useEffect(() => {
+    const saved = localStorage.getItem(storageKey(workflowId));
+    if (!canUseBackend && saved) {
+      const graph = normalizeGraph(JSON.parse(saved));
+      setNodes(graph.nodes);
+      setEdges(graph.edges);
+      setStatusMessage("Preview graph restored from browser storage.");
+      return;
+    }
+
+    if (!canUseBackend) {
+      setStatusMessage("Preview graph loaded from built-in template. Saving will use browser storage.");
+    }
+  }, [canUseBackend, setEdges, setNodes, workflowId]);
+
+  useEffect(() => {
+    if (!workflowQuery.data) return;
+    const graph = normalizeGraph(workflowQuery.data.graph);
+    setNodes(graph.nodes);
+    setEdges(graph.edges);
+    setWorkflowName(workflowQuery.data.name);
+    setWorkflowDescription(workflowQuery.data.description);
+    setStatusMessage(`Loaded ${workflowQuery.data.name} from SQLite.`);
+  }, [setEdges, setNodes, workflowQuery.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => api.updateWorkflow(token ?? "", workflowId, { name: workflowName, description: workflowDescription, graph: { nodes, edges } }),
+    onSuccess: (workflow) => setStatusMessage(`Saved ${workflow.name} to SQLite at ${new Date().toLocaleTimeString()}.`),
+    onError: (error) => setStatusMessage(error instanceof Error ? error.message : "Unable to save workflow graph."),
+  });
+
+  const onConnect = (connection: Connection) => setEdges((current) => addEdge({ ...connection, animated: true }, current));
+
+  const saveGraph = () => {
+    const graph = { nodes, edges };
+    if (!canUseBackend) {
+      localStorage.setItem(storageKey(workflowId), JSON.stringify(graph));
+      setStatusMessage(`Preview graph saved to browser storage at ${new Date().toLocaleTimeString()}.`);
+      return;
+    }
+    saveMutation.mutate();
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 rounded-[2rem] border border-white/80 bg-white/85 p-5 shadow-sm backdrop-blur-xl xl:flex-row xl:items-center xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">Built-in template</Badge>
+            <Badge className="rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">{workflowQuery.data?.is_template ? "Built-in template" : "Editable workflow"}</Badge>
             <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">SQLite-backed graph JSON</Badge>
+            {!canUseBackend && <Badge className="rounded-full bg-amber-100 text-amber-900 hover:bg-amber-100">Preview storage</Badge>}
           </div>
-          <h2 className="mt-3 text-3xl font-black text-slate-950">Security Review Team Builder</h2>
-          <p className="mt-2 max-w-4xl text-slate-600">A supervisor-led multi-agent SDLC workflow with specialist reviewers, shared memory, and approval checkpoints.</p>
+          <h2 className="mt-3 text-3xl font-black text-slate-950">{workflowName} Builder</h2>
+          <p className="mt-2 max-w-4xl text-slate-600">{workflowDescription}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="rounded-2xl bg-white">Save graph</Button>
+          <Button onClick={saveGraph} disabled={saveMutation.isPending} variant="outline" className="rounded-2xl bg-white">
+            {saveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />} Save graph
+          </Button>
           <Button className="rounded-2xl bg-indigo-600 hover:bg-indigo-700"><Play className="mr-2 h-4 w-4" /> Run manually</Button>
         </div>
       </div>
+
+      <Alert className="rounded-2xl border-cyan-100 bg-cyan-50 text-cyan-950">
+        <AlertDescription>{statusMessage}</AlertDescription>
+      </Alert>
 
       <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)_380px]">
         <Card className="rounded-[2rem] border-white/80 bg-white/85 shadow-sm backdrop-blur-xl">
@@ -114,7 +250,17 @@ export default function WorkflowBuilder() {
         </Card>
 
         <div className="h-[760px] overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-sm">
-          <ReactFlow nodes={initialNodes} edges={initialEdges} nodeTypes={nodeTypes} fitView fitViewOptions={fitViewOptions} proOptions={{ hideAttribution: true }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            fitView
+            fitViewOptions={fitViewOptions}
+            proOptions={{ hideAttribution: true }}
+          >
             <Background color="#cbd5e1" gap={20} />
             <MiniMap pannable zoomable nodeStrokeWidth={3} className="!rounded-2xl" />
             <Controls className="!rounded-2xl !border-white !bg-white/90" />

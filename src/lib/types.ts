@@ -41,6 +41,21 @@ export type Connector = {
   created_at: string;
 };
 
+export type WorkflowGraph = {
+  nodes: unknown[];
+  edges: unknown[];
+};
+
+export type Workflow = {
+  id: string;
+  name: string;
+  description: string;
+  graph: WorkflowGraph;
+  is_template: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AgentNodeConfig = {
   id: string;
   name: string;

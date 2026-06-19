@@ -1,4 +1,4 @@
-import type { ApprovalRequest, AuthUser, Connector, MemoryEntry, ModelProvider, RuntimeHealth, Skill } from "./types";
+import type { ApprovalRequest, AuthUser, Connector, MemoryEntry, ModelProvider, RuntimeHealth, Skill, Workflow, WorkflowGraph } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
@@ -51,6 +51,22 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(token),
     }),
+  workflows: (token: string) => request<Workflow[]>("/workflows", { headers: authHeaders(token) }),
+  workflow: (token: string, id: string) => request<Workflow>(`/workflows/${id}`, { headers: authHeaders(token) }),
+  createWorkflow: (token: string, workflow: { name: string; description: string; graph: WorkflowGraph }) =>
+    request<Workflow>("/workflows", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(workflow),
+    }),
+  updateWorkflow: (token: string, id: string, workflow: { name: string; description: string; graph: WorkflowGraph }) =>
+    request<Workflow>(`/workflows/${id}`, {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify(workflow),
+    }),
+  deleteWorkflow: (token: string, id: string) =>
+    request<{ deleted: boolean; workflow_id: string }>(`/workflows/${id}`, { method: "DELETE", headers: authHeaders(token) }),
   modelProviders: (token: string) => request<ModelProvider[]>("/model-providers", { headers: authHeaders(token) }),
   createModelProvider: (token: string, provider: { name: string; provider_type: string; base_url?: string; is_configured: boolean }) =>
     request<ModelProvider>("/model-providers", {

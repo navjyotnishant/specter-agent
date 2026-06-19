@@ -1,0 +1,44 @@
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from app.runtime.auth import require_user
+from app.runtime.workflows import create_workflow, delete_workflow, get_workflow, list_workflows, update_workflow
+
+router = APIRouter(prefix="/workflows", tags=["workflows"])
+
+
+class WorkflowRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str = ""
+    graph: dict = {}
+
+
+@router.get("")
+def list_all_workflows(_: dict = Depends(require_user)) -> list[dict]:
+    return list_workflows()
+
+
+@router.post("")
+def create_workflow_route(request: WorkflowRequest, _: dict = Depends(require_user)) -> dict:
+    return create_workflow(request.name, request.description, request.graph)
+
+
+@router.get("/{workflow_id}")
+def get_workflow_route(workflow_id: str, _: dict = Depends(require_user)) -> dict:
+    workflow = get_workflow(workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return workflow
+
+
+@router.patch("/{workflow_id}")
+def update_workflow_route(workflow_id: str, request: WorkflowRequest, _: dict = Depends(require_user)) -> dict:
+    workflow = update_workflow(workflow_id, request.name, request.description, request.graph)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return workflow
+
+
+@router.delete("/{workflow_id}")
+def delete_workflow_route(workflow_id: str, _: dict = Depends(require_user)) -> dict:
+    return {"deleted": delete_workflow(workflow_id), "workflow_id": workflow_id}
