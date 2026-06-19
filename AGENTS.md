@@ -174,13 +174,20 @@ feature/<issue-key-or-short-name> -> main -> production target
 
 **Use this workflow when Linear or another issue tracker is available and authenticated. If tracker tooling is unavailable, report the blocker clearly and continue only with the user's approval.**
 
+### Project Mapping
+
+- **Linear workspace:** Navjyot Labs
+- **Linear team:** Navjyot Labs (`NAV`)
+- **Linear project:** `specter-agent`
+- **Do not log Specter Agent work under EngageHub.** EngageHub is a separate project and workspace context.
+
 ### Task Gate — Before Substantial Code Changes
 
 For every non-trivial task, bug fix, or feature request:
 
 1. Search the tracker for an existing issue matching the work.
 2. If found, confirm the issue key with the user, update the issue with the plan, set status to `In Progress`, then proceed.
-3. If not found, create an issue under the Specter Agent project when the tracker is available:
+3. If not found, create an issue under the `specter-agent` project in the Navjyot Labs workspace when the tracker is available:
    - Title: concise description of the task
    - Description: what will be done and why
    - Status: `In Progress`
