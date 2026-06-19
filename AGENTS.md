@@ -177,7 +177,7 @@ feature/<issue-key-or-short-name> -> main -> production target
 ### Project Mapping
 
 - **Linear workspace:** Navjyot Labs
-- **Linear team:** Navjyot Labs (`NAV`)
+- **Linear team:** specter-agent (`SPE`)
 - **Linear project:** `specter-agent`
 - **Do not log Specter Agent work under EngageHub.** EngageHub is a separate project and workspace context.
 
