@@ -36,11 +36,21 @@ export function HumanApprovalNode({ data, selected }: NodeProps) {
           </p>
         </div>
 
-        <div className="mt-2 flex items-center justify-between">
-          <span className="text-[9px] uppercase tracking-widest text-[#9ca3af]">gate type</span>
-          <span className="border border-[#d97706] px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-wide text-[#b45309]">
-            blocking
-          </span>
+        <div className="mt-2.5 flex flex-wrap gap-1">
+          {(Array.isArray(data.allowedActions) ? data.allowedActions as string[] : ["approve", "reject", "request_revision"]).map((action) => {
+            const label = action === "approve" ? "✓ Approve" : action === "reject" ? "✕ Reject" : "↩ Revise";
+            const color = action === "approve" ? "#059669" : action === "reject" ? "#dc2626" : "#6b7280";
+            const bg    = action === "approve" ? "#ecfdf5" : action === "reject" ? "#fef2f2" : "#f8fafc";
+            const border= action === "approve" ? "#a7f3d0" : action === "reject" ? "#fecaca" : "#e2e8f0";
+            return (
+              <span key={action} style={{ fontSize: 9, fontWeight: 700, color, background: bg, border: `1px solid ${border}`, borderRadius: 4, padding: "1px 6px", letterSpacing: "0.04em" }}>
+                {label}
+              </span>
+            );
+          })}
+          {data.noteRequired && (
+            <span style={{ fontSize: 9, color: "#d97706", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 4, padding: "1px 6px" }}>note required</span>
+          )}
         </div>
       </div>
 

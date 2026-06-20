@@ -151,26 +151,58 @@ def get_step_messages(run_id: str, step_id: str, _: dict = Depends(require_user)
     return [_public_message(r) for r in rows]
 
 
+class ApprovalActionRequest(BaseModel):
+    note: str = ""
+
+
 @router.post("/{run_id}/approve/{approval_id}")
-def approve_run(run_id: str, approval_id: str, _: dict = Depends(require_admin)) -> dict[str, Any]:
+def approve_run(run_id: str, approval_id: str, body: ApprovalActionRequest = ApprovalActionRequest(), _: dict = Depends(require_admin)) -> dict[str, Any]:
     with db_session() as db:
         row = db.execute("SELECT * FROM approval_requests WHERE id = ? AND workflow_run_id = ?", (approval_id, run_id)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Approval request not found.")
         if row["status"] != "pending":
             raise HTTPException(status_code=400, detail=f"Approval already resolved: {row['status']}")
-        db.execute("UPDATE approval_requests SET status = 'approved', resolved_at = CURRENT_TIMESTAMP WHERE id = ?", (approval_id,))
+        db.execute(
+            "UPDATE approval_requests SET status = 'approved', resolved_at = CURRENT_TIMESTAMP, resolution_comment = ? WHERE id = ?",
+            (body.note or None, approval_id),
+        )
     return {"approved": True, "approval_id": approval_id}
 
 
 @router.post("/{run_id}/reject/{approval_id}")
-def reject_run(run_id: str, approval_id: str, _: dict = Depends(require_admin)) -> dict[str, Any]:
+def reject_run(run_id: str, approval_id: str, body: ApprovalActionRequest = ApprovalActionRequest(), _: dict = Depends(require_admin)) -> dict[str, Any]:
     with db_session() as db:
         row = db.execute("SELECT * FROM approval_requests WHERE id = ? AND workflow_run_id = ?", (approval_id, run_id)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Approval request not found.")
-        db.execute("UPDATE approval_requests SET status = 'rejected', resolved_at = CURRENT_TIMESTAMP WHERE id = ?", (approval_id,))
+        if row["status"] != "pending":
+            raise HTTPException(status_code=400, detail=f"Approval already resolved: {row['status']}")
+        db.execute(
+            "UPDATE approval_requests SET status = 'rejected', resolved_at = CURRENT_TIMESTAMP, resolution_comment = ? WHERE id = ?",
+            (body.note or None, approval_id),
+        )
     return {"rejected": True, "approval_id": approval_id}
+
+
+@router.post("/{run_id}/request-revision/{approval_id}")
+def request_revision(run_id: str, approval_id: str, body: ApprovalActionRequest = ApprovalActionRequest(), _: dict = Depends(require_admin)) -> dict[str, Any]:
+    with db_session() as db:
+        row = db.execute("SELECT * FROM approval_requests WHERE id = ? AND workflow_run_id = ?", (approval_id, run_id)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Approval request not found.")
+        if row["status"] != "pending":
+            raise HTTPException(status_code=400, detail=f"Approval already resolved: {row['status']}")
+        db.execute(
+            "UPDATE approval_requests SET status = 'revision_requested', resolved_at = CURRENT_TIMESTAMP, resolution_comment = ? WHERE id = ?",
+            (body.note or None, approval_id),
+        )
+        # mark the run as failed so the graph stops
+        db.execute(
+            "UPDATE workflow_runs SET status = 'failed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (run_id,),
+        )
+    return {"revision_requested": True, "approval_id": approval_id}
 
 
 @router.post("/{run_id}/cancel")

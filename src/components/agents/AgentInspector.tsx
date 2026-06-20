@@ -342,6 +342,39 @@ export function AgentInspector({
             <Field label="Approval reason">
               <TextArea value={String(d.reason ?? "")} onChange={(v) => patch({ reason: v })} rows={3} />
             </Field>
+            <Field label="Allowed actions">
+              <p className="mb-1.5 text-[9px] text-[#9ca3af]" style={MONO}>Which actions the reviewer can take</p>
+              {(["approve", "reject", "request_revision"] as const).map((action) => {
+                const current: string[] = Array.isArray(d.allowedActions) ? d.allowedActions as string[] : ["approve", "reject", "request_revision"];
+                const checked = current.includes(action);
+                const label = action === "approve" ? "Approve" : action === "reject" ? "Reject" : "Request revision";
+                return (
+                  <label key={action} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        const next = checked ? current.filter((a) => a !== action) : [...current, action];
+                        patch({ allowedActions: next.length ? next : current }); // always keep at least one
+                      }}
+                      style={{ accentColor: "#d97706" }}
+                    />
+                    <span className="text-[11px] text-[#374151]" style={MONO}>{label}</span>
+                  </label>
+                );
+              })}
+            </Field>
+            <Field label="Note from reviewer">
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(d.noteRequired)}
+                  onChange={() => patch({ noteRequired: !d.noteRequired })}
+                  style={{ accentColor: "#d97706" }}
+                />
+                <span className="text-[11px] text-[#374151]" style={MONO}>Require a note before submitting</span>
+              </label>
+            </Field>
           </>
         )}
 

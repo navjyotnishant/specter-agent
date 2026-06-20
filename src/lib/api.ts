@@ -207,10 +207,12 @@ export const api = {
     request<RunMessage[]>(`/workflow-runs/${runId}/steps/${stepId}/messages`, { headers: authHeaders(token) }),
   getRunApprovals: (token: string, runId: string) =>
     request<RunApproval[]>(`/workflow-runs/${runId}/approvals`, { headers: authHeaders(token) }),
-  approveRun: (token: string, runId: string, approvalId: string) =>
-    request<{ approved: boolean }>(`/workflow-runs/${runId}/approve/${approvalId}`, { method: "POST", headers: authHeaders(token) }),
-  rejectRun: (token: string, runId: string, approvalId: string) =>
-    request<{ rejected: boolean }>(`/workflow-runs/${runId}/reject/${approvalId}`, { method: "POST", headers: authHeaders(token) }),
+  approveRun: (token: string, runId: string, approvalId: string, note?: string) =>
+    request<{ approved: boolean }>(`/workflow-runs/${runId}/approve/${approvalId}`, { method: "POST", headers: authHeaders(token), body: JSON.stringify({ note: note ?? "" }) }),
+  rejectRun: (token: string, runId: string, approvalId: string, note?: string) =>
+    request<{ rejected: boolean }>(`/workflow-runs/${runId}/reject/${approvalId}`, { method: "POST", headers: authHeaders(token), body: JSON.stringify({ note: note ?? "" }) }),
+  requestRevision: (token: string, runId: string, approvalId: string, note?: string) =>
+    request<{ revision_requested: boolean }>(`/workflow-runs/${runId}/request-revision/${approvalId}`, { method: "POST", headers: authHeaders(token), body: JSON.stringify({ note: note ?? "" }) }),
   cancelRun: (token: string, runId: string) =>
     request<{ cancelled: boolean }>(`/workflow-runs/${runId}/cancel`, { method: "POST", headers: authHeaders(token) }),
   mcpList: (token: string) => request<McpListResult>("/runtime-adapters/mcp/list", { headers: authHeaders(token) }),

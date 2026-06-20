@@ -413,14 +413,13 @@ function WorkflowRow({ workflow, token, canUseBackend, onDelete, isDeleting, onC
         </td>
 
         {/* nodes */}
-        <td style={{ padding: "13px 8px", fontSize: 12, color: "#6b7280", fontFamily: "ui-monospace, monospace" }}
-            onClick={(e) => e.stopPropagation()}>
+        <td style={{ padding: "13px 8px", fontSize: 12, color: "#6b7280", fontFamily: "ui-monospace, monospace" }}>
           {nodeCount} nodes
         </td>
 
         {/* last run — only for custom workflows, not templates */}
         {!isTemplate && (
-          <td style={{ padding: "13px 8px" }} onClick={(e) => e.stopPropagation()}>
+          <td style={{ padding: "13px 8px" }}>
             {runsQuery.isLoading
               ? <Loader2 style={{ width: 11, height: 11, color: "#d1d5db", animation: "wf-spin 1s linear infinite" }} />
               : activeRun
@@ -460,55 +459,69 @@ function WorkflowRow({ workflow, token, canUseBackend, onDelete, isDeleting, onC
                 Use template
               </button>
             ) : (
-              /* Custom: Run button */
-              <button
-                disabled={!canUseBackend || runMutation.isPending}
-                onClick={() => setRunModal(true)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 5,
-                  padding: "6px 14px", borderRadius: 7,
-                  background: "#4f46e5", color: "white", border: "none",
-                  cursor: canUseBackend ? "pointer" : "not-allowed",
-                  fontSize: 12, fontWeight: 700,
-                  opacity: (!canUseBackend || runMutation.isPending) ? 0.5 : 1,
-                }}
-              >
-                {runMutation.isPending
-                  ? <Loader2 style={{ width: 11, height: 11, animation: "wf-spin 1s linear infinite" }} />
-                  : <Play style={{ width: 11, height: 11 }} />}
-                Run
-              </button>
+              /* Custom: Run button — disabled while a run is active */
+              (() => {
+                const isRunActive = !!activeRun || runMutation.isPending;
+                const disabled = !canUseBackend || isRunActive;
+                return (
+                  <button
+                    disabled={disabled}
+                    onClick={() => !disabled && setRunModal(true)}
+                    title={activeRun ? `Run in progress — ${activeRun.status}` : undefined}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 5,
+                      padding: "6px 14px", borderRadius: 7,
+                      background: disabled ? "#e2e8f0" : "#4f46e5",
+                      color: disabled ? "#94a3b8" : "white",
+                      border: "none",
+                      cursor: disabled ? "not-allowed" : "pointer",
+                      fontSize: 12, fontWeight: 700,
+                    }}
+                  >
+                    {runMutation.isPending
+                      ? <Loader2 style={{ width: 11, height: 11, animation: "wf-spin 1s linear infinite" }} />
+                      : activeRun
+                      ? <Loader2 style={{ width: 11, height: 11, animation: "wf-spin 1s linear infinite" }} />
+                      : <Play style={{ width: 11, height: 11 }} />}
+                    {activeRun ? activeRun.status === "waiting_approval" ? "Awaiting approval" : "Running…" : "Run"}
+                  </button>
+                );
+              })()
             )}
 
-            {/* Edit — always visible */}
+            {/* Edit — disabled while running */}
             <button
-              onClick={() => navigate(`/workflows/${workflow.id}/builder`)}
+              disabled={!!activeRun}
+              onClick={() => !activeRun && navigate(`/workflows/${workflow.id}/builder`)}
+              title={activeRun ? "Cannot edit while a run is active" : undefined}
               style={{
                 display: "flex", alignItems: "center", gap: 5,
                 padding: "6px 12px", borderRadius: 7,
-                background: "white", color: "#374151",
-                border: "1px solid #e2e8f0", cursor: "pointer",
+                background: "white", color: activeRun ? "#94a3b8" : "#374151",
+                border: "1px solid #e2e8f0", cursor: activeRun ? "not-allowed" : "pointer",
                 fontSize: 12, fontWeight: 600,
+                opacity: activeRun ? 0.5 : 1,
               }}
             >
               <Code2 style={{ width: 11, height: 11 }} />
               Edit
             </button>
 
-            {/* Publish as template — custom only */}
+            {/* Publish as template — custom only, disabled while running */}
             {!isTemplate && (
               <button
-                disabled={!canUseBackend || isPublishing}
-                onClick={() => onPublish(workflow.id)}
-                title="Publish as template so the team can use it as a starting point"
+                disabled={!canUseBackend || isPublishing || !!activeRun}
+                onClick={() => !activeRun && onPublish(workflow.id)}
+                title={activeRun ? "Cannot publish while a run is active" : "Publish as template so the team can use it as a starting point"}
                 style={{
                   display: "flex", alignItems: "center", gap: 5,
                   padding: "6px 12px", borderRadius: 7,
                   background: isPublishing ? "#fef3c7" : "#fffbeb",
                   color: "#92400e",
-                  border: "1px solid #fde68a", cursor: canUseBackend ? "pointer" : "not-allowed",
+                  border: "1px solid #fde68a",
+                  cursor: (!canUseBackend || isPublishing || !!activeRun) ? "not-allowed" : "pointer",
                   fontSize: 12, fontWeight: 700,
-                  opacity: isPublishing ? 0.6 : 1,
+                  opacity: (isPublishing || !!activeRun) ? 0.5 : 1,
                 }}
               >
                 {isPublishing
