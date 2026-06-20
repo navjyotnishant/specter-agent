@@ -267,13 +267,49 @@ Skip for small components or trivial files.
 - SQLite session/schema utilities: `backend/app/db/session.py`
 - Workflow persistence and Security Review Team seeding: `backend/app/runtime/workflows.py`
 - Workflow API routes: `backend/app/routers/workflows.py`
+- Workflow run routes (start, steps, logs, approve, reject, revision, cancel): `backend/app/routers/runs.py`
 - Auth uses bearer-token sessions stored in SQLite with password hashing via passlib/bcrypt.
 - Sensitive API routes should use `require_user`; admin-only operations should enforce role checks.
 - Workflow graphs are stored as JSON in the `workflows.graph_json` column.
 - Built-in workflow and skill templates live under `backend/app/templates`.
 - Frontend API client: `src/lib/api.ts`
-- Workflow list page: `src/pages/Workflows.tsx`
+- Type definitions: `src/lib/types.ts`
+- Workflow list + run history page: `src/pages/Workflows.tsx`
 - Workflow builder: `src/pages/WorkflowBuilder.tsx`
+- Workflow execution/run view: `src/pages/WorkflowRun.tsx`
+- React Flow node components: `src/components/workflow/nodes/`
+- Agent inspector (node config panel): `src/components/agents/AgentInspector.tsx`
+
+### Navigation — removed pages
+
+The following pages were removed as their functionality is now covered inline:
+
+- `Runs` — standalone run list replaced by inline run history in `Workflows.tsx`
+- `Approvals` — standalone approval queue replaced by the approval panel in `WorkflowRun.tsx`
+
+Do not re-add nav items or routes for `/runs` or `/approvals`.
+
+### Workflow execution model
+
+- A run is created via `POST /api/workflow-runs` with `workflow_id` and `workspace_path`.
+- The graph is resolved from the saved workflow if not provided in the request body.
+- Run status values: `queued` → `running` → `completed` / `failed` / `cancelled` / `waiting_approval`.
+- Steps are stored in `agent_runs` joined to `workflow_step_runs`; logs in `run_logs`.
+- Approval requests are stored in `approval_requests` with statuses: `pending`, `approved`, `rejected`, `revision_requested`.
+- `resolution_comment` on `approval_requests` stores the reviewer's note.
+
+### Human Approval node
+
+- Configured in the builder via `AgentInspector` — `allowedActions` (array of `"approve"`, `"reject"`, `"request_revision"`) and `noteRequired` (bool) are stored in node `data` inside the graph JSON.
+- The canvas card (`HumanApprovalNode`) renders colored action chips and a "note required" tag based on these fields.
+- The runtime approval UI in `WorkflowRun.tsx` renders only the configured actions and enforces note requirement before enabling submission.
+- Three backend endpoints: `POST /approve/{id}`, `POST /reject/{id}`, `POST /request-revision/{id}` — all accept `{ note: string }`.
+
+### Parallel lane color coding
+
+- `topoLayout()` in `WorkflowRun.tsx` returns `{ nodes, colMap }` where `colMap` maps node ID → topological column (depth).
+- `LANE_COLORS` array of 8 colors; `laneColor(col)` maps column index to a color.
+- All nodes at the same topo depth (parallel branches) share the same color across: canvas node left-edge bar, flow edge stroke, run log dot, sidebar step card border.
 
 ---
 

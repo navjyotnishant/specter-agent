@@ -1,0 +1,171 @@
+# Workflow Execution — Architecture and UI Reference
+
+This document covers the workflow execution model, the run execution view, the
+approval gate, and the Workflows page run-management UX.
+
+---
+
+## Workflows Page (`src/pages/Workflows.tsx`)
+
+### Layout
+
+- **My Workflows** tab — user-created workflows, runnable, editable, publishable.
+- **Templates** tab — shared templates; "Use template" copies to a new editable workflow.
+- Each row expands inline to show run history when clicked anywhere on the row.
+  Only the actions cell (`<td>`) stops propagation to prevent accidental expansion.
+
+### Active-run locking
+
+When a workflow has a run with status `running`, `queued`, or `waiting_approval`,
+the row enters a locked state:
+
+- **Run button** — disabled, grey, shows a spinner and status text
+  ("Running…" or "Awaiting approval…").
+- **Edit button** — disabled, 50% opacity, `cursor: not-allowed`,
+  tooltip "Cannot edit while a run is active".
+- **Publish as template button** — disabled with same treatment.
+
+This prevents concurrent runs and editing a live workflow graph mid-execution.
+
+### Run history panel
+
+Clicking a row expands an inline history panel showing up to 20 recent runs per
+workflow, each with status badge, start time, and a link to the full run view.
+
+---
+
+## WorkflowRun Page (`src/pages/WorkflowRun.tsx`)
+
+The execution view is a three-panel layout:
+
+```
+┌──────────────┬───────────────────────────────┬─────────────────┐
+│  Left pane   │        Canvas (React Flow)     │   Right pane    │
+│  Step list   │        Node execution graph    │   Log drawer    │
+│  (foldable)  │                                │  (resizable)    │
+└──────────────┴───────────────────────────────┴─────────────────┘
+│                    Run log panel (drag-resizable)               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Left pane
+
+- Lists all workflow steps with status icons.
+- Collapses to a 40 px strip showing status icon circles.
+- Clicking a circle in collapsed mode expands the pane and selects that step.
+
+### Right pane (LogDrawer)
+
+- Resizable: drag the left edge handle between 280–700 px.
+- Shows step detail, agent output, and the approval panel when the selected
+  step is a Human Approval gate.
+- Root element has `minWidth: 0; overflow: hidden` and output div has
+  `wordBreak: break-word` to prevent text clipping when the pane is wide.
+
+### Run log panel
+
+- Pinned at the bottom, drag-resizable between 80–500 px via a top-edge handle.
+- Show/Hide toggle button to collapse entirely.
+- Each log entry has a colored dot matching the node's parallel lane color.
+
+---
+
+## Parallel Lane Color Coding
+
+All nodes at the same topological depth (i.e., running in parallel) share a color.
+This color is applied consistently across the entire UI:
+
+| Surface | How color is applied |
+|---|---|
+| Canvas node | 3 px left-edge color bar on `ExecNode` |
+| Flow edge | Stroke color + animated glow dot on `FlowEdge` |
+| Run log entry | Colored dot next to each log line in `RunLogPanel` |
+| Sidebar step card | Left border in `LogDrawer` |
+
+### Implementation
+
+```ts
+// topoLayout() returns { nodes, colMap }
+// colMap: Record<nodeId, topoColumn>
+
+const LANE_COLORS = ["#7c3aed","#2563eb","#0891b2","#059669",
+                     "#d97706","#dc2626","#7c3aed","#0f766e"];
+
+function laneColor(col: number): string {
+  return LANE_COLORS[col % LANE_COLORS.length];
+}
+```
+
+---
+
+## Human Approval Gate
+
+### Builder configuration (`AgentInspector.tsx`)
+
+Two fields stored in the node's `data` object inside the workflow graph JSON:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `allowedActions` | `string[]` | `["approve","reject","request_revision"]` | Which action buttons appear in the runtime approval UI |
+| `noteRequired` | `boolean` | `false` | Whether the reviewer must enter a note before any action is available |
+
+These are persisted in the workflow graph JSON — no extra DB columns required.
+
+### Canvas card (`HumanApprovalNode.tsx`)
+
+- Renders colored action chips for each entry in `allowedActions`.
+- Shows an amber "note required" tag when `data.noteRequired` is true.
+
+### Runtime approval UI (`WorkflowRun.tsx` → `LogDrawer`)
+
+- Note textarea always visible.
+- `canSubmit` is `true` only when: note is non-empty if `noteRequired`, and a
+  valid action is selected.
+- Action buttons are rendered only for actions present in `allowedActions`.
+
+### Backend endpoints (`backend/app/routers/runs.py`)
+
+All three endpoints accept `{ note: string }` in the request body and persist
+the note to `approval_requests.resolution_comment`.
+
+| Endpoint | Effect |
+|---|---|
+| `POST /workflow-runs/{run_id}/approve/{approval_id}` | Sets approval status `approved` |
+| `POST /workflow-runs/{run_id}/reject/{approval_id}` | Sets approval status `rejected` |
+| `POST /workflow-runs/{run_id}/request-revision/{approval_id}` | Sets approval status `revision_requested`, marks run `failed` |
+
+### API client (`src/lib/api.ts`)
+
+```ts
+approveRun(token, runId, approvalId, note?)
+rejectRun(token, runId, approvalId, note?)
+requestRevision(token, runId, approvalId, note?)
+```
+
+---
+
+## Run Lifecycle
+
+```
+queued → running → completed
+                 → failed
+                 → cancelled
+                 → waiting_approval → (approve) → running → completed
+                                    → (reject)  → failed
+                                    → (revise)  → failed
+```
+
+Run status is polled from `GET /api/workflow-runs/{run_id}` by the
+`WorkflowRun` page using TanStack Query with a 2-second refetch interval while
+the run is active.
+
+---
+
+## Removed Pages
+
+The following pages were removed — do not re-add routes or nav entries for them:
+
+| Page | Removed because |
+|---|---|
+| `src/pages/Runs.tsx` (`/runs`) | Run history is now inline in `Workflows.tsx` |
+| `src/pages/Approvals.tsx` (`/approvals`) | Approvals are handled in `WorkflowRun.tsx` |

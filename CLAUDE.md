@@ -19,14 +19,19 @@ Read `AGENTS.md` before making any non-trivial change. It covers:
 | FastAPI entrypoint | `backend/app/main.py` |
 | SQLite schema | `backend/app/db/session.py` |
 | API routers | `backend/app/routers/` |
+| Run/approval endpoints | `backend/app/routers/runs.py` |
 | Runtime helpers | `backend/app/runtime/` |
 | Frontend API client | `src/lib/api.ts` |
 | Type definitions | `src/lib/types.ts` |
+| Workflows list + history | `src/pages/Workflows.tsx` |
+| Workflow execution view | `src/pages/WorkflowRun.tsx` |
 | Workflow builder | `src/pages/WorkflowBuilder.tsx` |
 | React Flow nodes | `src/components/workflow/nodes/` |
+| Node config inspector | `src/components/agents/AgentInspector.tsx` |
 | Built-in templates | `backend/app/templates/` |
 | Codex host runner | `scripts/specter_host_runner.py` |
 | Host runner docs | `docs/codex-cli-host-runner.md` |
+| Workflow execution docs | `docs/workflow-execution.md` |
 
 ## Development
 
