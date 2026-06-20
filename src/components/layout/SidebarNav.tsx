@@ -2,11 +2,9 @@ import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   Bot,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   GitBranch,
-  History,
   LayoutDashboard,
   Network,
   Settings2,
@@ -19,8 +17,6 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/workflows", label: "Workflows", icon: GitBranch },
   { href: "/skills", label: "Skills", icon: Wrench },
-  { href: "/runs", label: "Runs", icon: History },
-  { href: "/approvals", label: "Approvals", icon: CheckCircle2 },
   { href: "/settings/models", label: "Models", icon: Bot },
   { href: "/settings/connectors", label: "Connectors", icon: Network },
   { href: "/settings/users", label: "Users", icon: Users },
