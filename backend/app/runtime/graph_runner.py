@@ -1,0 +1,433 @@
+# Sequential workflow graph runner.
+# Walks nodes in topological order, executes each via Codex CLI, writes events to DB.
+from __future__ import annotations
+
+import json
+import threading
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from typing import Any
+from uuid import uuid4
+
+from app.core.config import get_settings
+from app.db.session import db_session
+from app.runtime import linear_logger
+
+
+# ── topology ──────────────────────────────────────────────────────────────────
+
+def topological_order(nodes: list[dict], edges: list[dict]) -> list[dict]:
+    """Return nodes in topological order (Kahn's algorithm). Falls back to node list order."""
+    id_to_node = {n["id"]: n for n in nodes}
+    in_degree: dict[str, int] = {n["id"]: 0 for n in nodes}
+    adjacency: dict[str, list[str]] = {n["id"]: [] for n in nodes}
+
+    for edge in edges:
+        src, tgt = edge.get("source"), edge.get("target")
+        if src in adjacency and tgt in in_degree:
+            adjacency[src].append(tgt)
+            in_degree[tgt] += 1
+
+    queue = [nid for nid, deg in in_degree.items() if deg == 0]
+    order: list[dict] = []
+    while queue:
+        nid = queue.pop(0)
+        if nid in id_to_node:
+            order.append(id_to_node[nid])
+        for neighbor in adjacency.get(nid, []):
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+
+    # include any disconnected nodes not reached
+    seen = {n["id"] for n in order}
+    for node in nodes:
+        if node["id"] not in seen:
+            order.append(node)
+
+    return order
+
+
+# ── DB helpers ────────────────────────────────────────────────────────────────
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _write_step(run_id: str, node: dict, status: str, stdout: str = "", stderr: str = "", summary: str = "", error: str | None = None) -> str:
+    step_id = str(uuid4())
+    data = node.get("data") or {}
+    with db_session() as db:
+        db.execute(
+            """
+            INSERT OR REPLACE INTO workflow_step_runs
+              (id, workflow_run_id, node_id, node_type, status, started_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (step_id, run_id, node["id"], node.get("type", "unknown"), status, _now()),
+        )
+        # also write to agent_runs for richer querying
+        db.execute(
+            """
+            INSERT OR REPLACE INTO agent_runs
+              (id, workflow_run_id, node_id, agent_name, agent_role, model, status, started_at, summary, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                step_id, run_id, node["id"],
+                str(data.get("label") or node["id"]),
+                str(data.get("role") or node.get("type") or "agent"),
+                str(data.get("model") or "codex-cli"),
+                status, _now(), summary or None, error,
+            ),
+        )
+        if stdout or stderr:
+            db.execute(
+                """
+                INSERT INTO agent_messages (id, agent_run_id, sender_type, sender_name, content)
+                VALUES (?, ?, 'agent', ?, ?)
+                """,
+                (str(uuid4()), step_id, str(data.get("label") or node["id"]), stdout or stderr),
+            )
+    return step_id
+
+
+def _update_step(step_id: str, status: str, stdout: str = "", stderr: str = "", summary: str = "", error: str | None = None) -> None:
+    with db_session() as db:
+        db.execute(
+            "UPDATE workflow_step_runs SET status = ?, completed_at = ? WHERE id = ?",
+            (status, _now(), step_id),
+        )
+        db.execute(
+            "UPDATE agent_runs SET status = ?, completed_at = ?, summary = ?, error = ? WHERE id = ?",
+            (status, _now(), summary or None, error, step_id),
+        )
+        if stdout or stderr:
+            agent_run = db.execute("SELECT id FROM agent_runs WHERE id = ?", (step_id,)).fetchone()
+            if agent_run:
+                db.execute(
+                    "INSERT INTO agent_messages (id, agent_run_id, sender_type, sender_name, content) VALUES (?, ?, 'agent', 'output', ?)",
+                    (str(uuid4()), step_id, (stdout or stderr)[-20000:]),
+                )
+
+
+def _update_run_status(run_id: str, status: str) -> None:
+    with db_session() as db:
+        completed = _now() if status in ("completed", "failed", "cancelled") else None
+        db.execute(
+            "UPDATE workflow_runs SET status = ?, completed_at = ? WHERE id = ?",
+            (status, completed, run_id),
+        )
+
+
+def _write_log(run_id: str, level: str, message: str, metadata: dict | None = None) -> None:
+    with db_session() as db:
+        db.execute(
+            "INSERT INTO run_logs (id, workflow_run_id, level, message, metadata_json) VALUES (?, ?, ?, ?, ?)",
+            (str(uuid4()), run_id, level, message, json.dumps(metadata or {})),
+        )
+
+
+def _write_approval_request(run_id: str, step_id: str, node: dict) -> str:
+    approval_id = str(uuid4())
+    data = node.get("data") or {}
+    with db_session() as db:
+        db.execute(
+            """
+            INSERT INTO approval_requests
+              (id, workflow_run_id, workflow_step_run_id, status, title, reason, context_summary, requested_by_agent)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+            """,
+            (
+                approval_id, run_id, step_id,
+                str(data.get("label") or "Human Approval Required"),
+                str(data.get("reason") or "Manual approval required before continuing."),
+                f"Workflow run {run_id} paused at approval gate.",
+                "workflow-runner",
+            ),
+        )
+    return approval_id
+
+
+# ── host runner call ──────────────────────────────────────────────────────────
+
+def _call_host_runner(path: str, body: dict) -> dict[str, Any]:
+    base = str(get_settings().host_runner_url).rstrip("/")
+    url = f"{base}{path}"
+    payload = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=payload, method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            return json.loads(resp.read())
+    except Exception as exc:
+        return {"ok": False, "message": str(exc), "stdout": "", "stderr": "", "final_message": ""}
+
+
+# ── node executor ─────────────────────────────────────────────────────────────
+
+def _build_prompt(node: dict, context: str) -> str:
+    data = node.get("data") or {}
+    node_type = node.get("type", "")
+    label = str(data.get("label") or node["id"])
+    role = str(data.get("role") or "")
+    objective = str(data.get("objective") or "")
+    instructions = str(data.get("systemInstructions") or "")
+
+    parts = []
+    if node_type == "supervisorAgent":
+        parts.append(
+            f"You are {label}, a supervisor agent. "
+            "Your task: do a QUICK scan of this codebase. "
+            "List the top 5 files or areas most relevant to security, then write a 3-bullet action plan. "
+            "Be concise — respond in under 300 words. Do NOT explore every file."
+        )
+        if objective:
+            parts.append(f"Focus area: {objective}")
+        if instructions:
+            parts.append(f"Additional context: {instructions}")
+    elif node_type == "specialistAgent":
+        focus = role or label
+        parts.append(
+            f"You are {label}, a specialist agent focused on: {focus}. "
+            "Do a targeted check — look at 2-3 relevant files maximum. "
+            "Report your findings in under 200 words with bullet points. "
+            "Do NOT do an exhaustive scan."
+        )
+        if objective:
+            parts.append(f"Objective: {objective}")
+        if instructions:
+            parts.append(f"Instructions: {instructions}")
+    elif node_type == "memory":
+        scope = str(data.get("scope") or "workflow")
+        mem_label = str(data.get("label") or "memory entry")
+        parts.append(
+            f"You are a memory-writing agent. Your job is to synthesise the findings so far "
+            f"into a concise structured summary for '{mem_label}' ({scope} scope). "
+            f"Write 3-5 clear bullet points covering the key findings, decisions made, and any "
+            f"areas flagged for follow-up. Be specific — use file names, package names, or node labels "
+            f"where available. Do NOT explore files or run commands. Only summarise what is in the context below."
+        )
+
+    if context:
+        parts.append(f"\nPrevious step context (use as background only):\n{context[-1500:]}")
+
+    parts.append("\nRespond with a short structured summary only. Be concise.")
+    return " ".join(parts)
+
+
+def _is_cancelled(run_id: str) -> bool:
+    with db_session() as db:
+        row = db.execute("SELECT status FROM workflow_runs WHERE id = ?", (run_id,)).fetchone()
+    return row is not None and row["status"] == "cancelled"
+
+
+def _kill_job(job_token: str) -> None:
+    try:
+        base = str(get_settings().host_runner_url).rstrip("/")
+        url = f"{base}/runtimes/codex/kill/{job_token}"
+        req = urllib.request.Request(url, data=b"{}", method="POST")
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=5) as _:
+            pass
+    except Exception:
+        pass  # best-effort
+
+
+def _poll_progress(job_token: str, run_id: str, node_id: str, label: str, stop_event: threading.Event) -> None:
+    """Poll host runner for live Codex progress lines and write them to run_logs. Kill on cancel."""
+    base = str(get_settings().host_runner_url).rstrip("/")
+    seen = 0
+    interval = 12  # seconds between polls
+    while not stop_event.is_set():
+        stop_event.wait(interval)
+        if stop_event.is_set():
+            break
+        # kill Codex immediately if run was cancelled
+        if _is_cancelled(run_id):
+            _kill_job(job_token)
+            break
+        try:
+            url = f"{base}/runtimes/codex/tail/{job_token}?since={seen}"
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            new_lines = data.get("lines") or []
+            if new_lines:
+                snippet = " · ".join(str(l)[:120] for l in new_lines[:5])
+                _write_log(run_id, "info", f"[{label}] {snippet}", {"node_id": node_id, "progress": True})
+                seen += len(new_lines)
+            if data.get("done"):
+                break
+        except Exception:
+            pass
+
+
+def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) -> tuple[str, str, str]:
+    """Returns (status, stdout, summary)."""
+    data = node.get("data") or {}
+    node_type = node.get("type", "")
+    label = str(data.get("label") or node["id"])
+
+    if node_type == "humanApproval":
+        return "waiting_approval", "", str(data.get("reason") or "Awaiting human approval.")
+
+    # agent nodes → codex exec with live progress polling
+    job_token = str(uuid4())
+    prompt = _build_prompt(node, context)
+
+    stop_event = threading.Event()
+    poll_thread = threading.Thread(
+        target=_poll_progress,
+        args=(job_token, run_id, node["id"], label, stop_event),
+        daemon=True,
+    )
+    poll_thread.start()
+
+    result = _call_host_runner("/runtimes/codex/run", {
+        "workspace_path": workspace_path,
+        "prompt": prompt,
+        "mode": "read-only",
+        "timeout_seconds": 480,
+        "job_token": job_token,
+    })
+
+    stop_event.set()
+    poll_thread.join(timeout=5)
+
+    # if cancelled while Codex was running, return cancelled status
+    if _is_cancelled(run_id):
+        return "cancelled", "", "Run cancelled."
+
+    stdout = str(result.get("stdout") or "")
+    final_message = str(result.get("final_message") or "").strip()
+    ok = bool(result.get("ok"))
+
+    if not final_message:
+        clean_lines = [l for l in stdout.splitlines() if l.strip() and not l.strip().startswith("{")]
+        final_message = "\n".join(clean_lines[-60:]).strip() or stdout[-2000:]
+
+    if result.get("status") == "timeout":
+        _write_log(run_id, "warn", f"[{label}] Codex timed out after 480s", {"node_id": node["id"]})
+
+    if ok:
+        return "completed", final_message, final_message
+    else:
+        err = str(result.get("message") or result.get("stderr") or "Codex run failed.")
+        return "failed", final_message or err, err
+
+
+# ── main runner (runs in background thread) ───────────────────────────────────
+
+def _get_workflow_name(workflow_id: str) -> str:
+    with db_session() as db:
+        row = db.execute("SELECT name FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    return row["name"] if row else workflow_id
+
+
+def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> None:
+    nodes: list[dict] = graph.get("nodes") or []
+    edges: list[dict] = graph.get("edges") or []
+    workflow_name = _get_workflow_name(workflow_id)
+
+    if not nodes:
+        _update_run_status(run_id, "failed")
+        _write_log(run_id, "error", "No nodes in workflow graph.")
+        linear_logger.log_run_failure(run_id, workflow_name, "—", "No nodes in workflow graph.", workspace_path)
+        return
+
+    ordered = topological_order(nodes, edges)
+    _write_log(run_id, "info", f"Starting sequential run of {len(ordered)} nodes.", {"run_id": run_id})
+    _update_run_status(run_id, "running")
+
+    accumulated_context = ""
+
+    for node in ordered:
+        # check for cancellation before starting each node
+        if _is_cancelled(run_id):
+            _write_log(run_id, "info", "Run cancelled — stopping before next node.")
+            return
+
+        node_id = node["id"]
+        node_type = node.get("type", "unknown")
+        data = node.get("data") or {}
+        label = str(data.get("label") or node_id)
+
+        _write_log(run_id, "info", f"Starting node: {label}", {"node_id": node_id, "node_type": node_type})
+
+        # write step as running
+        step_id = _write_step(run_id, node, "running")
+
+        if node_type == "humanApproval":
+            # pause — write approval request and wait
+            _update_step(step_id, "waiting_approval", summary=str(data.get("reason") or "Awaiting approval."))
+            _update_run_status(run_id, "waiting_approval")
+            approval_id = _write_approval_request(run_id, step_id, node)
+            _write_log(run_id, "info", f"Paused at approval gate: {label}", {"approval_id": approval_id})
+
+            # poll for approval (max 24h in 5s intervals)
+            approved = _wait_for_approval(approval_id, timeout_seconds=86400)
+            if not approved:
+                _update_step(step_id, "failed", error="Approval rejected or timed out.")
+                _update_run_status(run_id, "failed")
+                _write_log(run_id, "warn", "Run stopped: approval rejected or timed out.")
+                linear_logger.log_run_failure(run_id, workflow_name, label, "Approval rejected or timed out.", workspace_path)
+                return
+
+            _update_step(step_id, "completed", summary="Approved by human reviewer.")
+            _update_run_status(run_id, "running")
+            _write_log(run_id, "info", f"Approval granted, continuing: {label}")
+            continue
+
+        # execute node
+        status, stdout, summary = _execute_node(node, workspace_path, accumulated_context, run_id)
+
+        if status == "cancelled":
+            _update_step(step_id, "cancelled", summary="Cancelled mid-execution.")
+            _write_log(run_id, "info", f"Run cancelled during node: {label}")
+            return
+
+        _update_step(step_id, status, stdout=stdout, summary=summary, error=summary if status == "failed" else None)
+        _write_log(run_id, "info" if status == "completed" else "error", f"Node {label}: {status}", {"node_id": node_id})
+
+        if status == "failed":
+            _update_run_status(run_id, "failed")
+            _write_log(run_id, "error", f"Run failed at node: {label}")
+            linear_logger.log_run_failure(run_id, workflow_name, label, summary or "Node execution failed.", workspace_path)
+            return
+
+        # accumulate context for next nodes
+        if summary:
+            accumulated_context += f"\n\n[{label}]\n{summary}"
+
+    _update_run_status(run_id, "completed")
+    _write_log(run_id, "info", "Workflow run completed successfully.")
+    linear_logger.log_run_complete(run_id, workflow_name)
+
+
+def _wait_for_approval(approval_id: str, timeout_seconds: int = 86400) -> bool:
+    import time
+    elapsed = 0
+    while elapsed < timeout_seconds:
+        time.sleep(5)
+        elapsed += 5
+        with db_session() as db:
+            row = db.execute(
+                "SELECT status FROM approval_requests WHERE id = ?", (approval_id,)
+            ).fetchone()
+        if row and row["status"] == "approved":
+            return True
+        if row and row["status"] in ("rejected", "revision_requested"):
+            return False
+    return False
+
+
+def start_run_async(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> None:
+    t = threading.Thread(
+        target=run_workflow,
+        args=(run_id, workflow_id, graph, workspace_path),
+        daemon=True,
+    )
+    t.start()

@@ -1,99 +1,367 @@
-import type { AgentNodeConfig } from "@/lib/types";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import type { Node } from "@xyflow/react";
+import type { McpServer, Skill } from "@/lib/types";
 
-export function AgentInspector({ agent, onChange }: { agent: AgentNodeConfig; onChange: (agent: AgentNodeConfig) => void }) {
+const MONO: React.CSSProperties = { fontFamily: "ui-monospace, 'Cascadia Code', monospace" };
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div className="space-y-5 rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-sm">
-      <div>
-        <Badge className="mb-2 rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">Agent inspector</Badge>
-        <h3 className="text-xl font-black text-slate-950">{agent.name}</h3>
-        <p className="text-sm text-slate-600">Configure model, skills, tools, memory, and approval rules.</p>
+    <p className="mb-2 mt-4 text-[9px] font-semibold uppercase tracking-widest text-[#6b7280] first:mt-0" style={MONO}>
+      {children}
+    </p>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="border-b border-[#f3f4f6] pb-3 last:border-b-0 last:pb-0">
+      <p className="mb-1 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>{label}</p>
+      {children}
+    </div>
+  );
+}
+
+function TextInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <input
+      className="w-full border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]"
+      style={MONO}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+    />
+  );
+}
+
+function TextArea({ value, onChange, rows = 3 }: { value: string; onChange: (v: string) => void; rows?: number }) {
+  return (
+    <textarea
+      rows={rows}
+      className="w-full resize-none border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]"
+      style={MONO}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+function SelectField({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
+  return (
+    <select
+      className="w-full border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]"
+      style={MONO}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function NumericField({ value, onChange, min = 1, max = 20 }: { value: number; onChange: (v: number) => void; min?: number; max?: number }) {
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      className="w-full border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]"
+      style={MONO}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+    />
+  );
+}
+
+function McpChecklist({
+  servers,
+  selected,
+  onChange,
+}: {
+  servers: McpServer[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const toggle = (name: string, checked: boolean) =>
+    onChange(checked ? [...selected, name] : selected.filter((n) => n !== name));
+
+  if (!servers.length) {
+    return (
+      <p className="py-2 text-[10px] text-[#9ca3af]" style={MONO}>
+        No MCP servers configured. Add them in Connectors.
+      </p>
+    );
+  }
+
+  return (
+    <div className="max-h-40 overflow-y-auto border border-[#e5e7eb]">
+      {servers.map((s) => {
+        const active = s.configured && s.enabled;
+        const checked = selected.includes(s.name);
+        return (
+          <label
+            key={s.name}
+            className={`flex cursor-pointer items-start gap-2 border-b border-[#f3f4f6] px-3 py-2 last:border-b-0 ${active ? "hover:bg-[#f9fafb]" : "opacity-50"}`}
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5 h-3 w-3"
+              checked={checked}
+              disabled={!active}
+              onChange={(e) => toggle(s.name, e.target.checked)}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <span className="block truncate text-[10px] font-medium text-[#111827]" style={MONO}>{s.display_name}</span>
+                {!active && (
+                  <span className="border border-[#fcd34d] bg-[#fffbeb] px-1 py-[1px] text-[8px] font-semibold uppercase text-[#92400e]" style={MONO}>
+                    {s.configured ? "disabled" : "not configured"}
+                  </span>
+                )}
+                {active && s.auth_status === "o_auth" && (
+                  <span className="border border-[#c4b5fd] bg-[#f5f3ff] px-1 py-[1px] text-[8px] font-semibold uppercase text-[#5b21b6]" style={MONO}>
+                    oauth
+                  </span>
+                )}
+              </span>
+              <span className="line-clamp-1 text-[9px] text-[#9ca3af]" style={MONO}>{s.description}</span>
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function SkillChecklist({
+  skills,
+  selected,
+  onChange,
+}: {
+  skills: Skill[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const toggle = (id: string, checked: boolean) =>
+    onChange(checked ? [...selected, id] : selected.filter((s) => s !== id));
+
+  if (!skills.length) {
+    return (
+      <p className="py-2 text-[10px] text-[#9ca3af]" style={MONO}>
+        No skills saved. Add them in Skills.
+      </p>
+    );
+  }
+
+  return (
+    <div className="max-h-40 overflow-y-auto border border-[#e5e7eb]">
+      {skills.map((skill) => (
+        <label
+          key={skill.id}
+          className="flex cursor-pointer items-start gap-2 border-b border-[#f3f4f6] px-3 py-2 last:border-b-0 hover:bg-[#f9fafb]"
+        >
+          <input
+            type="checkbox"
+            className="mt-0.5 h-3 w-3"
+            checked={selected.includes(skill.id)}
+            onChange={(e) => toggle(skill.id, e.target.checked)}
+          />
+          <span className="min-w-0">
+            <span className="block truncate text-[10px] font-medium text-[#111827]" style={MONO}>{skill.name}</span>
+            <span className="line-clamp-1 text-[9px] text-[#9ca3af]" style={MONO}>{skill.description}</span>
+          </span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+type NodeData = Record<string, unknown>;
+
+function patchNode(node: Node, patch: Partial<NodeData>): Node {
+  return { ...node, data: { ...node.data, ...patch } };
+}
+
+export function AgentInspector({
+  node,
+  onChange,
+  mcpServers = [],
+  skills = [],
+}: {
+  node: Node | null;
+  onChange: (updated: Node) => void;
+  mcpServers?: McpServer[];
+  skills?: Skill[];
+}) {
+  if (!node) {
+    return (
+      <div className="flex h-48 items-center justify-center border border-[#e5e7eb]">
+        <p className="text-[11px] text-[#9ca3af]" style={MONO}>Select a node to inspect</p>
+      </div>
+    );
+  }
+
+  const d = node.data as NodeData;
+  const isApproval = node.type === "humanApproval";
+  const isMemory = node.type === "memory";
+  const isSupervisor = node.type === "supervisorAgent";
+  const isAgent = !isApproval && !isMemory;
+
+  const patch = (partial: Partial<NodeData>) => onChange(patchNode(node, partial));
+
+  // per-node tool/skill selections stored as string arrays in node data
+  const selectedTools = Array.isArray(d.selectedTools) ? (d.selectedTools as string[]) : [];
+  const selectedSkills = Array.isArray(d.selectedSkills) ? (d.selectedSkills as string[]) : [];
+
+  return (
+    <div className="border border-[#e5e7eb] bg-white" style={MONO}>
+      {/* header */}
+      <div className="flex items-center justify-between border-b border-[#e5e7eb] px-4 py-2.5">
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]">
+            {node.type === "supervisorAgent" ? "Supervisor" : node.type === "specialistAgent" ? "Specialist" : node.type === "humanApproval" ? "Approval gate" : "Memory"}
+            {" · node config"}
+          </p>
+          <p className="mt-0.5 text-[12px] font-semibold text-[#111827]">{String(d.label ?? node.id)}</p>
+        </div>
+        <span className="border border-[#e5e7eb] px-1.5 py-[2px] text-[9px] text-[#6b7280]">{node.id}</span>
       </div>
 
-      <div className="grid gap-4">
-        <div className="space-y-2">
-          <Label>Agent name</Label>
-          <Input className="rounded-2xl" value={agent.name} onChange={(event) => onChange({ ...agent, name: event.target.value })} />
-        </div>
-        <div className="space-y-2">
-          <Label>Role</Label>
-          <Input className="rounded-2xl" value={agent.role} onChange={(event) => onChange({ ...agent, role: event.target.value })} />
-        </div>
-        <div className="space-y-2">
-          <Label>Goal / objective</Label>
-          <Textarea className="min-h-20 rounded-2xl" value={agent.objective} onChange={(event) => onChange({ ...agent, objective: event.target.value })} />
-        </div>
-        <div className="space-y-2">
-          <Label>System instructions</Label>
-          <Textarea className="min-h-24 rounded-2xl" value={agent.systemInstructions} onChange={(event) => onChange({ ...agent, systemInstructions: event.target.value })} />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Provider</Label>
-            <Select value={agent.provider} onValueChange={(provider) => onChange({ ...agent, provider })}>
-              <SelectTrigger className="rounded-2xl"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ollama">Ollama</SelectItem>
-                <SelectItem value="openai-compatible">OpenAI-compatible</SelectItem>
-                <SelectItem value="anthropic-compatible">Anthropic-compatible</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Model</Label>
-            <Input className="rounded-2xl" value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label>Memory scope</Label>
-          <Select value={agent.memoryScope} onValueChange={(memoryScope: AgentNodeConfig["memoryScope"]) => onChange({ ...agent, memoryScope })}>
-            <SelectTrigger className="rounded-2xl"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="workflow">Workflow memory</SelectItem>
-              <SelectItem value="team">Team memory</SelectItem>
-              <SelectItem value="agent_private">Agent-private scratchpad</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {agent.delegationStrategy && (
-          <div className="space-y-2">
-            <Label>Delegation strategy</Label>
-            <Select value={agent.delegationStrategy} onValueChange={(delegationStrategy: AgentNodeConfig["delegationStrategy"]) => onChange({ ...agent, delegationStrategy })}>
-              <SelectTrigger className="rounded-2xl"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sequential_delegation">Sequential delegation</SelectItem>
-                <SelectItem value="parallel_delegation_later">Parallel delegation later</SelectItem>
-                <SelectItem value="review_and_revise_later">Review-and-revise loop later</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+      <div className="space-y-3 p-4">
+
+        {/* ── identity ── */}
+        <SectionHeader>Identity</SectionHeader>
+        <Field label="Label">
+          <TextInput value={String(d.label ?? "")} onChange={(v) => patch({ label: v })} placeholder="Node label" />
+        </Field>
+
+        {isAgent && (
+          <>
+            <Field label="Role">
+              <TextInput value={String(d.role ?? "")} onChange={(v) => patch({ role: v })} placeholder="Agent role" />
+            </Field>
+            <Field label="Objective">
+              <TextArea value={String(d.objective ?? "")} onChange={(v) => patch({ objective: v })} rows={2} />
+            </Field>
+            <Field label="System instructions">
+              <TextArea value={String(d.systemInstructions ?? "")} onChange={(v) => patch({ systemInstructions: v })} rows={3} />
+            </Field>
+          </>
         )}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Allowed skills</Label>
-            <div className="flex flex-wrap gap-2 rounded-2xl border bg-slate-50 p-3">
-              {agent.skills.map((skill) => <Badge key={skill} className="rounded-full bg-cyan-100 text-cyan-800 hover:bg-cyan-100">{skill}</Badge>)}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Allowed tools/connectors</Label>
-            <div className="flex flex-wrap gap-2 rounded-2xl border bg-slate-50 p-3">
-              {agent.tools.map((tool) => <Badge key={tool} className="rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">{tool}</Badge>)}
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center justify-between rounded-2xl border bg-amber-50 p-4">
-          <div>
-            <Label>Human approval required</Label>
-            <p className="text-sm text-slate-600">Pause before final report or risky action.</p>
-          </div>
-          <Switch checked={agent.requiresApproval} onCheckedChange={(requiresApproval) => onChange({ ...agent, requiresApproval })} />
-        </div>
+
+        {/* ── runtime ── */}
+        {isAgent && (
+          <>
+            <SectionHeader>Runtime</SectionHeader>
+            <Field label="Model">
+              <TextInput value={String(d.model ?? "codex-cli")} onChange={(v) => patch({ model: v })} placeholder="codex-cli" />
+            </Field>
+            <Field label="Memory scope">
+              <SelectField
+                value={String(d.memoryScope ?? "workflow")}
+                onChange={(v) => patch({ memoryScope: v })}
+                options={[
+                  { value: "workflow", label: "workflow — shared across run" },
+                  { value: "team", label: "team — shared with supervisor" },
+                  { value: "agent_private", label: "agent_private — scratchpad only" },
+                ]}
+              />
+            </Field>
+            <Field label="Max iterations">
+              <NumericField value={Number(d.maxIterations ?? 3)} onChange={(v) => patch({ maxIterations: v })} min={1} max={20} />
+            </Field>
+            <Field label="Approval required">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id={`approval-${node.id}`}
+                  checked={Boolean(d.requiresApproval)}
+                  onChange={(e) => patch({ requiresApproval: e.target.checked })}
+                  className="h-3 w-3"
+                />
+                <label htmlFor={`approval-${node.id}`} className="text-[11px] text-[#374151]">
+                  Pause before executing
+                </label>
+              </div>
+            </Field>
+          </>
+        )}
+
+        {isSupervisor && (
+          <Field label="Delegation strategy">
+            <SelectField
+              value={String(d.delegationStrategy ?? "sequential_delegation")}
+              onChange={(v) => patch({ delegationStrategy: v })}
+              options={[
+                { value: "sequential_delegation", label: "Sequential delegation" },
+                { value: "parallel_delegation_later", label: "Parallel (planned)" },
+                { value: "review_and_revise_later", label: "Review-and-revise (planned)" },
+              ]}
+            />
+          </Field>
+        )}
+
+        {/* ── MCP tools ── */}
+        {isAgent && (
+          <>
+            <SectionHeader>
+              MCP Tools
+              <span className="ml-2 border border-[#e5e7eb] px-1.5 py-[1px] text-[9px] text-[#9ca3af]">
+                {selectedTools.length} selected
+              </span>
+            </SectionHeader>
+            <McpChecklist
+              servers={mcpServers}
+              selected={selectedTools}
+              onChange={(ids) => patch({ selectedTools: ids, tools: ids.length })}
+            />
+          </>
+        )}
+
+        {/* ── skills ── */}
+        {isAgent && (
+          <>
+            <SectionHeader>
+              Skills
+              <span className="ml-2 border border-[#e5e7eb] px-1.5 py-[1px] text-[9px] text-[#9ca3af]">
+                {selectedSkills.length} selected
+              </span>
+            </SectionHeader>
+            <SkillChecklist
+              skills={skills}
+              selected={selectedSkills}
+              onChange={(ids) => patch({ selectedSkills: ids, skills: ids.length })}
+            />
+          </>
+        )}
+
+        {/* ── approval gate fields ── */}
+        {isApproval && (
+          <>
+            <SectionHeader>Gate config</SectionHeader>
+            <Field label="Approval reason">
+              <TextArea value={String(d.reason ?? "")} onChange={(v) => patch({ reason: v })} rows={3} />
+            </Field>
+          </>
+        )}
+
+        {/* ── memory node fields ── */}
+        {isMemory && (
+          <>
+            <SectionHeader>Memory config</SectionHeader>
+            <Field label="Memory scope">
+              <SelectField
+                value={String(d.scope ?? "workflow")}
+                onChange={(v) => patch({ scope: v })}
+                options={[
+                  { value: "workflow", label: "workflow" },
+                  { value: "team", label: "team" },
+                  { value: "agent_private", label: "agent_private" },
+                ]}
+              />
+            </Field>
+          </>
+        )}
       </div>
     </div>
   );

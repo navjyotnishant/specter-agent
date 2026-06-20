@@ -1,0 +1,907 @@
+# Primary author: Navjyot Nishant
+# Created on: 2026-06-19
+# Last updated: 2026-06-19 16:13 America/Chicago
+# Description: Local host runner for Specter Agent runtime adapter checks.
+# AI usage: Built with assistance from AI tools for implementation acceleration, review, and refactoring.
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import threading
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+
+HOST = os.environ.get("SPECTER_HOST_RUNNER_HOST", "127.0.0.1")
+PORT = int(os.environ.get("SPECTER_HOST_RUNNER_PORT", "8765"))
+MAINTENANCE_MODE = os.environ.get("SPECTER_HOST_RUNNER_ENABLE_INSTALL") == "1"
+CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
+CODEX_NPM_LATEST_URL = "https://registry.npmjs.org/@openai%2Fcodex/latest"
+LOG_LOCK = threading.Lock()
+RUNNER_LOGS: list[dict[str, Any]] = []
+MAX_LOGS = 200
+
+# ── live job progress store ───────────────────────────────────────────────────
+_JOB_LOCK = threading.Lock()
+_JOBS: dict[str, dict[str, Any]] = {}  # token → {lines: [...], done: bool, proc: Popen|None}
+
+
+def _job_create(token: str) -> None:
+    with _JOB_LOCK:
+        _JOBS[token] = {"lines": [], "done": False, "proc": None}
+
+
+def _job_set_proc(token: str, proc: Any) -> None:
+    with _JOB_LOCK:
+        if token in _JOBS:
+            _JOBS[token]["proc"] = proc
+
+
+def _job_append(token: str, line: str) -> None:
+    with _JOB_LOCK:
+        if token in _JOBS:
+            _JOBS[token]["lines"].append(line)
+
+
+def _job_done(token: str) -> None:
+    with _JOB_LOCK:
+        if token in _JOBS:
+            _JOBS[token]["done"] = True
+            _JOBS[token]["proc"] = None
+
+
+def _job_kill(token: str) -> bool:
+    with _JOB_LOCK:
+        job = _JOBS.get(token)
+        if not job:
+            return False
+        proc = job.get("proc")
+        if proc is not None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        job["done"] = True
+        job["proc"] = None
+    return True
+
+
+def _job_tail(token: str, since: int) -> dict[str, Any]:
+    with _JOB_LOCK:
+        job = _JOBS.get(token)
+        if not job:
+            return {"ok": False, "lines": [], "done": True}
+        lines = job["lines"][since:]
+        return {"ok": True, "lines": lines, "done": job["done"], "total": len(job["lines"])}
+SCAN_IGNORE_DIRS = {
+    ".cache",
+    ".codex",
+    ".git",
+    ".next",
+    ".venv",
+    "build",
+    "dist",
+    "node_modules",
+    "target",
+    "vendor",
+}
+
+
+def maintenance_mode() -> bool:
+    return MAINTENANCE_MODE
+
+
+def log_event(level: str, message: str, **metadata: Any) -> None:
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "level": level,
+        "message": message,
+        "metadata": metadata,
+    }
+    with LOG_LOCK:
+        RUNNER_LOGS.append(entry)
+        del RUNNER_LOGS[:-MAX_LOGS]
+    print(f"{entry['timestamp']} {level.upper()} {message}")
+
+
+def get_logs() -> dict[str, Any]:
+    with LOG_LOCK:
+        logs = list(RUNNER_LOGS)
+    return {"logs": logs, "count": len(logs)}
+
+
+def set_maintenance_mode(enabled: bool) -> dict[str, Any]:
+    global MAINTENANCE_MODE
+    MAINTENANCE_MODE = enabled
+    mode = "maintenance" if enabled else "safe"
+    log_event("info", f"Host runner switched to {mode} mode")
+    return {
+        "mode": mode,
+        "maintenance_enabled": enabled,
+        "install_enabled": enabled,
+        "upgrade_enabled": enabled,
+        "message": f"Host runner is in {mode} mode.",
+    }
+
+
+def runner_mode() -> dict[str, Any]:
+    enabled = maintenance_mode()
+    mode = "maintenance" if enabled else "safe"
+    return {
+        "mode": mode,
+        "maintenance_enabled": enabled,
+        "install_enabled": enabled,
+        "upgrade_enabled": enabled,
+        "message": f"Host runner is in {mode} mode.",
+    }
+
+
+def parse_version(value: str | None) -> str | None:
+    if not value:
+        return None
+    match = re.search(r"(\d+\.\d+\.\d+)", value)
+    return match.group(1) if match else None
+
+
+def version_tuple(version: str | None) -> tuple[int, int, int] | None:
+    if not version:
+        return None
+    parts = version.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        return int(parts[0]), int(parts[1]), int(parts[2])
+    except ValueError:
+        return None
+
+
+def latest_codex_version() -> dict[str, Any]:
+    try:
+        request = urllib.request.Request(CODEX_NPM_LATEST_URL, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return {
+            "latest_version": payload.get("version"),
+            "version_check_status": "ok",
+            "version_check_message": "Latest Codex CLI version resolved from package metadata.",
+        }
+    except Exception as exc:
+        log_event("warn", "Latest Codex CLI version check unavailable", error=str(exc))
+        return {
+            "latest_version": None,
+            "version_check_status": "unavailable",
+            "version_check_message": f"Latest version check unavailable: {exc}",
+        }
+
+
+def codex_candidate_paths() -> list[str]:
+    paths: list[str] = []
+    path_executable = shutil.which("codex")
+    if path_executable:
+        paths.append(path_executable)
+
+    home = Path.home()
+    for candidate in [
+        home / ".local/bin/codex",
+        Path("/opt/homebrew/bin/codex"),
+        Path("/usr/local/bin/codex"),
+    ]:
+        if candidate.exists():
+            paths.append(str(candidate))
+
+    deduped: list[str] = []
+    for path in paths:
+        if path not in deduped:
+            deduped.append(path)
+    return deduped
+
+
+def codex_version_for(executable: str) -> dict[str, Any]:
+    version = "unknown"
+    try:
+        result = subprocess.run(
+            [executable, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        version = (result.stdout or result.stderr).strip() or version
+    except Exception as exc:
+        version = f"version check failed: {exc}"
+
+    return {
+        "path": executable,
+        "version": version,
+        "parsed_version": parse_version(version),
+    }
+
+
+def best_codex_candidate() -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    candidates = [codex_version_for(path) for path in codex_candidate_paths()]
+    if not candidates:
+        return None, []
+
+    def sort_key(candidate: dict[str, Any]) -> tuple[int, int, int]:
+        return version_tuple(candidate.get("parsed_version")) or (0, 0, 0)
+
+    best = sorted(candidates, key=sort_key, reverse=True)[0]
+    return best, candidates
+
+
+def codex_status() -> dict[str, Any]:
+    best, candidates = best_codex_candidate()
+    if not best:
+        return {
+            "runtime_id": "codex-cli",
+            "display_name": "Codex CLI Runtime",
+            "status": "missing",
+            "available": False,
+            "installed": False,
+            "executable_path": None,
+            "version": None,
+            "current_version": None,
+            "latest_version": None,
+            "outdated": None,
+            "version_check_status": "skipped",
+            "version_check_message": "Codex CLI is not installed.",
+            "install_supported": True,
+            "install_enabled": maintenance_mode(),
+            "upgrade_supported": False,
+            "upgrade_enabled": False,
+            "sign_in_required": False,
+            "runner_mode": "maintenance" if maintenance_mode() else "safe",
+            "message": "Codex CLI is not installed or is not available on the host PATH.",
+        }
+
+    executable = best["path"]
+    version = best["version"]
+    current_version = parse_version(version)
+    latest = latest_codex_version()
+    current_tuple = version_tuple(current_version)
+    latest_tuple = version_tuple(latest["latest_version"])
+    outdated = latest_tuple > current_tuple if current_tuple and latest_tuple else None
+
+    return {
+        "runtime_id": "codex-cli",
+        "display_name": "Codex CLI Runtime",
+        "status": "ready",
+        "available": True,
+        "installed": True,
+        "executable_path": executable,
+        "version": version,
+        "current_version": current_version,
+        "detected_installs": candidates,
+        "latest_version": latest["latest_version"],
+        "outdated": outdated,
+        "version_check_status": latest["version_check_status"],
+        "version_check_message": latest["version_check_message"],
+        "install_supported": True,
+        "install_enabled": maintenance_mode(),
+        "upgrade_supported": True,
+        "upgrade_enabled": maintenance_mode(),
+        "sign_in_required": True,
+        "runner_mode": "maintenance" if maintenance_mode() else "safe",
+        "message": "Codex CLI is installed. Complete or verify sign-in from the host terminal before running agent tasks.",
+    }
+
+
+def run_codex_installer(action: str) -> dict[str, Any]:
+    if not maintenance_mode():
+        log_event("warn", f"Blocked Codex CLI {action}; host runner is in safe mode")
+        return {
+            "ok": False,
+            "status": f"{action}_disabled",
+            "message": "Installer execution is disabled. Restart the host runner with SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 to enable approved installs and upgrades.",
+            "manual_command": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+        }
+
+    log_event("info", f"Starting Codex CLI {action}")
+    with tempfile.TemporaryDirectory(prefix="specter-codex-install-") as temp_dir:
+        script_path = Path(temp_dir) / "install.sh"
+        urllib.request.urlretrieve(CODEX_INSTALL_URL, script_path)
+        result = subprocess.run(
+            ["sh", str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+
+    if result.returncode == 0:
+        log_event("info", f"Codex CLI {action} completed", exit_code=result.returncode)
+    else:
+        log_event("error", f"Codex CLI {action} failed", exit_code=result.returncode, stderr=result.stderr[-1000:])
+
+    return {
+        "ok": result.returncode == 0,
+        "status": {"install": "installed", "upgrade": "upgraded"}.get(action, "completed") if result.returncode == 0 else f"{action}_failed",
+        "exit_code": result.returncode,
+        "stdout": result.stdout[-4000:],
+        "stderr": result.stderr[-4000:],
+        "runtime": codex_status(),
+    }
+
+
+def run_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+    workspace_path = str(payload.get("workspace_path") or "").strip()
+    prompt = str(payload.get("prompt") or "").strip()
+    mode = str(payload.get("mode") or "read-only").strip()
+    timeout_seconds = int(payload.get("timeout_seconds") or 180)
+    job_token = str(payload.get("job_token") or "")
+
+    if mode != "read-only":
+        return {"ok": False, "status": "rejected", "message": "Only read-only Codex tasks are supported by this runner."}
+    if not prompt:
+        return {"ok": False, "status": "rejected", "message": "Prompt is required."}
+
+    workspace = Path(workspace_path).expanduser().resolve()
+    if not workspace.exists() or not workspace.is_dir():
+        return {"ok": False, "status": "rejected", "message": "Workspace path does not exist or is not a directory."}
+
+    best, _ = best_codex_candidate()
+    if not best:
+        return {"ok": False, "status": "missing", "message": "Codex CLI is not installed."}
+
+    if job_token:
+        _job_create(job_token)
+
+    executable = best["path"]
+    command = [
+        executable,
+        "exec",
+        "--cd",
+        str(workspace),
+        "--sandbox",
+        "read-only",
+        "--json",
+        "--color",
+        "never",
+        prompt,
+    ]
+    log_event("info", "Starting Codex read-only task", workspace=str(workspace), timeout_seconds=timeout_seconds)
+
+    all_stdout_lines: list[str] = []
+    stderr_buf: list[str] = []
+    timed_out = False
+
+    try:
+        proc = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        if job_token:
+            _job_set_proc(job_token, proc)
+
+        def _read_stderr() -> None:
+            for line in proc.stderr:  # type: ignore[union-attr]
+                stderr_buf.append(line.rstrip())
+
+        stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+        stderr_thread.start()
+
+        deadline = _time.monotonic() + timeout_seconds
+        for line in proc.stdout:  # type: ignore[union-attr]
+            line = line.rstrip()
+            all_stdout_lines.append(line)
+            if job_token:
+                stripped = line.strip()
+                if not stripped:
+                    pass
+                elif not stripped.startswith("{"):
+                    # plain text line — surface directly
+                    _job_append(job_token, stripped)
+                else:
+                    # JSON event — extract readable content
+                    try:
+                        ev = json.loads(stripped)
+                        ev_type = ev.get("type", "") if isinstance(ev, dict) else ""
+                        if ev_type == "item.completed":
+                            item = ev.get("item") or {}
+                            text = item.get("text") or item.get("content") or ""
+                            if text and isinstance(text, str):
+                                _job_append(job_token, text[:2000])
+                        elif ev_type in ("item.started", "turn.started", "thread.started"):
+                            pass  # skip noise
+                        elif ev_type == "turn.completed":
+                            usage = ev.get("usage") or {}
+                            out_tok = usage.get("output_tokens", "?")
+                            _job_append(job_token, f"[turn completed — {out_tok} output tokens]")
+                    except Exception:
+                        pass
+            if _time.monotonic() > deadline:
+                proc.kill()
+                timed_out = True
+                break
+
+        proc.wait()
+        stderr_thread.join(timeout=2)
+
+    except Exception as exc:
+        if job_token:
+            _job_done(job_token)
+        return {"ok": False, "status": "error", "message": str(exc), "stdout": "", "stderr": "", "final_message": ""}
+
+    if job_token:
+        _job_done(job_token)
+
+    if timed_out:
+        log_event("error", "Codex task timed out", workspace=str(workspace), timeout_seconds=timeout_seconds)
+        stdout_text = "\n".join(all_stdout_lines)
+        return {
+            "ok": False,
+            "status": "timeout",
+            "message": "Codex task timed out.",
+            "exit_code": None,
+            "stdout": stdout_text[-20000:],
+            "stderr": "\n".join(stderr_buf)[-12000:],
+            "final_message": extract_codex_final_message(stdout_text),
+            "metadata": {"workspace_path": str(workspace), "mode": mode, "timeout_seconds": timeout_seconds},
+        }
+
+    stdout_text = "\n".join(all_stdout_lines)
+    ok = proc.returncode == 0
+    final_message = extract_codex_final_message(stdout_text)
+    log_event(
+        "info" if ok else "error",
+        "Codex task completed" if ok else "Codex task failed",
+        workspace=str(workspace),
+        exit_code=proc.returncode,
+    )
+    return {
+        "ok": ok,
+        "status": "completed" if ok else "failed",
+        "message": "Codex task completed." if ok else "Codex task failed.",
+        "exit_code": proc.returncode,
+        "stdout": stdout_text[-20000:],
+        "stderr": "\n".join(stderr_buf)[-12000:],
+        "final_message": final_message,
+        "metadata": {
+            "workspace_path": str(workspace),
+            "mode": mode,
+            "timeout_seconds": timeout_seconds,
+            "command": "codex exec --sandbox read-only --json",
+        },
+    }
+
+
+def extract_codex_final_message(stdout: str) -> str:
+    final_message = ""
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        item = event.get("item") if isinstance(event, dict) else None
+        if isinstance(item, dict) and item.get("type") == "agent_message":
+            text = item.get("text")
+            if isinstance(text, str):
+                final_message = text
+    return final_message
+
+
+# ── MCP catalog ─────────────────────────────────────────────────────────────
+MCP_CATALOG: list[dict[str, Any]] = [
+    {
+        "id": "filesystem",
+        "name": "filesystem",
+        "display_name": "Filesystem",
+        "description": "Read and write files on the local filesystem within approved paths.",
+        "auth_type": "none",
+        "transport_type": "stdio",
+        "add_command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/"],
+        "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+    },
+    {
+        "id": "github",
+        "name": "github",
+        "display_name": "GitHub",
+        "description": "Search repos, read files, manage issues and PRs via the GitHub API.",
+        "auth_type": "token",
+        "token_env_var": "GITHUB_TOKEN",
+        "token_label": "GitHub Personal Access Token",
+        "transport_type": "stdio",
+        "add_command": ["npx", "-y", "@modelcontextprotocol/server-github"],
+        "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/github",
+    },
+    {
+        "id": "postgres",
+        "name": "postgres",
+        "display_name": "PostgreSQL",
+        "description": "Run read-only SQL queries against a PostgreSQL database.",
+        "auth_type": "token",
+        "token_env_var": "POSTGRES_CONNECTION_STRING",
+        "token_label": "Postgres connection string (postgresql://user:pass@host/db)",
+        "transport_type": "stdio",
+        "add_command": ["npx", "-y", "@modelcontextprotocol/server-postgres"],
+        "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/postgres",
+    },
+    {
+        "id": "brave-search",
+        "name": "brave-search",
+        "display_name": "Brave Search",
+        "description": "Web and local search powered by the Brave Search API.",
+        "auth_type": "token",
+        "token_env_var": "BRAVE_API_KEY",
+        "token_label": "Brave Search API Key",
+        "transport_type": "stdio",
+        "add_command": ["npx", "-y", "@modelcontextprotocol/server-brave-search"],
+        "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search",
+    },
+    {
+        "id": "slack",
+        "name": "slack",
+        "display_name": "Slack",
+        "description": "Read channels, post messages, and search Slack workspaces.",
+        "auth_type": "token",
+        "token_env_var": "SLACK_BOT_TOKEN",
+        "token_label": "Slack Bot Token (xoxb-...)",
+        "transport_type": "stdio",
+        "add_command": ["npx", "-y", "@modelcontextprotocol/server-slack"],
+        "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/slack",
+    },
+    {
+        "id": "figma",
+        "name": "figma",
+        "display_name": "Figma",
+        "description": "Read Figma designs, components, and assets.",
+        "auth_type": "oauth",
+        "transport_type": "streamable_http",
+        "url": "https://mcp.figma.com/mcp",
+        "add_command_url": "https://mcp.figma.com/mcp",
+        "docs_url": "https://www.figma.com/developers/mcp",
+    },
+    {
+        "id": "linear",
+        "name": "linear",
+        "display_name": "Linear",
+        "description": "Create and update Linear issues, projects, and cycles.",
+        "auth_type": "oauth",
+        "transport_type": "streamable_http",
+        "url": "https://mcp.linear.app/mcp",
+        "add_command_url": "https://mcp.linear.app/mcp",
+        "docs_url": "https://linear.app/docs/mcp",
+    },
+    {
+        "id": "notion",
+        "name": "notion",
+        "display_name": "Notion",
+        "description": "Read and write Notion pages and databases.",
+        "auth_type": "oauth",
+        "transport_type": "streamable_http",
+        "url": "https://mcp.notion.com/mcp",
+        "add_command_url": "https://mcp.notion.com/mcp",
+        "docs_url": "https://developers.notion.com/docs/mcp",
+    },
+]
+
+
+def mcp_list() -> dict[str, Any]:
+    best, _ = best_codex_candidate()
+    if not best:
+        return {"ok": False, "servers": [], "message": "Codex CLI not installed."}
+    try:
+        result = subprocess.run(
+            [best["path"], "mcp", "list", "--json"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        servers = json.loads(result.stdout) if result.returncode == 0 else []
+    except Exception as exc:
+        log_event("warn", "codex mcp list failed", error=str(exc))
+        servers = []
+
+    # build lookup by name
+    configured = {s["name"]: s for s in servers}
+
+    # merge catalog entries with live status
+    merged: list[dict[str, Any]] = []
+    for entry in MCP_CATALOG:
+        live = configured.get(entry["name"])
+        if live:
+            merged.append({**entry, "configured": True, "live": live, "auth_status": live.get("auth_status", "unknown"), "enabled": live.get("enabled", True)})
+        else:
+            merged.append({**entry, "configured": False, "live": None, "auth_status": None, "enabled": False})
+
+    # also include any configured servers NOT in catalog
+    catalog_names = {e["name"] for e in MCP_CATALOG}
+    for name, live in configured.items():
+        if name not in catalog_names:
+            merged.append({
+                "id": name, "name": name, "display_name": name,
+                "description": "Custom MCP server.",
+                "auth_type": "unknown",
+                "transport_type": live.get("transport", {}).get("type", "unknown"),
+                "configured": True, "live": live,
+                "auth_status": live.get("auth_status", "unknown"),
+                "enabled": live.get("enabled", True),
+            })
+
+    return {"ok": True, "servers": merged}
+
+
+def mcp_add(payload: dict[str, Any]) -> dict[str, Any]:
+    best, _ = best_codex_candidate()
+    if not best:
+        return {"ok": False, "message": "Codex CLI not installed."}
+
+    name = str(payload.get("name") or "").strip()
+    transport_type = str(payload.get("transport_type") or "stdio")
+    url = str(payload.get("url") or "").strip()
+    command = payload.get("command") or []
+    env_vars = payload.get("env_vars") or {}  # dict of KEY: VALUE
+
+    if not name:
+        return {"ok": False, "message": "Name is required."}
+
+    cmd = [best["path"], "mcp", "add", name]
+
+    if transport_type == "streamable_http":
+        if not url:
+            return {"ok": False, "message": "URL is required for HTTP transport."}
+        cmd += ["--url", url]
+    else:
+        if not command:
+            return {"ok": False, "message": "Command is required for stdio transport."}
+        cmd += ["--"] + [str(c) for c in command]
+
+    for key, value in env_vars.items():
+        cmd += ["--env", f"{key}={value}"]
+
+    log_event("info", f"Adding MCP server: {name}", command=cmd)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
+        ok = result.returncode == 0
+        if ok:
+            log_event("info", f"MCP server added: {name}")
+        else:
+            log_event("warn", f"MCP server add failed: {name}", stderr=result.stderr)
+        return {
+            "ok": ok,
+            "name": name,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+            "message": f"MCP server '{name}' added." if ok else f"Failed to add MCP server '{name}': {result.stderr.strip()}",
+        }
+    except Exception as exc:
+        log_event("error", f"MCP add exception: {name}", error=str(exc))
+        return {"ok": False, "name": name, "message": str(exc)}
+
+
+def mcp_remove(name: str) -> dict[str, Any]:
+    best, _ = best_codex_candidate()
+    if not best:
+        return {"ok": False, "message": "Codex CLI not installed."}
+    try:
+        result = subprocess.run(
+            [best["path"], "mcp", "remove", name],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        ok = result.returncode == 0
+        log_event("info" if ok else "warn", f"MCP remove '{name}'", exit_code=result.returncode)
+        return {"ok": ok, "name": name, "message": f"Removed '{name}'." if ok else result.stderr.strip()}
+    except Exception as exc:
+        return {"ok": False, "name": name, "message": str(exc)}
+
+
+def mcp_login_instructions(name: str) -> dict[str, Any]:
+    """Returns instructions for OAuth login — codex mcp login opens a browser interactively."""
+    best, _ = best_codex_candidate()
+    if not best:
+        return {"ok": False, "message": "Codex CLI not installed."}
+    return {
+        "ok": True,
+        "name": name,
+        "requires_terminal": True,
+        "command": f"codex mcp login {name}",
+        "message": f"Run `codex mcp login {name}` in your terminal to complete OAuth. A browser window will open.",
+    }
+
+
+def discover_repositories(payload: dict[str, Any]) -> dict[str, Any]:
+    root_value = str(payload.get("root_path") or "").strip()
+    max_depth = min(max(int(payload.get("max_depth") or 3), 1), 5)
+    max_results = min(max(int(payload.get("max_results") or 50), 1), 200)
+    if not root_value:
+        return {"ok": False, "message": "Root path is required.", "repositories": []}
+
+    root = Path(root_value).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        return {"ok": False, "message": "Root path does not exist or is not a directory.", "repositories": []}
+    if root == Path.home():
+        return {"ok": False, "message": "Choose a specific projects directory instead of the entire home directory.", "repositories": []}
+
+    repositories: list[dict[str, Any]] = []
+    visited = 0
+
+    def stack_for(path: Path) -> list[str]:
+        markers = {
+            "package.json": "Node/TypeScript",
+            "pyproject.toml": "Python",
+            "requirements.txt": "Python",
+            "go.mod": "Go",
+            "Cargo.toml": "Rust",
+            "docker-compose.yml": "Docker",
+            "Dockerfile": "Docker",
+        }
+        return [label for marker, label in markers.items() if (path / marker).exists()]
+
+    def git_remote(path: Path) -> str | None:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(path), "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+            remote = result.stdout.strip()
+            return remote or None
+        except Exception:
+            return None
+
+    def walk(path: Path, depth: int) -> None:
+        nonlocal visited
+        if len(repositories) >= max_results:
+            return
+        visited += 1
+        if (path / ".git").exists():
+            repositories.append(
+                {
+                    "name": path.name,
+                    "path": str(path),
+                    "remote_url": git_remote(path),
+                    "detected_stack": sorted(set(stack_for(path))),
+                }
+            )
+            return
+        if depth >= max_depth:
+            return
+        try:
+            children = sorted(path.iterdir(), key=lambda child: child.name.lower())
+        except PermissionError:
+            return
+        for child in children:
+            if len(repositories) >= max_results:
+                return
+            if child.name in SCAN_IGNORE_DIRS or child.name.startswith("."):
+                continue
+            if child.is_dir():
+                walk(child, depth + 1)
+
+    log_event("info", "Starting repository discovery", root_path=str(root), max_depth=max_depth, max_results=max_results)
+    walk(root, 0)
+    log_event("info", "Repository discovery completed", root_path=str(root), discovered=len(repositories), visited=visited)
+    return {
+        "ok": True,
+        "root_path": str(root),
+        "repositories": repositories,
+        "count": len(repositories),
+        "max_depth": max_depth,
+        "max_results": max_results,
+    }
+
+
+class HostRunnerHandler(BaseHTTPRequestHandler):
+    server_version = "SpecterHostRunner/0.1"
+
+    def do_GET(self) -> None:
+        if self.path == "/health":
+            self.write_json({"status": "ok", "runner": "specter-host-runner"})
+            return
+        if self.path == "/mode":
+            self.write_json(runner_mode())
+            return
+        if self.path == "/logs":
+            self.write_json(get_logs())
+            return
+        if self.path == "/runtimes/codex/status":
+            self.write_json(codex_status())
+            return
+        if self.path == "/mcp/list":
+            self.write_json(mcp_list())
+            return
+        if self.path.startswith("/mcp/login/"):
+            name = self.path[len("/mcp/login/"):]
+            self.write_json(mcp_login_instructions(name))
+            return
+        if self.path.startswith("/runtimes/codex/tail/"):
+            token = self.path[len("/runtimes/codex/tail/"):]
+            # optional ?since=N query param
+            since = 0
+            if "?" in token:
+                token, qs = token.split("?", 1)
+                for part in qs.split("&"):
+                    if part.startswith("since="):
+                        try:
+                            since = int(part[6:])
+                        except ValueError:
+                            pass
+            self.write_json(_job_tail(token, since))
+            return
+        self.write_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def do_POST(self) -> None:
+        if self.path == "/mode":
+            payload = self.read_json()
+            enabled = bool(payload.get("maintenance_enabled"))
+            self.write_json(set_maintenance_mode(enabled))
+            return
+        if self.path == "/runtimes/codex/install":
+            status = HTTPStatus.OK if maintenance_mode() else HTTPStatus.FORBIDDEN
+            self.write_json(run_codex_installer("install"), status=status)
+            return
+        if self.path == "/runtimes/codex/upgrade":
+            status = HTTPStatus.OK if maintenance_mode() else HTTPStatus.FORBIDDEN
+            self.write_json(run_codex_installer("upgrade"), status=status)
+            return
+        if self.path == "/runtimes/codex/run":
+            self.write_json(run_codex_task(self.read_json()))
+            return
+        if self.path.startswith("/runtimes/codex/kill/"):
+            token = self.path[len("/runtimes/codex/kill/"):]
+            killed = _job_kill(token)
+            self.write_json({"ok": killed, "token": token})
+            return
+        if self.path == "/repositories/discover":
+            self.write_json(discover_repositories(self.read_json()))
+            return
+        if self.path == "/mcp/add":
+            self.write_json(mcp_add(self.read_json()))
+            return
+        if self.path.startswith("/mcp/remove/"):
+            name = self.path[len("/mcp/remove/"):]
+            self.write_json(mcp_remove(name))
+            return
+        self.write_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        message = format % args
+        if "GET /logs" not in message:
+            log_event("debug", message, client=self.address_string())
+
+    def read_json(self) -> dict[str, Any]:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        if content_length == 0:
+            return {}
+        body = self.rfile.read(content_length)
+        try:
+            return json.loads(body.decode("utf-8"))
+        except json.JSONDecodeError:
+            return {}
+
+    def write_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
+        body = json.dumps(payload, indent=2).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def main() -> None:
+    if HOST not in {"127.0.0.1", "localhost"}:
+        raise SystemExit("Host runner must bind to localhost only.")
+
+    server = ThreadingHTTPServer((HOST, PORT), HostRunnerHandler)
+    mode = "maintenance" if maintenance_mode() else "safe"
+    log_event("info", f"Specter Host Runner listening on http://{HOST}:{PORT}", mode=mode)
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

@@ -31,3 +31,21 @@ docker compose up -d --build
 You can rebuild safely with `docker compose up -d --build`; application data
 remains under `./data`. To intentionally reset local state, stop the app and
 delete the relevant host files.
+
+## Architecture Notes
+
+- [Codex CLI Host Runner](docs/codex-cli-host-runner.md): local runtime boundary
+  for using a user's authenticated Codex CLI without storing Codex credentials
+  inside Specter Agent.
+
+Run the host runner outside Docker when local runtimes need host access:
+
+```bash
+python3 scripts/specter_host_runner.py
+```
+
+To allow UI-approved Codex CLI install and upgrade actions during setup:
+
+```bash
+SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 python3 scripts/specter_host_runner.py
+```

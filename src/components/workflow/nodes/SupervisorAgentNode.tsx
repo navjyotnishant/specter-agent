@@ -1,26 +1,70 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Crown, Route } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Crown, GitMerge } from "lucide-react";
+import { useState, useRef } from "react";
 
 export function SupervisorAgentNode({ data, selected }: NodeProps) {
+  const [editing, setEditing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const commitLabel = () => {
+    setEditing(false);
+  };
+
   return (
-    <div className={`min-w-72 rounded-[1.75rem] border-2 bg-indigo-600 p-4 text-white shadow-xl shadow-indigo-200 ${selected ? "border-cyan-300" : "border-indigo-300"}`}>
-      <Handle type="target" position={Position.Left} className="!bg-cyan-300" />
-      <div className="flex items-start justify-between gap-3">
-        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15"><Crown className="h-6 w-6 text-cyan-200" /></span>
-        <Badge className="rounded-full bg-cyan-200 text-indigo-950 hover:bg-cyan-200">Supervisor</Badge>
+    <div
+      className={`w-[220px] border bg-[#0f1117] text-white ${
+        selected ? "border-[#4f8ef7]" : "border-[#2a2d36]"
+      }`}
+      style={{ fontFamily: "ui-monospace, 'Cascadia Code', monospace" }}
+    >
+      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !rounded-none !border-0 !bg-[#4f8ef7]" />
+
+      <div className="flex items-center gap-2 border-b border-[#2a2d36] px-3 py-2">
+        <Crown className="h-3.5 w-3.5 shrink-0 text-[#4f8ef7]" />
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-[#4f8ef7]">Supervisor</span>
       </div>
-      <h3 className="mt-4 text-lg font-black">{String(data.label ?? "Supervisor Agent")}</h3>
-      <p className="mt-1 text-sm text-indigo-100">{String(data.model ?? "ollama/llama3.1")}</p>
-      <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-semibold">
-        <span className="rounded-2xl bg-white/15 px-2 py-2">{String(data.tools ?? "4")} tools</span>
-        <span className="rounded-2xl bg-white/15 px-2 py-2">{String(data.skills ?? "4")} skills</span>
-        <span className="rounded-2xl bg-white/15 px-2 py-2">team memory</span>
+
+      <div className="px-3 py-2.5">
+        {editing ? (
+          <input
+            ref={inputRef}
+            autoFocus
+            defaultValue={String(data.label ?? "Supervisor Agent")}
+            className="w-full bg-transparent text-[11px] font-semibold text-white outline-none border-b border-[#4f8ef7]"
+            onBlur={(e) => { (data as Record<string, unknown>).label = e.target.value; commitLabel(); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { (data as Record<string, unknown>).label = (e.target as HTMLInputElement).value; commitLabel(); } }}
+          />
+        ) : (
+          <p
+            className="text-[11px] font-semibold leading-tight text-white cursor-text"
+            onDoubleClick={() => setEditing(true)}
+            title="Double-click to rename"
+          >
+            {String(data.label ?? "Supervisor Agent")}
+          </p>
+        )}
+        <p className="mt-0.5 text-[10px] text-[#6b7280]">{String(data.model ?? "codex-cli")}</p>
+
+        <div className="mt-2.5 grid grid-cols-3 gap-[3px]">
+          {[
+            [String(Array.isArray(data.selectedTools) ? (data.selectedTools as string[]).length : (data.tools ?? 0)), "tools"],
+            [String(Array.isArray(data.selectedSkills) ? (data.selectedSkills as string[]).length : (data.skills ?? 0)), "skills"],
+            [String(data.memoryScope ?? "team"), "memory"],
+          ].map(([val, label]) => (
+            <div key={label} className="border border-[#2a2d36] px-1.5 py-1 text-center">
+              <span className="block text-[10px] font-semibold text-white">{val}</span>
+              <span className="block text-[9px] text-[#6b7280]">{label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 flex items-center gap-1.5 border border-[#2a2d36] px-2 py-1.5">
+          <GitMerge className="h-3 w-3 shrink-0 text-[#6b7280]" />
+          <span className="text-[10px] text-[#9ca3af]">{String(data.delegationStrategy ?? "sequential delegation")}</span>
+        </div>
       </div>
-      <div className="mt-3 flex items-center gap-2 rounded-2xl bg-white/10 px-3 py-2 text-xs text-indigo-50">
-        <Route className="h-4 w-4" /> Sequential delegation
-      </div>
-      <Handle type="source" position={Position.Right} className="!bg-cyan-300" />
+
+      <Handle type="source" position={Position.Right} className="!h-2 !w-2 !rounded-none !border-0 !bg-[#4f8ef7]" />
     </div>
   );
 }

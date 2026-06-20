@@ -23,6 +23,95 @@ export type ModelProvider = {
   created_at: string;
 };
 
+export type RuntimeAdapterStatus = {
+  runtime_id: string;
+  display_name: string;
+  status: "ready" | "missing" | "host_runner_unavailable" | "install_disabled" | string;
+  available: boolean;
+  installed: boolean;
+  executable_path?: string | null;
+  version?: string | null;
+  current_version?: string | null;
+  detected_installs?: Array<{ path: string; version: string; parsed_version?: string | null }>;
+  latest_version?: string | null;
+  outdated?: boolean | null;
+  version_check_status?: "ok" | "unavailable" | string;
+  version_check_message?: string;
+  install_supported?: boolean;
+  install_enabled?: boolean;
+  upgrade_supported?: boolean;
+  upgrade_enabled?: boolean;
+  sign_in_required?: boolean;
+  runner_mode?: "safe" | "maintenance" | string;
+  host_runner_url?: string;
+  message: string;
+  diagnostic?: string;
+};
+
+export type HostRunnerMode = {
+  mode: "safe" | "maintenance" | string;
+  maintenance_enabled: boolean;
+  install_enabled: boolean;
+  upgrade_enabled: boolean;
+  message: string;
+};
+
+export type HostRunnerLogEntry = {
+  timestamp: string;
+  level: "debug" | "info" | "warn" | "error" | string;
+  message: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type HostRunnerLogs = {
+  logs: HostRunnerLogEntry[];
+  count: number;
+};
+
+export type RuntimeWorkspace = {
+  id: string;
+  name: string;
+  path: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RuntimeRun = {
+  id: string;
+  runtime_id: string;
+  workspace_id: string;
+  workspace_path: string;
+  prompt: string;
+  mode: string;
+  status: string;
+  exit_code?: number | null;
+  stdout: string;
+  stderr: string;
+  summary: string;
+  error?: string | null;
+  started_at: string;
+  completed_at?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type DiscoveredRepository = {
+  name: string;
+  path: string;
+  remote_url?: string | null;
+  detected_stack: string[];
+};
+
+export type RepositoryDiscoveryResult = {
+  ok: boolean;
+  root_path?: string;
+  repositories: DiscoveredRepository[];
+  count?: number;
+  max_depth?: number;
+  max_results?: number;
+  message?: string;
+};
+
 export type Skill = {
   id: string;
   name: string;
@@ -39,6 +128,94 @@ export type Connector = {
   config_json: string;
   is_configured: number | boolean;
   created_at: string;
+};
+
+export type WorkflowRun = {
+  id: string;
+  workflow_id: string;
+  status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled" | string;
+  trigger_type: string;
+  graph?: { nodes: unknown[]; edges: unknown[] };
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type RunStep = {
+  id: string;
+  node_id: string;
+  node_type: string;
+  agent_name: string;
+  agent_role: string;
+  status: "running" | "completed" | "failed" | "waiting_approval" | string;
+  summary: string | null;
+  error: string | null;
+  started_at: string;
+  completed_at: string | null;
+};
+
+export type RunLog = {
+  id: string;
+  level: "info" | "warn" | "error" | string;
+  message: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type RunMessage = {
+  id: string;
+  agent_run_id: string;
+  sender_type: string;
+  sender_name: string;
+  content: string;
+  created_at: string;
+};
+
+export type RunApproval = {
+  id: string;
+  status: "pending" | "approved" | "rejected" | string;
+  title: string;
+  reason: string;
+  context_summary: string;
+  workflow_step_run_id: string | null;
+  created_at: string;
+  resolved_at: string | null;
+};
+
+export type McpServer = {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  auth_type: "none" | "token" | "oauth" | "unknown";
+  transport_type: "stdio" | "streamable_http" | "unknown";
+  token_env_var?: string;
+  token_label?: string;
+  url?: string;
+  add_command_url?: string;
+  docs_url?: string;
+  configured: boolean;
+  enabled: boolean;
+  auth_status: "o_auth" | "authenticated" | "unauthenticated" | "unsupported" | "unknown" | null;
+  live?: {
+    name: string;
+    enabled: boolean;
+    transport: Record<string, unknown>;
+    auth_status: string;
+  } | null;
+};
+
+export type McpListResult = {
+  ok: boolean;
+  servers: McpServer[];
+  message?: string;
+};
+
+export type McpActionResult = {
+  ok: boolean;
+  name?: string;
+  message: string;
+  requires_terminal?: boolean;
+  command?: string;
 };
 
 export type WorkflowGraph = {

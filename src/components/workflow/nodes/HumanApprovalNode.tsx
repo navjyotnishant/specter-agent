@@ -1,22 +1,54 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { AlertTriangle, PauseCircle } from "lucide-react";
+import { OctagonAlert } from "lucide-react";
 
 export function HumanApprovalNode({ data, selected }: NodeProps) {
   return (
-    <div className={`min-w-64 rounded-[1.5rem] border-2 bg-amber-100 p-4 text-amber-950 shadow-lg shadow-amber-100 ${selected ? "border-orange-500" : "border-amber-300"}`}>
-      <Handle type="target" position={Position.Left} className="!bg-orange-500" />
-      <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-300"><PauseCircle className="h-6 w-6" /></span>
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em]">Pause</p>
-          <h3 className="font-black">{String(data.label ?? "Human Approval")}</h3>
+    <div
+      className={`w-[220px] border bg-white ${
+        selected ? "border-[#0f1117]" : "border-[#d1d5db]"
+      }`}
+      style={{ fontFamily: "ui-monospace, 'Cascadia Code', monospace" }}
+    >
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!h-2 !w-2 !rounded-none !border-0 !bg-[#d97706]"
+      />
+
+      {/* header — amber left-border accent only */}
+      <div className="flex items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 py-2"
+           style={{ borderLeft: "3px solid #d97706" }}>
+        <OctagonAlert className="h-3.5 w-3.5 shrink-0 text-[#d97706]" />
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-[#374151]">
+          Approval gate
+        </span>
+      </div>
+
+      {/* body */}
+      <div className="px-3 py-2.5">
+        <p className="text-[11px] font-semibold leading-tight text-[#111827]">
+          {String(data.label ?? "Human Approval")}
+        </p>
+
+        <div className="mt-2.5 border border-[#e5e7eb] bg-[#fafafa] px-2.5 py-2">
+          <p className="text-[10px] leading-[1.6] text-[#6b7280]">
+            {String(data.reason ?? "Requires manual approval before continuing.")}
+          </p>
+        </div>
+
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-[9px] uppercase tracking-widest text-[#9ca3af]">gate type</span>
+          <span className="border border-[#d97706] px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-wide text-[#b45309]">
+            blocking
+          </span>
         </div>
       </div>
-      <div className="mt-4 rounded-2xl bg-white/70 p-3 text-sm leading-5">
-        <AlertTriangle className="mb-2 h-4 w-4" />
-        {String(data.reason ?? "Requires manual approval before continuing.")}
-      </div>
-      <Handle type="source" position={Position.Right} className="!bg-orange-500" />
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!h-2 !w-2 !rounded-none !border-0 !bg-[#d97706]"
+      />
     </div>
   );
 }

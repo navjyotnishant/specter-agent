@@ -1,4 +1,27 @@
-import type { ApprovalRequest, AuthUser, Connector, MemoryEntry, ModelProvider, RuntimeHealth, Skill, Workflow, WorkflowGraph } from "./types";
+import type {
+  ApprovalRequest,
+  AuthUser,
+  Connector,
+  HostRunnerLogs,
+  HostRunnerMode,
+  McpActionResult,
+  McpListResult,
+  MemoryEntry,
+  ModelProvider,
+  RepositoryDiscoveryResult,
+  RuntimeAdapterStatus,
+  RuntimeHealth,
+  RuntimeRun,
+  RuntimeWorkspace,
+  RunApproval,
+  RunLog,
+  RunMessage,
+  RunStep,
+  Skill,
+  Workflow,
+  WorkflowGraph,
+  WorkflowRun,
+} from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
@@ -90,6 +113,10 @@ export const api = {
     }),
   deleteWorkflow: (token: string, id: string) =>
     request<{ deleted: boolean; workflow_id: string }>(`/workflows/${id}`, { method: "DELETE", headers: authHeaders(token) }),
+  publishTemplate: (token: string, id: string) =>
+    request<Workflow>(`/workflows/${id}/publish-template`, { method: "PATCH", headers: authHeaders(token) }),
+  unpublishTemplate: (token: string, id: string) =>
+    request<Workflow>(`/workflows/${id}/unpublish-template`, { method: "PATCH", headers: authHeaders(token) }),
   modelProviders: (token: string) => request<ModelProvider[]>("/model-providers", { headers: authHeaders(token) }),
   createModelProvider: (token: string, provider: { name: string; provider_type: string; base_url?: string; is_configured: boolean }) =>
     request<ModelProvider>("/model-providers", {
@@ -105,6 +132,50 @@ export const api = {
     }),
   deleteModelProvider: (token: string, id: string) =>
     request<{ deleted: boolean; provider_id: string }>(`/model-providers/${id}`, { method: "DELETE", headers: authHeaders(token) }),
+  codexRuntimeStatus: (token: string) => request<RuntimeAdapterStatus>("/runtime-adapters/codex-cli/status", { headers: authHeaders(token) }),
+  hostRunnerMode: (token: string) => request<HostRunnerMode>("/runtime-adapters/host-runner/mode", { headers: authHeaders(token) }),
+  setHostRunnerMode: (token: string, maintenance_enabled: boolean) =>
+    request<HostRunnerMode>("/runtime-adapters/host-runner/mode", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ maintenance_enabled }),
+    }),
+  hostRunnerLogs: (token: string) => request<HostRunnerLogs>("/runtime-adapters/host-runner/logs", { headers: authHeaders(token) }),
+  runtimeWorkspaces: (token: string) => request<RuntimeWorkspace[]>("/runtime-adapters/workspaces", { headers: authHeaders(token) }),
+  createRuntimeWorkspace: (token: string, workspace: { name: string; path: string }) =>
+    request<RuntimeWorkspace>("/runtime-adapters/workspaces", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(workspace),
+    }),
+  deleteRuntimeWorkspace: (token: string, id: string) =>
+    request<{ updated: boolean; workspace_id: string }>(`/runtime-adapters/workspaces/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    }),
+  discoverRepositories: (token: string, discovery: { root_path: string; max_depth: number; max_results: number }) =>
+    request<RepositoryDiscoveryResult>("/runtime-adapters/repositories/discover", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(discovery),
+    }),
+  codexRuntimeRuns: (token: string) => request<RuntimeRun[]>("/runtime-adapters/codex-cli/runs", { headers: authHeaders(token) }),
+  createCodexRuntimeRun: (token: string, run: { workspace_id: string; prompt: string; mode: "read-only"; timeout_seconds: number }) =>
+    request<RuntimeRun>("/runtime-adapters/codex-cli/runs", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(run),
+    }),
+  installCodexRuntime: (token: string) =>
+    request<{ ok: boolean; status: string; message?: string; manual_command?: string; runtime?: RuntimeAdapterStatus }>("/runtime-adapters/codex-cli/install", {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
+  upgradeCodexRuntime: (token: string) =>
+    request<{ ok: boolean; status: string; message?: string; manual_command?: string; runtime?: RuntimeAdapterStatus }>("/runtime-adapters/codex-cli/upgrade", {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
   skills: (token: string) => request<Skill[]>("/skills", { headers: authHeaders(token) }),
   createSkill: (token: string, skill: { name: string; description: string; prompt_template: string; compatible_agent_roles: string[] }) =>
     request<Skill>("/skills", {
@@ -112,8 +183,43 @@ export const api = {
       headers: authHeaders(token),
       body: JSON.stringify(skill),
     }),
+  updateSkill: (token: string, id: string, skill: { name: string; description: string; prompt_template: string; compatible_agent_roles: string[] }) =>
+    request<Skill>(`/skills/${id}`, {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify(skill),
+    }),
   deleteSkill: (token: string, id: string) =>
     request<{ deleted: boolean; skill_id: string }>(`/skills/${id}`, { method: "DELETE", headers: authHeaders(token) }),
+  startRun: (token: string, payload: { workflow_id: string; workspace_path: string; graph?: WorkflowGraph }) =>
+    request<{ run_id: string; status: string; workflow_id: string }>("/workflow-runs", {
+      method: "POST", headers: authHeaders(token), body: JSON.stringify(payload),
+    }),
+  listRuns: (token: string, workflow_id?: string) =>
+    request<WorkflowRun[]>(`/workflow-runs${workflow_id ? `?workflow_id=${workflow_id}` : ""}`, { headers: authHeaders(token) }),
+  getRun: (token: string, runId: string) =>
+    request<WorkflowRun>(`/workflow-runs/${runId}`, { headers: authHeaders(token) }),
+  getRunSteps: (token: string, runId: string) =>
+    request<RunStep[]>(`/workflow-runs/${runId}/steps`, { headers: authHeaders(token) }),
+  getRunLogs: (token: string, runId: string) =>
+    request<RunLog[]>(`/workflow-runs/${runId}/logs`, { headers: authHeaders(token) }),
+  getStepMessages: (token: string, runId: string, stepId: string) =>
+    request<RunMessage[]>(`/workflow-runs/${runId}/steps/${stepId}/messages`, { headers: authHeaders(token) }),
+  getRunApprovals: (token: string, runId: string) =>
+    request<RunApproval[]>(`/workflow-runs/${runId}/approvals`, { headers: authHeaders(token) }),
+  approveRun: (token: string, runId: string, approvalId: string) =>
+    request<{ approved: boolean }>(`/workflow-runs/${runId}/approve/${approvalId}`, { method: "POST", headers: authHeaders(token) }),
+  rejectRun: (token: string, runId: string, approvalId: string) =>
+    request<{ rejected: boolean }>(`/workflow-runs/${runId}/reject/${approvalId}`, { method: "POST", headers: authHeaders(token) }),
+  cancelRun: (token: string, runId: string) =>
+    request<{ cancelled: boolean }>(`/workflow-runs/${runId}/cancel`, { method: "POST", headers: authHeaders(token) }),
+  mcpList: (token: string) => request<McpListResult>("/runtime-adapters/mcp/list", { headers: authHeaders(token) }),
+  mcpAdd: (token: string, payload: { name: string; transport_type: string; url?: string; command?: string[]; env_vars?: Record<string, string> }) =>
+    request<McpActionResult>("/runtime-adapters/mcp/add", { method: "POST", headers: authHeaders(token), body: JSON.stringify(payload) }),
+  mcpRemove: (token: string, name: string) =>
+    request<McpActionResult>(`/runtime-adapters/mcp/remove/${name}`, { method: "POST", headers: authHeaders(token) }),
+  mcpLoginInstructions: (token: string, name: string) =>
+    request<McpActionResult>(`/runtime-adapters/mcp/login/${name}`, { headers: authHeaders(token) }),
   connectors: (token: string) => request<Connector[]>("/connectors", { headers: authHeaders(token) }),
   createConnector: (token: string, connector: { name: string; connector_type: string; config: Record<string, unknown>; is_configured: boolean }) =>
     request<Connector>("/connectors", {

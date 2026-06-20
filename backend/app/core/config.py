@@ -9,8 +9,15 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/app/data")
     artifacts_dir: Path = Path("/app/artifacts")
     database_path: Path = Path("/app/data/app.db")
+    host_runner_url: str = "http://host.docker.internal:8765"
+    host_runner_timeout_seconds: float = 2.0
     scheduler_enabled: bool = True
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    # Linear integration (opt-in — no-op if token not set)
+    linear_api_token: str = ""
+    linear_team_id: str = "SPE"
+    linear_project_name: str = "specter-agent"
 
     class Config:
         env_prefix = "SDLC_"

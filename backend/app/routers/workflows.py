@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.runtime.auth import require_user
-from app.runtime.workflows import create_workflow, delete_workflow, get_workflow, list_workflows, update_workflow
+from app.runtime.workflows import create_workflow, delete_workflow, get_workflow, list_workflows, set_template_flag, update_workflow
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -34,6 +34,22 @@ def get_workflow_route(workflow_id: str, _: dict = Depends(require_user)) -> dic
 @router.patch("/{workflow_id}")
 def update_workflow_route(workflow_id: str, request: WorkflowRequest, _: dict = Depends(require_user)) -> dict:
     workflow = update_workflow(workflow_id, request.name, request.description, request.graph)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return workflow
+
+
+@router.patch("/{workflow_id}/publish-template")
+def publish_template_route(workflow_id: str, _: dict = Depends(require_user)) -> dict:
+    workflow = set_template_flag(workflow_id, True)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return workflow
+
+
+@router.patch("/{workflow_id}/unpublish-template")
+def unpublish_template_route(workflow_id: str, _: dict = Depends(require_user)) -> dict:
+    workflow = set_template_flag(workflow_id, False)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return workflow

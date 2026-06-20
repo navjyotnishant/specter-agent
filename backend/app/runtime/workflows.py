@@ -77,6 +77,16 @@ def update_workflow(workflow_id: str, name: str, description: str, graph: dict) 
     return _serialize_workflow(row) if row else None
 
 
+def set_template_flag(workflow_id: str, is_template: bool) -> dict | None:
+    with db_session() as db:
+        db.execute(
+            "UPDATE workflows SET is_template = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (1 if is_template else 0, workflow_id),
+        )
+        row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    return _serialize_workflow(row) if row else None
+
+
 def delete_workflow(workflow_id: str) -> bool:
     with db_session() as db:
         deleted = db.execute("DELETE FROM workflows WHERE id = ? AND is_template = 0", (workflow_id,)).rowcount

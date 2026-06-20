@@ -1,370 +1,596 @@
-import { FormEvent, useMemo, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Bot,
-  BrainCircuit,
   CheckCircle2,
-  Cloud,
-  Cpu,
+  Copy,
+  ChevronDown,
+  ChevronRight,
+  FolderSearch,
+  KeyRound,
   Loader2,
-  Pencil,
-  Plus,
+  RefreshCw,
   ShieldCheck,
-  SlidersHorizontal,
-  Trash2,
-  X,
+  TerminalSquare,
 } from "lucide-react";
 import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
-import type { ModelProvider } from "@/lib/types";
+import type { RuntimeAdapterStatus } from "@/lib/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
-type ProviderProfile = {
-  type: "ollama" | "openai-compatible" | "anthropic-compatible";
-  label: string;
-  shortLabel: string;
-  defaultName: string;
-  defaultBaseUrl: string;
-  category: "Private" | "Hosted";
-  description: string;
-  governance: string;
-  icon: typeof Cpu;
-};
+const codexSigninCommand = "codex";
+const runnerSafeCommand = "python3 scripts/specter_host_runner.py";
+const runnerMaintenanceCommand = "SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 python3 scripts/specter_host_runner.py";
+const defaultRuntimePrompt = "Summarize this repository structure and identify the main application entry points. Do not modify files.";
 
-const providerProfiles: ProviderProfile[] = [
-  {
-    type: "ollama",
-    label: "Ollama",
-    shortLabel: "Ollama",
-    defaultName: "Ollama secure review",
-    defaultBaseUrl: "http://host.docker.internal:11434",
-    category: "Private",
-    description: "Use privately hosted models for code-aware agents and internal review flows.",
-    governance: "Best for private code review and offline evaluation.",
-    icon: Cpu,
-  },
-  {
-    type: "openai-compatible",
-    label: "OpenAI-compatible",
-    shortLabel: "OpenAI",
-    defaultName: "OpenAI-compatible reasoning",
-    defaultBaseUrl: "https://api.openai.com/v1",
-    category: "Hosted",
-    description: "Connect a managed endpoint for supervisor planning, synthesis, and reporting work.",
-    governance: "Best for high-quality planning and report generation.",
-    icon: BrainCircuit,
-  },
-  {
-    type: "anthropic-compatible",
-    label: "Anthropic-compatible",
-    shortLabel: "Anthropic",
-    defaultName: "Anthropic-compatible reviewer",
-    defaultBaseUrl: "https://api.anthropic.com",
-    category: "Hosted",
-    description: "Route long-context review and writing tasks through an approved hosted endpoint.",
-    governance: "Best for long-form analysis and narrative reports.",
-    icon: Cloud,
-  },
-];
-
-const previewProviders: ModelProvider[] = providerProfiles.map((profile, index) => ({
-  id: `${profile.type}-preview`,
-  name: profile.defaultName,
-  provider_type: profile.type,
-  base_url: profile.defaultBaseUrl,
-  is_configured: index === 0,
-  created_at: new Date().toISOString(),
-}));
-
-function providerProfile(type: string) {
-  return providerProfiles.find((profile) => profile.type === type) ?? providerProfiles[0];
+function runtimeBadge(status?: RuntimeAdapterStatus) {
+  if (!status) return { label: "Checking", className: "bg-slate-100 text-slate-700" };
+  if (status.status === "ready") return { label: "Ready", className: "bg-emerald-100 text-emerald-800" };
+  if (status.status === "missing") return { label: "Missing", className: "bg-amber-100 text-amber-800" };
+  if (status.status === "host_runner_unavailable") return { label: "Offline", className: "bg-slate-100 text-slate-700" };
+  return { label: "Action needed", className: "bg-amber-100 text-amber-800" };
 }
 
-function isConfigured(provider: ModelProvider) {
-  return provider.is_configured === true || provider.is_configured === 1;
+function statusLine(status?: RuntimeAdapterStatus) {
+  if (status?.status === "host_runner_unavailable") return "Start the host runner.";
+  if (!status?.installed) return "Install Codex CLI.";
+  if (status.outdated === true && status.latest_version) return `Update available: ${status.current_version ?? "current"} -> ${status.latest_version}`;
+  if (status.current_version) return `Codex ${status.current_version}`;
+  if (status.version) return `Codex ${status.version}`;
+  return status?.message ?? "Runtime status unavailable.";
+}
+
+function shortPath(path?: string) {
+  if (!path) return "";
+  const parts = path.split("/");
+  return parts.length > 3 ? `.../${parts.slice(-3).join("/")}` : path;
 }
 
 export default function Models() {
   const token = getStoredToken();
   const queryClient = useQueryClient();
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [name, setName] = useState(providerProfiles[0].defaultName);
-  const [providerType, setProviderType] = useState(providerProfiles[0].type);
-  const [baseUrl, setBaseUrl] = useState(providerProfiles[0].defaultBaseUrl);
-  const [isConfiguredState, setIsConfiguredState] = useState(true);
   const [error, setError] = useState("");
+  const [copiedCommand, setCopiedCommand] = useState("");
+  const [discoveryRoot, setDiscoveryRoot] = useState("/Users/navjyotnishant/Desktop/github");
+  const [selectedDiscoveredPaths, setSelectedDiscoveredPaths] = useState<string[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const [runtimePrompt, setRuntimePrompt] = useState(defaultRuntimePrompt);
+  const [activeRunStartedAt, setActiveRunStartedAt] = useState<string | null>(null);
+  const [directoryScanOpen, setDirectoryScanOpen] = useState(false);
+  const [approvedOpen, setApprovedOpen] = useState(false);
+  const [testOpen, setTestOpen] = useState(false);
 
   const canUseBackend = Boolean(token && token !== "preview-mode");
-  const { data = [], isLoading } = useQuery({
-    queryKey: ["model-providers"],
-    queryFn: () => api.modelProviders(token ?? ""),
+  const { data: codexRuntime, isLoading: runtimeLoading } = useQuery({
+    queryKey: ["runtime-adapter", "codex-cli"],
+    queryFn: () => api.codexRuntimeStatus(token ?? ""),
     enabled: canUseBackend,
     retry: false,
   });
-  const providers = data.length ? data : previewProviders;
-
-  const metrics = useMemo(() => {
-    const configured = providers.filter(isConfigured).length;
-    const privateProviders = providers.filter((provider) => provider.provider_type === "ollama").length;
-    return {
-      total: providers.length,
-      configured,
-      draft: providers.length - configured,
-      privateProviders,
-    };
-  }, [providers]);
-
-  const resetForm = () => {
-    const profile = providerProfiles[0];
-    setEditingId(null);
-    setName(profile.defaultName);
-    setProviderType(profile.type);
-    setBaseUrl(profile.defaultBaseUrl);
-    setIsConfiguredState(true);
-    setError("");
-  };
-
-  const selectProfile = (type: ProviderProfile["type"]) => {
-    const profile = providerProfile(type);
-    setProviderType(profile.type);
-    if (!editingId) {
-      setName(profile.defaultName);
-      setBaseUrl(profile.defaultBaseUrl);
-      setIsConfiguredState(profile.type === "ollama");
-    }
-  };
-
-  const editProvider = (provider: ModelProvider) => {
-    setEditingId(provider.id);
-    setName(provider.name);
-    setProviderType(providerProfile(provider.provider_type).type);
-    setBaseUrl(provider.base_url ?? "");
-    setIsConfiguredState(isConfigured(provider));
-    setError("");
-  };
-
-  const payload = () => ({
-    name: name.trim(),
-    provider_type: providerType,
-    base_url: baseUrl.trim() || undefined,
-    is_configured: isConfiguredState,
+  const { data: runnerMode } = useQuery({
+    queryKey: ["host-runner", "mode"],
+    queryFn: () => api.hostRunnerMode(token ?? ""),
+    enabled: canUseBackend && codexRuntime?.status !== "host_runner_unavailable",
+    retry: false,
+  });
+  const { data: runnerLogs } = useQuery({
+    queryKey: ["host-runner", "logs"],
+    queryFn: () => api.hostRunnerLogs(token ?? ""),
+    enabled: canUseBackend && codexRuntime?.status !== "host_runner_unavailable",
+    retry: false,
+    refetchInterval: activeRunStartedAt ? 1000 : 5000,
+  });
+  const { data: runtimeWorkspaces = [] } = useQuery({
+    queryKey: ["runtime-workspaces"],
+    queryFn: () => api.runtimeWorkspaces(token ?? ""),
+    enabled: canUseBackend,
+    retry: false,
+  });
+  const { data: runtimeRuns = [] } = useQuery({
+    queryKey: ["runtime-runs", "codex-cli"],
+    queryFn: () => api.codexRuntimeRuns(token ?? ""),
+    enabled: canUseBackend,
+    retry: false,
   });
 
-  const create = useMutation({
-    mutationFn: () => api.createModelProvider(token ?? "", payload()),
+  const installCodex = useMutation({
+    mutationFn: () => api.installCodexRuntime(token ?? ""),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "codex-cli"] }),
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to start Codex CLI install"),
+  });
+  const upgradeCodex = useMutation({
+    mutationFn: () => api.upgradeCodexRuntime(token ?? ""),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "codex-cli"] }),
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to start Codex CLI upgrade"),
+  });
+  const setRunnerMode = useMutation({
+    mutationFn: (maintenanceEnabled: boolean) => api.setHostRunnerMode(token ?? "", maintenanceEnabled),
     onSuccess: () => {
-      resetForm();
-      queryClient.invalidateQueries({ queryKey: ["model-providers"] });
+      queryClient.invalidateQueries({ queryKey: ["host-runner", "mode"] });
+      queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
+      queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "codex-cli"] });
     },
-    onError: (err) => setError(err instanceof Error ? err.message : "Unable to save model provider"),
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to update host runner mode"),
   });
-
-  const update = useMutation({
-    mutationFn: () => api.updateModelProvider(token ?? "", editingId ?? "", payload()),
+  const deleteWorkspace = useMutation({
+    mutationFn: (id: string) => api.deleteRuntimeWorkspace(token ?? "", id),
     onSuccess: () => {
-      resetForm();
-      queryClient.invalidateQueries({ queryKey: ["model-providers"] });
-    },
-    onError: (err) => setError(err instanceof Error ? err.message : "Unable to update model provider"),
-  });
-
-  const remove = useMutation({
-    mutationFn: (id: string) => api.deleteModelProvider(token ?? "", id),
-    onSuccess: (_, id) => {
-      if (editingId === id) resetForm();
-      queryClient.invalidateQueries({ queryKey: ["model-providers"] });
+      setSelectedWorkspaceId("");
+      queryClient.invalidateQueries({ queryKey: ["runtime-workspaces"] });
     },
   });
+  const discoverRepositories = useMutation({
+    mutationFn: () => api.discoverRepositories(token ?? "", { root_path: discoveryRoot, max_depth: 3, max_results: 50 }),
+    onSuccess: () => {
+      setSelectedDiscoveredPaths([]);
+      queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to discover repositories"),
+  });
+  const approveSelectedRepositories = useMutation({
+    mutationFn: async () => {
+      const repositories = discoverRepositories.data?.repositories ?? [];
+      const selected = repositories.filter((repo) => selectedDiscoveredPaths.includes(repo.path));
+      return Promise.all(selected.map((repo) => api.createRuntimeWorkspace(token ?? "", { name: repo.name, path: repo.path })));
+    },
+    onSuccess: (workspaces) => {
+      if (workspaces[0]) setSelectedWorkspaceId(workspaces[0].id);
+      setSelectedDiscoveredPaths([]);
+      queryClient.invalidateQueries({ queryKey: ["runtime-workspaces"] });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to approve selected repositories"),
+  });
+  const createRuntimeRun = useMutation({
+    mutationFn: () =>
+      api.createCodexRuntimeRun(token ?? "", {
+        workspace_id: selectedWorkspaceId,
+        prompt: runtimePrompt,
+        mode: "read-only",
+        timeout_seconds: 180,
+      }),
+    onMutate: () => {
+      setActiveRunStartedAt(new Date().toLocaleTimeString());
+      queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
+    },
+    onSuccess: () => {
+      setActiveRunStartedAt(null);
+      queryClient.invalidateQueries({ queryKey: ["runtime-runs", "codex-cli"] });
+      queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
+    },
+    onError: (err) => {
+      setActiveRunStartedAt(null);
+      queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
+      setError(err instanceof Error ? err.message : "Unable to run Codex runtime test");
+    },
+  });
 
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    setError("");
-    if (editingId) update.mutate();
-    else create.mutate();
+  const copyCommand = async (value: string) => {
+    await navigator.clipboard.writeText(value);
+    setCopiedCommand(value);
+    window.setTimeout(() => setCopiedCommand(""), 1800);
   };
 
-  const isSaving = create.isPending || update.isPending;
-  const selectedProfile = providerProfile(providerType);
+  const codexBadge = runtimeBadge(codexRuntime);
+  const canInstallCodex = Boolean(canUseBackend && codexRuntime?.status === "missing" && codexRuntime.install_supported);
+  const canUpgradeCodex = Boolean(canUseBackend && codexRuntime?.installed && codexRuntime?.upgrade_supported);
+  const maintenanceEnabled = runnerMode?.maintenance_enabled ?? codexRuntime?.install_enabled ?? false;
+  const recentRunnerLogs = runnerLogs?.logs.slice(-20).reverse() ?? [];
+  const activeRuntimeWorkspaces = runtimeWorkspaces.filter((workspace) => workspace.is_active);
+  const latestRuntimeRun = runtimeRuns[0];
+  const runtimeRunInProgress = Boolean(activeRunStartedAt) || createRuntimeRun.isPending;
+  const approvedWorkspacePaths = new Set(activeRuntimeWorkspaces.map((workspace) => workspace.path));
+  const discoveredRepositories = discoverRepositories.data?.repositories ?? [];
+  const selectableDiscoveredPaths = discoveredRepositories.filter((repo) => !approvedWorkspacePaths.has(repo.path)).map((repo) => repo.path);
+  const completedRuntimeRuns = runtimeRuns.filter((run) => run.status === "completed").length;
+  const runtimeTile =
+    codexRuntime?.status === "ready"
+      ? { label: "Runtime", value: "Ready", className: "border-emerald-200 bg-emerald-50 text-emerald-900", labelClassName: "text-emerald-700" }
+      : codexRuntime?.status === "host_runner_unavailable"
+        ? { label: "Runtime", value: "Offline", className: "border-slate-200 bg-slate-100 text-slate-800", labelClassName: "text-slate-500" }
+        : { label: "Runtime", value: "Setup", className: "border-amber-200 bg-amber-50 text-amber-900", labelClassName: "text-amber-700" };
+  const modeTile = maintenanceEnabled
+    ? { label: "Mode", value: "Maint.", className: "border-amber-200 bg-amber-50 text-amber-900", labelClassName: "text-amber-700" }
+    : { label: "Mode", value: "Safe", className: "border-sky-200 bg-sky-50 text-sky-900", labelClassName: "text-sky-700" };
+  const summaryTiles = [
+    runtimeTile,
+    modeTile,
+    { label: "Repos", value: activeRuntimeWorkspaces.length, className: "border-slate-100 bg-white text-slate-950", labelClassName: "text-slate-500" },
+    { label: "Runs", value: completedRuntimeRuns, className: "border-slate-100 bg-white text-slate-950", labelClassName: "text-slate-500" },
+  ];
 
   return (
-    <div className="space-y-6">
-      <Card className="rounded-[2rem] border-white/80 bg-white/85 shadow-sm backdrop-blur-xl">
-        <CardContent className="p-6 sm:p-8">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex items-center gap-4">
-              <span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-indigo-600 text-white">
-                <Bot className="h-8 w-8" />
-              </span>
-              <div>
-                <Badge className="mb-2 rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">Model governance</Badge>
-                <h2 className="text-3xl font-black text-slate-950">Model providers</h2>
-                <p className="mt-2 max-w-3xl text-slate-600">
-                  Register approved model endpoints, control availability, and make provider choices explicit for agent workflows.
-                </p>
-              </div>
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div>
+          <Badge className="mb-2 rounded-full bg-slate-900 text-white hover:bg-slate-900">Local execution</Badge>
+          <h2 className="text-3xl font-black text-slate-950">Models</h2>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {summaryTiles.map((tile) => (
+            <div key={tile.label} className={`rounded-2xl border px-4 py-3 text-center shadow-sm ${tile.className}`}>
+              <p className="text-xl font-black">{tile.value}</p>
+              <p className={`text-xs font-bold uppercase ${tile.labelClassName}`}>{tile.label}</p>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                ["Total", metrics.total],
-                ["Ready", metrics.configured],
-                ["Draft", metrics.draft],
-                ["Private", metrics.privateProviders],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-center shadow-sm">
-                  <p className="text-2xl font-black text-slate-950">{value}</p>
-                  <p className="text-xs font-bold uppercase text-slate-500">{label}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        {providerProfiles.map((profile) => {
-          const Icon = profile.icon;
-          const selected = providerType === profile.type;
-          return (
-            <button
-              key={profile.type}
-              type="button"
-              onClick={() => selectProfile(profile.type)}
-              className={`rounded-3xl border bg-white/80 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200/70 ${
-                selected ? "border-indigo-300 ring-2 ring-indigo-100" : "border-white/80"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-800">
-                  <Icon className="h-6 w-6" />
-                </span>
-                <Badge className={`rounded-full ${profile.category === "Private" ? "bg-emerald-100 text-emerald-800" : "bg-indigo-100 text-indigo-800"} hover:bg-current/0`}>
-                  {profile.category}
-                </Badge>
-              </div>
-              <h3 className="mt-4 text-lg font-black text-slate-950">{profile.label}</h3>
-              <p className="mt-2 min-h-12 text-sm leading-6 text-slate-600">{profile.description}</p>
-              <p className="mt-3 text-xs font-semibold text-slate-500">{profile.governance}</p>
-            </button>
-          );
-        })}
+          ))}
+        </div>
       </div>
 
-      <Card className="rounded-[2rem] border-white/80 bg-white/80 shadow-sm">
-        <CardContent className="p-5 sm:p-6">
-          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h3 className="flex items-center gap-2 text-xl font-black text-slate-950">
-                {editingId ? <Pencil className="h-5 w-5 text-indigo-600" /> : <Plus className="h-5 w-5 text-indigo-600" />}
-                {editingId ? "Edit provider" : "Register provider"}
-              </h3>
-              <p className="mt-1 text-sm text-slate-600">{selectedProfile.governance}</p>
-            </div>
-            {editingId && (
-              <Button type="button" onClick={resetForm} variant="outline" className="w-fit rounded-2xl bg-white">
-                <X className="mr-2 h-4 w-4" /> Cancel edit
-              </Button>
-            )}
-          </div>
-          <form onSubmit={onSubmit} className="grid gap-3 xl:grid-cols-[1fr_220px_1.2fr_auto_auto] xl:items-end">
-            <div className="space-y-2">
-              <Label>Name</Label>
-              <Input className="rounded-2xl" value={name} onChange={(event) => setName(event.target.value)} required />
-            </div>
-            <div className="space-y-2">
-              <Label>Type</Label>
-              <Select value={providerType} onValueChange={(value: ProviderProfile["type"]) => selectProfile(value)}>
-                <SelectTrigger className="rounded-2xl"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {providerProfiles.map((profile) => (
-                    <SelectItem key={profile.type} value={profile.type}>{profile.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Endpoint URL</Label>
-              <Input className="rounded-2xl" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://provider.example.com" />
-            </div>
-            <div className="flex items-center gap-3 rounded-2xl border bg-slate-50 px-4 py-3">
-              <Switch checked={isConfiguredState} onCheckedChange={setIsConfiguredState} />
-              <Label>Available</Label>
-            </div>
-            <Button disabled={isSaving || !canUseBackend} className="rounded-2xl bg-indigo-600 hover:bg-indigo-700">
-              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {editingId ? "Save changes" : "Save provider"}
-            </Button>
-          </form>
-          {!canUseBackend && <p className="mt-3 text-sm text-slate-500">Saving providers is available when the service is connected.</p>}
-          {error && <Alert variant="destructive" className="mt-4 rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
-        </CardContent>
-      </Card>
+      {error && (
+        <Alert variant="destructive" className="rounded-2xl">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-      <div className="grid gap-4">
-        {isLoading && canUseBackend && (
-          <Card className="rounded-3xl border-white/80 bg-white/80 p-6 text-slate-600">Loading providers...</Card>
-        )}
-        {providers.map((provider) => {
-          const profile = providerProfile(provider.provider_type);
-          const Icon = profile.icon;
-          const configured = isConfigured(provider);
-          return (
-            <Card key={provider.id} className="rounded-3xl border-white/80 bg-white/80">
-              <CardContent className="grid gap-5 p-5 lg:grid-cols-[1fr_auto] lg:items-center">
-                <div className="flex min-w-0 gap-4">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-800">
-                    <Icon className="h-6 w-6" />
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-xl font-black text-slate-950">{provider.name}</h3>
-                      <Badge className={`rounded-full ${configured ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"} hover:bg-current/0`}>
-                        {configured ? "Available" : "Draft"}
-                      </Badge>
-                      <Badge variant="outline" className="rounded-full bg-white">{profile.shortLabel}</Badge>
-                    </div>
-                    <p className="mt-2 break-all text-sm text-slate-600">{provider.base_url || "Endpoint URL not set"}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Badge variant="outline" className="rounded-full bg-white">
-                        <ShieldCheck className="mr-1 h-3 w-3" /> Policy controlled
-                      </Badge>
-                      <Badge variant="outline" className="rounded-full bg-white">
-                        <CheckCircle2 className="mr-1 h-3 w-3" /> Per-agent selectable
-                      </Badge>
-                    </div>
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-900">
+                  <TerminalSquare className="h-6 w-6" />
+                </span>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-black text-slate-950">Codex CLI</h3>
+                    <Badge className={`rounded-full ${codexBadge.className} hover:bg-current/0`}>
+                      {runtimeLoading && canUseBackend ? "Checking" : codexBadge.label}
+                    </Badge>
                   </div>
+                  <p className="mt-1 text-sm font-semibold text-slate-600">{statusLine(codexRuntime)}</p>
+                  {codexRuntime?.executable_path && (
+                    <p className="mt-1 break-all text-xs font-semibold text-slate-400">{shortPath(codexRuntime.executable_path)}</p>
+                  )}
                 </div>
-                <div className="flex gap-2 lg:justify-end">
+              </div>
+              <Button
+                type="button"
+                disabled={!canUseBackend}
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "codex-cli"] })}
+                variant="outline"
+                className="rounded-2xl bg-white"
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Re-check
+              </Button>
+            </div>
+
+            <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+              <div className="flex items-center gap-3">
+                <ShieldCheck className="h-5 w-5 text-emerald-700" />
+                <div>
+                  <p className="text-sm font-black text-slate-950">Maintenance mode</p>
+                  <p className="text-xs font-semibold text-slate-500">{maintenanceEnabled ? "Install and upgrade enabled" : "Safe mode"}</p>
+                </div>
+              </div>
+              <Switch
+                checked={maintenanceEnabled}
+                disabled={!canUseBackend || codexRuntime?.status === "host_runner_unavailable" || setRunnerMode.isPending}
+                onCheckedChange={(checked) => setRunnerMode.mutate(checked)}
+              />
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                disabled={!canInstallCodex || installCodex.isPending || !codexRuntime?.install_enabled}
+                onClick={() => installCodex.mutate()}
+                className="rounded-2xl bg-slate-900 hover:bg-slate-800"
+              >
+                {installCodex.isPending && <Loader2 className="mr-2 h-4 w-4" />}
+                Install
+              </Button>
+              <Button
+                type="button"
+                disabled={!canUpgradeCodex || upgradeCodex.isPending || !codexRuntime?.upgrade_enabled}
+                onClick={() => upgradeCodex.mutate()}
+                variant={codexRuntime?.outdated ? "default" : "outline"}
+                className={`rounded-2xl ${codexRuntime?.outdated ? "bg-emerald-700 hover:bg-emerald-800" : "bg-white"}`}
+              >
+                {upgradeCodex.isPending ? <Loader2 className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                Upgrade
+              </Button>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button type="button" variant="outline" className="rounded-2xl bg-white">
+                    <KeyRound className="mr-2 h-4 w-4" />
+                    Sign in
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg rounded-3xl">
+                  <DialogHeader>
+                    <DialogTitle>Authenticate Codex CLI</DialogTitle>
+                    <DialogDescription>Run this on the host machine, then re-check.</DialogDescription>
+                  </DialogHeader>
+                  <CommandCopy command={codexSigninCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                  <p className="text-sm font-semibold text-slate-500">Credentials stay in the official Codex CLI session.</p>
+                </DialogContent>
+              </Dialog>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button type="button" variant="outline" className="rounded-2xl bg-white">
+                    Runner
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl rounded-3xl">
+                  <DialogHeader>
+                    <DialogTitle>Host Runner</DialogTitle>
+                    <DialogDescription>Start once from the host terminal.</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <CommandCopy command={runnerSafeCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                    <CommandCopy command={runnerMaintenanceCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                  </div>
+                </DialogContent>
+              </Dialog>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button type="button" variant="outline" className="rounded-2xl bg-white">
+                    Logs
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-3xl rounded-3xl">
+                  <DialogHeader>
+                    <DialogTitle>Runner Logs</DialogTitle>
+                    <DialogDescription>Latest host runner events.</DialogDescription>
+                  </DialogHeader>
+                  <div className="max-h-[28rem] space-y-2 overflow-auto rounded-2xl bg-slate-950 p-3 text-white">
+                    {recentRunnerLogs.length ? (
+                      recentRunnerLogs.map((entry) => (
+                        <div key={`${entry.timestamp}-${entry.message}`} className="rounded-xl bg-white/5 p-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge className="rounded-full bg-white/10 text-white hover:bg-white/10">{entry.level}</Badge>
+                            <span className="text-[11px] font-semibold text-slate-400">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                          </div>
+                          <p className="mt-1 text-xs font-semibold leading-5 text-slate-200">{entry.message}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm font-semibold text-slate-400">No log entries.</p>
+                    )}
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-2xl bg-white"
+                      onClick={() => queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] })}
+                    >
+                      Refresh
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-800">
+                  <FolderSearch className="h-5 w-5" />
+                </span>
+                <div>
+                  <h3 className="text-xl font-black text-slate-950">Directory scan</h3>
+                  <p className="text-sm font-semibold text-slate-500">Choose a parent directory</p>
+                </div>
+              </div>
+              <Button type="button" variant="outline" className="w-fit rounded-2xl bg-white" onClick={() => setDirectoryScanOpen((open) => !open)}>
+                {directoryScanOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
+                {directoryScanOpen ? "Hide" : "Show"}
+              </Button>
+            </div>
+
+            {directoryScanOpen && (
+              <>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <Input className="rounded-2xl bg-white" value={discoveryRoot} onChange={(event) => setDiscoveryRoot(event.target.value)} />
                   <Button
                     type="button"
-                    disabled={!canUseBackend}
-                    onClick={() => editProvider(provider)}
-                    variant="outline"
-                    className="rounded-2xl bg-white"
+                    disabled={!canUseBackend || discoverRepositories.isPending || codexRuntime?.status === "host_runner_unavailable"}
+                    onClick={() => discoverRepositories.mutate()}
+                    className="rounded-2xl bg-cyan-800 hover:bg-cyan-900"
                   >
-                    <SlidersHorizontal className="mr-2 h-4 w-4" /> Configure
-                  </Button>
-                  <Button
-                    disabled={!canUseBackend || remove.isPending}
-                    onClick={() => remove.mutate(provider.id)}
-                    variant="outline"
-                    size="icon"
-                    className="rounded-2xl border-red-200 text-red-700 hover:bg-red-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
+                    {discoverRepositories.isPending && <Loader2 className="mr-2 h-4 w-4" />}
+                    {discoverRepositories.isPending ? "Scanning" : "Scan"}
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+
+                {discoverRepositories.data && (
+                  <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-black text-slate-950">{discoveredRepositories.length} found</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" disabled={!selectableDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths(selectableDiscoveredPaths)} variant="outline" className="rounded-xl bg-white">
+                          Select all
+                        </Button>
+                        <Button size="sm" disabled={!selectedDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths([])} variant="outline" className="rounded-xl bg-white">
+                          Deselect
+                        </Button>
+                        <Button size="sm" disabled={!selectedDiscoveredPaths.length || approveSelectedRepositories.isPending} onClick={() => approveSelectedRepositories.mutate()} className="rounded-xl bg-slate-900 hover:bg-slate-800">
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="mt-3 max-h-56 space-y-2 overflow-auto pr-1">
+                      {discoveredRepositories.length ? (
+                        discoveredRepositories.map((repo) => {
+                          const approved = approvedWorkspacePaths.has(repo.path);
+                          const checked = selectedDiscoveredPaths.includes(repo.path);
+                          return (
+                            <label key={repo.path} className="flex cursor-pointer gap-3 rounded-2xl bg-white p-3">
+                              <Checkbox
+                                checked={approved || checked}
+                                disabled={approved}
+                                onCheckedChange={(value) => {
+                                  setSelectedDiscoveredPaths((paths) =>
+                                    value ? [...new Set([...paths, repo.path])] : paths.filter((path) => path !== repo.path),
+                                  );
+                                }}
+                              />
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-black text-slate-950">{repo.name}</p>
+                                  {approved && <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Approved</Badge>}
+                                </div>
+                                <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{repo.path}</p>
+                              </div>
+                            </label>
+                          );
+                        })
+                      ) : (
+                        <p className="text-sm font-semibold text-slate-500">No repositories found.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+        <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-black text-slate-950">Approved</h3>
+                <p className="text-sm font-semibold text-slate-500">{activeRuntimeWorkspaces.length} repositories</p>
+              </div>
+              <Button type="button" variant="outline" className="rounded-2xl bg-white" onClick={() => setApprovedOpen((open) => !open)}>
+                {approvedOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
+                {approvedOpen ? "Hide" : "Show"}
+              </Button>
+            </div>
+            {approvedOpen && (
+              <div className="mt-4 max-h-72 space-y-2 overflow-auto pr-1">
+                {activeRuntimeWorkspaces.length ? (
+                  activeRuntimeWorkspaces.map((workspace) => (
+                    <div key={workspace.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-black text-slate-950">{workspace.name}</p>
+                          <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{workspace.path}</p>
+                        </div>
+                        <Button type="button" size="sm" variant="outline" disabled={deleteWorkspace.isPending} onClick={() => deleteWorkspace.mutate(workspace.id)} className="rounded-xl bg-white">
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">No approved repositories.</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-xl font-black text-slate-950">Read-only test</h3>
+                <p className="text-sm font-semibold text-slate-500">{runtimeRunInProgress ? "Running" : latestRuntimeRun?.status ?? "Idle"}</p>
+              </div>
+              <Button type="button" variant="outline" className="w-fit rounded-2xl bg-white" onClick={() => setTestOpen((open) => !open)}>
+                {testOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
+                {testOpen ? "Hide" : "Show"}
+              </Button>
+            </div>
+            {testOpen && (
+              <>
+                <div className="mt-4 grid gap-3">
+                  <div className="space-y-2">
+                    <Label>Workspace</Label>
+                    <Select value={selectedWorkspaceId} onValueChange={setSelectedWorkspaceId}>
+                      <SelectTrigger className="rounded-2xl">
+                        <SelectValue placeholder="Select repository" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {activeRuntimeWorkspaces.map((workspace) => (
+                          <SelectItem key={workspace.id} value={workspace.id}>
+                            {workspace.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Prompt</Label>
+                    <Textarea className="min-h-24 rounded-2xl" value={runtimePrompt} onChange={(event) => setRuntimePrompt(event.target.value)} />
+                  </div>
+                  <Button
+                    type="button"
+                    disabled={!selectedWorkspaceId || !runtimePrompt.trim() || !canUseBackend || codexRuntime?.status !== "ready" || createRuntimeRun.isPending}
+                    onClick={() => createRuntimeRun.mutate()}
+                    className="rounded-2xl bg-emerald-700 hover:bg-emerald-800"
+                  >
+                    {createRuntimeRun.isPending && <Loader2 className="mr-2 h-4 w-4" />}
+                    {createRuntimeRun.isPending ? "Running" : "Run test"}
+                  </Button>
+                </div>
+                <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-950 p-4 text-white">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-black uppercase text-slate-300">Latest run</p>
+                    {runtimeRunInProgress ? (
+                      <Badge className="rounded-full bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/20">Running</Badge>
+                    ) : latestRuntimeRun ? (
+                      <Badge className="rounded-full bg-white/10 text-white hover:bg-white/10">{latestRuntimeRun.status}</Badge>
+                    ) : null}
+                  </div>
+                  {runtimeRunInProgress ? (
+                    <div className="flex items-center gap-3 rounded-2xl bg-emerald-500/10 p-3">
+                      <Loader2 className="h-4 w-4 text-emerald-200" />
+                      <p className="text-sm font-black text-emerald-100">Running since {activeRunStartedAt ?? "now"}</p>
+                    </div>
+                  ) : latestRuntimeRun ? (
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold leading-5 text-slate-300">{latestRuntimeRun.workspace_path}</p>
+                      <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-2xl bg-white/5 p-3 text-xs leading-5 text-slate-100">
+                        {latestRuntimeRun.summary || latestRuntimeRun.stderr || latestRuntimeRun.error || "No output captured."}
+                      </pre>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-semibold text-slate-400">No runs yet.</p>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function CommandCopy({
+  command,
+  copiedCommand,
+  onCopy,
+}: {
+  command: string;
+  copiedCommand: string;
+  onCopy: (command: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl bg-slate-950 p-4 text-white sm:flex-row sm:items-center sm:justify-between">
+      <code className="break-all text-sm font-bold">{command}</code>
+      <Button type="button" onClick={() => onCopy(command)} variant="outline" className="rounded-2xl border-white/20 bg-white text-slate-950 hover:bg-slate-100">
+        {copiedCommand === command ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
+        {copiedCommand === command ? "Copied" : "Copy"}
+      </Button>
     </div>
   );
 }

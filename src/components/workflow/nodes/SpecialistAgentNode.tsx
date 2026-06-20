@@ -1,24 +1,76 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Bot, Brain, Wrench } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Brain, Code2, FileText, FlaskConical, KeyRound, PackageSearch, Wrench } from "lucide-react";
+import { useState } from "react";
+
+// Maps role keywords → accent color + icon
+function roleStyle(role: string): { color: string; bg: string; Icon: typeof Code2 } {
+  const r = role.toLowerCase();
+  if (r.includes("code") || r.includes("review"))       return { color: "#2563eb", bg: "#eff6ff", Icon: Code2 };
+  if (r.includes("depend") || r.includes("audit"))       return { color: "#7c3aed", bg: "#f5f3ff", Icon: PackageSearch };
+  if (r.includes("secret") || r.includes("config") || r.includes("mask")) return { color: "#dc2626", bg: "#fef2f2", Icon: KeyRound };
+  if (r.includes("report") || r.includes("writer"))      return { color: "#0891b2", bg: "#ecfeff", Icon: FileText };
+  if (r.includes("test") || r.includes("qa"))            return { color: "#059669", bg: "#ecfdf5", Icon: FlaskConical };
+  return { color: "#374151", bg: "#f9fafb", Icon: Wrench };
+}
 
 export function SpecialistAgentNode({ data, selected }: NodeProps) {
+  const [editing, setEditing] = useState(false);
+  const role = String(data.role ?? "");
+  const { color, bg, Icon } = roleStyle(role);
+
   return (
-    <div className={`min-w-64 rounded-[1.5rem] border bg-white p-4 shadow-lg shadow-slate-200/70 ${selected ? "border-indigo-400" : "border-white"}`}>
-      <Handle type="target" position={Position.Left} className="!bg-indigo-400" />
-      <div className="flex items-start justify-between gap-3">
-        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-800"><Bot className="h-6 w-6" /></span>
-        {data.requiresApproval ? <Badge className="rounded-full bg-amber-100 text-amber-900 hover:bg-amber-100">Approval</Badge> : <Badge variant="outline" className="rounded-full bg-slate-50">Specialist</Badge>}
+    <div
+      className={`w-[220px] bg-white ${selected ? "border-2 border-[#0f1117]" : "border border-[#d1d5db]"}`}
+      style={{ fontFamily: "ui-monospace, 'Cascadia Code', monospace", borderLeft: `3px solid ${color}` }}
+    >
+      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !rounded-none !border-0" style={{ background: color }} />
+
+      {/* header — role-coloured */}
+      <div className="flex items-center gap-2 border-b border-[#e5e7eb] px-3 py-2" style={{ background: bg }}>
+        <Icon className="h-3.5 w-3.5 shrink-0" style={{ color }} />
+        <span className="truncate text-[10px] font-semibold uppercase tracking-widest" style={{ color }}>
+          {role || "Specialist"}
+        </span>
       </div>
-      <h3 className="mt-4 font-black text-slate-950">{String(data.label ?? "Specialist Agent")}</h3>
-      <p className="mt-1 text-sm font-semibold text-indigo-700">{String(data.role ?? "Focused SDLC role")}</p>
-      <Badge variant="outline" className="mt-3 rounded-full bg-slate-50">{String(data.model ?? "ollama/codellama")}</Badge>
-      <div className="mt-4 flex gap-2 text-xs font-semibold text-slate-600">
-        <span className="flex items-center gap-1 rounded-2xl bg-slate-100 px-2 py-2"><Wrench className="h-3 w-3" /> {String(data.tools ?? "1")} tools</span>
-        <span className="flex items-center gap-1 rounded-2xl bg-slate-100 px-2 py-2"><Brain className="h-3 w-3" /> {String(data.skills ?? "1")} skills</span>
+
+      <div className="px-3 py-2.5">
+        {/* label — double-click to rename */}
+        {editing ? (
+          <input
+            autoFocus
+            defaultValue={String(data.label ?? "Specialist Agent")}
+            className="w-full bg-transparent text-[12px] font-bold text-[#111827] outline-none border-b border-[#374151]"
+            onBlur={(e) => { (data as Record<string, unknown>).label = e.target.value; setEditing(false); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { (data as Record<string, unknown>).label = (e.target as HTMLInputElement).value; setEditing(false); } }}
+          />
+        ) : (
+          <p
+            className="text-[12px] font-bold leading-tight text-[#111827] cursor-text"
+            onDoubleClick={() => setEditing(true)}
+            title="Double-click to rename"
+          >
+            {String(data.label ?? "Specialist Agent")}
+          </p>
+        )}
+
+        {/* stats row */}
+        <div className="mt-2.5 flex flex-wrap gap-[3px]">
+          <span className="border border-[#e5e7eb] px-1.5 py-[3px] text-[10px] text-[#374151]">{String(data.model ?? "codex-cli")}</span>
+          <span className="flex items-center gap-1 border border-[#e5e7eb] px-1.5 py-[3px] text-[10px] text-[#374151]">
+            <Wrench className="h-2.5 w-2.5" />{Array.isArray(data.selectedTools) ? (data.selectedTools as string[]).length : (data.tools ?? 0)}
+          </span>
+          <span className="flex items-center gap-1 border border-[#e5e7eb] px-1.5 py-[3px] text-[10px] text-[#374151]">
+            <Brain className="h-2.5 w-2.5" />{Array.isArray(data.selectedSkills) ? (data.selectedSkills as string[]).length : (data.skills ?? 0)}
+          </span>
+        </div>
+
+        <div className="mt-2 border-t border-[#f3f4f6] pt-2">
+          <span className="text-[9px] uppercase tracking-widest text-[#9ca3af]">memory</span>
+          <span className="ml-2 text-[10px] text-[#374151]">{String(data.memoryScope ?? "workflow")}</span>
+        </div>
       </div>
-      <p className="mt-3 text-xs text-slate-500">Memory: {String(data.memoryScope ?? "workflow")}</p>
-      <Handle type="source" position={Position.Right} className="!bg-indigo-400" />
+
+      <Handle type="source" position={Position.Right} className="!h-2 !w-2 !rounded-none !border-0" style={{ background: color }} />
     </div>
   );
 }
