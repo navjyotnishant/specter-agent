@@ -19,6 +19,10 @@ class HostRunnerModeRequest(BaseModel):
     maintenance_enabled: bool
 
 
+class DockerSandboxPolicyRequest(BaseModel):
+    policy: str = Field(pattern="^(allow-all|balanced|deny-all)$")
+
+
 class McpAddRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     transport_type: str = Field(default="stdio")
@@ -45,7 +49,14 @@ class CodexRunRequest(BaseModel):
     timeout_seconds: int = Field(default=180, ge=15, le=600)
 
 
-def call_host_runner(path: str, method: str = "GET", body: dict[str, Any] | None = None, timeout: float | None = None) -> dict[str, Any]:
+def call_host_runner(
+    path: str,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+    timeout: float | None = None,
+    fallback_runtime_id: str = "codex-cli",
+    fallback_display_name: str = "Codex CLI Runtime",
+) -> dict[str, Any]:
     settings = get_settings()
     url = f"{str(settings.host_runner_url).rstrip('/')}{path}"
     payload = json.dumps(body).encode("utf-8") if body is not None else None
@@ -60,8 +71,8 @@ def call_host_runner(path: str, method: str = "GET", body: dict[str, Any] | None
         raise HTTPException(status_code=exc.code, detail=detail or "Host runner request failed") from exc
     except Exception as exc:
         return {
-            "runtime_id": "codex-cli",
-            "display_name": "Codex CLI Runtime",
+            "runtime_id": fallback_runtime_id,
+            "display_name": fallback_display_name,
             "status": "host_runner_unavailable",
             "available": False,
             "installed": False,
@@ -114,6 +125,36 @@ def normalize_workspace_path(path: str) -> str:
 @router.get("/codex-cli/status")
 def codex_cli_status(_: dict = Depends(require_user)) -> dict[str, Any]:
     return call_host_runner("/runtimes/codex/status")
+
+
+@router.get("/docker-sandbox/status")
+def docker_sandbox_status(_: dict = Depends(require_user)) -> dict[str, Any]:
+    return call_host_runner(
+        "/runtimes/docker-sandbox/status",
+        fallback_runtime_id="docker-sandbox",
+        fallback_display_name="Docker Sandbox Runtime",
+    )
+
+
+@router.get("/docker-sandbox/policy")
+def docker_sandbox_policy(_: dict = Depends(require_user)) -> dict[str, Any]:
+    return call_host_runner(
+        "/runtimes/docker-sandbox/policy",
+        fallback_runtime_id="docker-sandbox",
+        fallback_display_name="Docker Sandbox Runtime",
+    )
+
+
+@router.post("/docker-sandbox/policy")
+def set_docker_sandbox_policy(request: DockerSandboxPolicyRequest, _: dict = Depends(require_admin)) -> dict[str, Any]:
+    return call_host_runner(
+        "/runtimes/docker-sandbox/policy",
+        method="POST",
+        body={"policy": request.policy},
+        fallback_runtime_id="docker-sandbox",
+        fallback_display_name="Docker Sandbox Runtime",
+        timeout=30,
+    )
 
 
 @router.get("/workspaces")
@@ -184,23 +225,24 @@ def create_codex_run(request: CodexRunRequest, user: dict = Depends(require_admi
         if not workspace:
             raise HTTPException(status_code=404, detail="Approved workspace not found.")
 
+    run_id = str(uuid4())
     payload = {
         "workspace_path": workspace["path"],
         "prompt": request.prompt,
         "mode": request.mode,
         "timeout_seconds": request.timeout_seconds,
+        "job_token": run_id,
     }
-    run_id = str(uuid4())
     with db_session() as db:
         db.execute(
             """
             INSERT INTO runtime_runs (id, runtime_id, workspace_id, workspace_path, prompt, mode, status, requested_by)
-            VALUES (?, 'codex-cli', ?, ?, ?, ?, 'running', ?)
+            VALUES (?, 'docker-sandbox', ?, ?, ?, ?, 'running', ?)
             """,
             (run_id, workspace["id"], workspace["path"], request.prompt, request.mode, user["id"]),
         )
 
-    result = call_host_runner("/runtimes/codex/run", method="POST", body=payload, timeout=request.timeout_seconds + 30)
+    result = call_host_runner("/runtimes/docker-sandbox/codex/run", method="POST", body=payload, timeout=request.timeout_seconds + 60)
     status = "completed" if result.get("ok") else "failed"
     stdout = str(result.get("stdout") or "")
     stderr = str(result.get("stderr") or "")

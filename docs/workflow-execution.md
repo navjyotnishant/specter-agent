@@ -102,26 +102,31 @@ function laneColor(col: number): string {
 
 ### Builder configuration (`AgentInspector.tsx`)
 
-Two fields stored in the node's `data` object inside the workflow graph JSON:
+Three fields stored in the node's `data` object inside the workflow graph JSON:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `allowedActions` | `string[]` | `["approve","reject","request_revision"]` | Which action buttons appear in the runtime approval UI |
 | `noteRequired` | `boolean` | `false` | Whether the reviewer must enter a note before any action is available |
+| `timeoutHours` | `number` | `24` | Hours before a pending approval expires and cancels the workflow |
 
-These are persisted in the workflow graph JSON — no extra DB columns required.
+The gate configuration is persisted in the workflow graph JSON. Each runtime
+approval request also stores its concrete `expires_at` timestamp in SQLite.
 
 ### Canvas card (`HumanApprovalNode.tsx`)
 
 - Renders colored action chips for each entry in `allowedActions`.
 - Shows an amber "note required" tag when `data.noteRequired` is true.
+- Shows the configured timeout window.
 
 ### Runtime approval UI (`WorkflowRun.tsx` → `LogDrawer`)
 
 - Note textarea always visible.
 - `canSubmit` is `true` only when: note is non-empty if `noteRequired`, and a
-  valid action is selected.
+  valid action is selected, and the approval has not expired.
 - Action buttons are rendered only for actions present in `allowedActions`.
+- Shows the approval expiry deadline. Once expired, the approval can no longer
+  be submitted.
 
 ### Backend endpoints (`backend/app/routers/runs.py`)
 
@@ -133,6 +138,10 @@ the note to `approval_requests.resolution_comment`.
 | `POST /workflow-runs/{run_id}/approve/{approval_id}` | Sets approval status `approved` |
 | `POST /workflow-runs/{run_id}/reject/{approval_id}` | Sets approval status `rejected` |
 | `POST /workflow-runs/{run_id}/request-revision/{approval_id}` | Sets approval status `revision_requested`, marks run `failed` |
+
+Pending approvals are expired before they are listed or resolved. Expiry sets
+the approval status to `expired`, cancels the waiting step, and marks the
+workflow run `cancelled`, so execution cannot proceed after no response.
 
 ### API client (`src/lib/api.ts`)
 

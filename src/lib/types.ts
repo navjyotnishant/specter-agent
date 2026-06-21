@@ -42,6 +42,20 @@ export type RuntimeAdapterStatus = {
   upgrade_supported?: boolean;
   upgrade_enabled?: boolean;
   sign_in_required?: boolean;
+  sandbox_runtime_available?: boolean;
+  sbx_installed?: boolean;
+  sbx_version?: string | null;
+  sandbox_health_status?: "cli_available" | "missing" | "daemon_unavailable" | "version_check_failed" | string;
+  codex_sandbox_ready?: boolean;
+  auth_required?: boolean | null;
+  install_guidance?: {
+    macos?: string;
+    windows?: string;
+    docs_url?: string;
+    product_url?: string;
+  };
+  recommended_runtime?: string;
+  base_image?: string;
   runner_mode?: "safe" | "maintenance" | string;
   host_runner_url?: string;
   message: string;
@@ -54,6 +68,17 @@ export type HostRunnerMode = {
   install_enabled: boolean;
   upgrade_enabled: boolean;
   message: string;
+};
+
+export type DockerSandboxPolicy = {
+  ok: boolean;
+  status: string;
+  current_policy?: "allow-all" | "balanced" | "deny-all" | "custom" | string | null;
+  policy?: "allow-all" | "balanced" | "deny-all" | string;
+  available_policies?: string[];
+  message: string;
+  diagnostic?: string;
+  raw?: string;
 };
 
 export type HostRunnerLogEntry = {
@@ -172,12 +197,13 @@ export type RunMessage = {
 
 export type RunApproval = {
   id: string;
-  status: "pending" | "approved" | "rejected" | string;
+  status: "pending" | "approved" | "rejected" | "revision_requested" | "expired" | string;
   title: string;
   reason: string;
   context_summary: string;
   workflow_step_run_id: string | null;
   created_at: string;
+  expires_at: string | null;
   resolved_at: string | null;
 };
 

@@ -65,7 +65,7 @@ const nodeTypes = {
 const nodeDefaults: Record<string, Record<string, unknown>> = {
   supervisorAgent: { label: "Supervisor Agent", model: "codex-cli", tools: 0, skills: 0, memoryScope: "team", maxIterations: 4, requiresApproval: true, delegationStrategy: "sequential_delegation", objective: "", systemInstructions: "" },
   specialistAgent: { label: "Specialist Agent", role: "", model: "codex-cli", tools: 0, skills: 0, memoryScope: "workflow", maxIterations: 3, requiresApproval: false, objective: "", systemInstructions: "" },
-  humanApproval: { label: "Human Approval", reason: "Requires manual approval before continuing." },
+  humanApproval: { label: "Human Approval", reason: "Requires manual approval before continuing.", timeoutHours: 24 },
   memory: { label: "Write Memory", scope: "workflow" },
 };
 

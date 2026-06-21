@@ -51,6 +51,9 @@ export function HumanApprovalNode({ data, selected }: NodeProps) {
           {data.noteRequired && (
             <span style={{ fontSize: 9, color: "#d97706", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 4, padding: "1px 6px" }}>note required</span>
           )}
+          <span style={{ fontSize: 9, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 4, padding: "1px 6px" }}>
+            expires {String(data.timeoutHours ?? 24)}h
+          </span>
         </div>
       </div>
 

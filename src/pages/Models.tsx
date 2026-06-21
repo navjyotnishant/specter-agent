@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Box,
   CheckCircle2,
   Copy,
   ChevronDown,
@@ -28,9 +29,18 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 const codexSigninCommand = "codex";
+const dockerSandboxMacInstallCommand = "brew install docker/tap/sbx";
+const dockerSandboxWindowsInstallCommand = "winget install Docker.sbx";
+const dockerSandboxAuthCommand = "sbx secret set -g openai --oauth";
 const runnerSafeCommand = "python3 scripts/specter_host_runner.py";
 const runnerMaintenanceCommand = "SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 python3 scripts/specter_host_runner.py";
 const defaultRuntimePrompt = "Summarize this repository structure and identify the main application entry points. Do not modify files.";
+
+const sandboxPolicyDescriptions: Record<string, string> = {
+  "balanced": "AI services, package registries, code hosts, and common development endpoints.",
+  "deny-all": "Blocks outbound network traffic until explicit rules are added.",
+  "allow-all": "Allows outbound network traffic from sandboxes.",
+};
 
 function runtimeBadge(status?: RuntimeAdapterStatus) {
   if (!status) return { label: "Checking", className: "bg-slate-100 text-slate-700" };
@@ -47,6 +57,14 @@ function statusLine(status?: RuntimeAdapterStatus) {
   if (status.current_version) return `Codex ${status.current_version}`;
   if (status.version) return `Codex ${status.version}`;
   return status?.message ?? "Runtime status unavailable.";
+}
+
+function sandboxStatusLine(status?: RuntimeAdapterStatus) {
+  if (status?.status === "host_runner_unavailable") return "Start the host runner.";
+  if (status?.status === "missing" || !status?.sbx_installed) return "Install Docker Sandboxes CLI.";
+  if (status.sandbox_health_status === "daemon_unavailable") return "Start Docker Sandboxes daemon.";
+  if (status.sandbox_health_status === "cli_available") return `sbx ${status.current_version ?? status.sbx_version ?? "installed"}`;
+  return status?.message ?? "Docker Sandbox status unavailable.";
 }
 
 function shortPath(path?: string) {
@@ -76,18 +94,30 @@ export default function Models() {
     enabled: canUseBackend,
     retry: false,
   });
+  const { data: dockerSandboxRuntime, isLoading: sandboxRuntimeLoading } = useQuery({
+    queryKey: ["runtime-adapter", "docker-sandbox"],
+    queryFn: () => api.dockerSandboxRuntimeStatus(token ?? ""),
+    enabled: canUseBackend,
+    retry: false,
+  });
   const { data: runnerMode } = useQuery({
     queryKey: ["host-runner", "mode"],
     queryFn: () => api.hostRunnerMode(token ?? ""),
-    enabled: canUseBackend && codexRuntime?.status !== "host_runner_unavailable",
+    enabled: canUseBackend && dockerSandboxRuntime?.status !== "host_runner_unavailable",
     retry: false,
   });
   const { data: runnerLogs } = useQuery({
     queryKey: ["host-runner", "logs"],
     queryFn: () => api.hostRunnerLogs(token ?? ""),
-    enabled: canUseBackend && codexRuntime?.status !== "host_runner_unavailable",
+    enabled: canUseBackend && dockerSandboxRuntime?.status !== "host_runner_unavailable",
     retry: false,
     refetchInterval: activeRunStartedAt ? 1000 : 5000,
+  });
+  const { data: sandboxPolicy } = useQuery({
+    queryKey: ["runtime-adapter", "docker-sandbox", "policy"],
+    queryFn: () => api.dockerSandboxPolicy(token ?? ""),
+    enabled: canUseBackend && dockerSandboxRuntime?.status !== "host_runner_unavailable",
+    retry: false,
   });
   const { data: runtimeWorkspaces = [] } = useQuery({
     queryKey: ["runtime-workspaces"],
@@ -118,8 +148,18 @@ export default function Models() {
       queryClient.invalidateQueries({ queryKey: ["host-runner", "mode"] });
       queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
       queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "codex-cli"] });
+      queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "docker-sandbox"] });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Unable to update host runner mode"),
+  });
+  const setSandboxPolicy = useMutation({
+    mutationFn: (policy: "allow-all" | "balanced" | "deny-all") => api.setDockerSandboxPolicy(token ?? "", policy),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "docker-sandbox", "policy"] });
+      queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "docker-sandbox"] });
+      queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to update Docker Sandbox policy"),
   });
   const deleteWorkspace = useMutation({
     mutationFn: (id: string) => api.deleteRuntimeWorkspace(token ?? "", id),
@@ -180,6 +220,9 @@ export default function Models() {
   };
 
   const codexBadge = runtimeBadge(codexRuntime);
+  const dockerSandboxBadge = runtimeBadge(dockerSandboxRuntime);
+  const sandboxReady = dockerSandboxRuntime?.status === "ready";
+  const hostRunnerOffline = dockerSandboxRuntime?.status === "host_runner_unavailable";
   const canInstallCodex = Boolean(canUseBackend && codexRuntime?.status === "missing" && codexRuntime.install_supported);
   const canUpgradeCodex = Boolean(canUseBackend && codexRuntime?.installed && codexRuntime?.upgrade_supported);
   const maintenanceEnabled = runnerMode?.maintenance_enabled ?? codexRuntime?.install_enabled ?? false;
@@ -191,10 +234,18 @@ export default function Models() {
   const discoveredRepositories = discoverRepositories.data?.repositories ?? [];
   const selectableDiscoveredPaths = discoveredRepositories.filter((repo) => !approvedWorkspacePaths.has(repo.path)).map((repo) => repo.path);
   const completedRuntimeRuns = runtimeRuns.filter((run) => run.status === "completed").length;
+  const preferredRuntime =
+    dockerSandboxRuntime?.status === "ready"
+      ? "Docker"
+      : codexRuntime?.status === "ready"
+        ? "Codex"
+        : codexRuntime?.status === "host_runner_unavailable" || dockerSandboxRuntime?.status === "host_runner_unavailable"
+          ? "Offline"
+          : "Setup";
   const runtimeTile =
-    codexRuntime?.status === "ready"
-      ? { label: "Runtime", value: "Ready", className: "border-emerald-200 bg-emerald-50 text-emerald-900", labelClassName: "text-emerald-700" }
-      : codexRuntime?.status === "host_runner_unavailable"
+    preferredRuntime === "Docker" || preferredRuntime === "Codex"
+      ? { label: "Runtime", value: preferredRuntime, className: "border-emerald-200 bg-emerald-50 text-emerald-900", labelClassName: "text-emerald-700" }
+      : preferredRuntime === "Offline"
         ? { label: "Runtime", value: "Offline", className: "border-slate-200 bg-slate-100 text-slate-800", labelClassName: "text-slate-500" }
         : { label: "Runtime", value: "Setup", className: "border-amber-200 bg-amber-50 text-amber-900", labelClassName: "text-amber-700" };
   const modeTile = maintenanceEnabled
@@ -231,6 +282,95 @@ export default function Models() {
       )}
 
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <Card className="rounded-[1.5rem] border-emerald-100 bg-white/90 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-800">
+                  <Box className="h-6 w-6" />
+                </span>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-black text-slate-950">Docker Sandbox</h3>
+                    <Badge className="rounded-full bg-slate-900 text-white hover:bg-slate-900">Preferred</Badge>
+                    <Badge className={`rounded-full ${dockerSandboxBadge.className} hover:bg-current/0`}>
+                      {sandboxRuntimeLoading && canUseBackend ? "Checking" : dockerSandboxBadge.label}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-sm font-semibold text-slate-600">{sandboxStatusLine(dockerSandboxRuntime)}</p>
+                  {dockerSandboxRuntime?.executable_path && (
+                    <p className="mt-1 break-all text-xs font-semibold text-slate-400">{shortPath(dockerSandboxRuntime.executable_path)}</p>
+                  )}
+                </div>
+              </div>
+              <Button
+                type="button"
+                disabled={!canUseBackend}
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "docker-sandbox"] })}
+                variant="outline"
+                className="rounded-2xl bg-white"
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Re-check
+              </Button>
+            </div>
+
+            <div className="mt-5 grid gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="rounded-full bg-white text-emerald-800 hover:bg-white">microVM isolation</Badge>
+                <Badge className="rounded-full bg-white text-emerald-800 hover:bg-white">{dockerSandboxRuntime?.base_image ?? "docker/sandbox-templates:codex"}</Badge>
+              </div>
+              <p className="text-sm font-semibold leading-6 text-emerald-950">
+                Agent tasks will run inside a disposable Docker Sandbox while Specter keeps approvals, workspace allowlists, logs, and evidence in the app.
+              </p>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-100 bg-white p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-black text-slate-950">Network policy</p>
+                  <p className="text-xs font-semibold leading-5 text-slate-500">
+                    {sandboxPolicyDescriptions[sandboxPolicy?.current_policy ?? ""] ?? sandboxPolicy?.message ?? "Current policy unavailable."}
+                  </p>
+                </div>
+                <Select
+                  value={sandboxPolicy?.current_policy && ["balanced", "deny-all", "allow-all"].includes(sandboxPolicy.current_policy) ? sandboxPolicy.current_policy : ""}
+                  onValueChange={(value) => setSandboxPolicy.mutate(value as "allow-all" | "balanced" | "deny-all")}
+                  disabled={!canUseBackend || hostRunnerOffline || setSandboxPolicy.isPending}
+                >
+                  <SelectTrigger className="w-full rounded-2xl bg-white sm:w-44">
+                    <SelectValue placeholder="Select policy" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="balanced">Balanced</SelectItem>
+                    <SelectItem value="deny-all">Deny all</SelectItem>
+                    <SelectItem value="allow-all">Allow all</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button type="button" variant="outline" className="mt-4 rounded-2xl bg-white">
+                  Setup commands
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl rounded-3xl">
+                <DialogHeader>
+                  <DialogTitle>Docker Sandbox Setup</DialogTitle>
+                  <DialogDescription>Install sbx once on the host, then authenticate Codex for sandboxed runs.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <CommandCopy command={dockerSandboxRuntime?.install_guidance?.macos ?? dockerSandboxMacInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                  <CommandCopy command={dockerSandboxRuntime?.install_guidance?.windows ?? dockerSandboxWindowsInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                  <CommandCopy command={dockerSandboxAuthCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                </div>
+              </DialogContent>
+            </Dialog>
+          </CardContent>
+        </Card>
+
         <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
           <CardContent className="p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -241,6 +381,7 @@ export default function Models() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-xl font-black text-slate-950">Codex CLI</h3>
+                    <Badge className="rounded-full bg-slate-100 text-slate-700 hover:bg-slate-100">Fallback</Badge>
                     <Badge className={`rounded-full ${codexBadge.className} hover:bg-current/0`}>
                       {runtimeLoading && canUseBackend ? "Checking" : codexBadge.label}
                     </Badge>
@@ -273,7 +414,7 @@ export default function Models() {
               </div>
               <Switch
                 checked={maintenanceEnabled}
-                disabled={!canUseBackend || codexRuntime?.status === "host_runner_unavailable" || setRunnerMode.isPending}
+                disabled={!canUseBackend || hostRunnerOffline || setRunnerMode.isPending}
                 onCheckedChange={(checked) => setRunnerMode.mutate(checked)}
               />
             </div>
@@ -397,7 +538,7 @@ export default function Models() {
                   <Input className="rounded-2xl bg-white" value={discoveryRoot} onChange={(event) => setDiscoveryRoot(event.target.value)} />
                   <Button
                     type="button"
-                    disabled={!canUseBackend || discoverRepositories.isPending || codexRuntime?.status === "host_runner_unavailable"}
+                    disabled={!canUseBackend || discoverRepositories.isPending || hostRunnerOffline}
                     onClick={() => discoverRepositories.mutate()}
                     className="rounded-2xl bg-cyan-800 hover:bg-cyan-900"
                   >
@@ -501,7 +642,7 @@ export default function Models() {
           <CardContent className="p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-xl font-black text-slate-950">Read-only test</h3>
+                <h3 className="text-xl font-black text-slate-950">Sandbox test</h3>
                 <p className="text-sm font-semibold text-slate-500">{runtimeRunInProgress ? "Running" : latestRuntimeRun?.status ?? "Idle"}</p>
               </div>
               <Button type="button" variant="outline" className="w-fit rounded-2xl bg-white" onClick={() => setTestOpen((open) => !open)}>
@@ -533,12 +674,12 @@ export default function Models() {
                   </div>
                   <Button
                     type="button"
-                    disabled={!selectedWorkspaceId || !runtimePrompt.trim() || !canUseBackend || codexRuntime?.status !== "ready" || createRuntimeRun.isPending}
+                    disabled={!selectedWorkspaceId || !runtimePrompt.trim() || !canUseBackend || !sandboxReady || createRuntimeRun.isPending}
                     onClick={() => createRuntimeRun.mutate()}
                     className="rounded-2xl bg-emerald-700 hover:bg-emerald-800"
                   >
                     {createRuntimeRun.isPending && <Loader2 className="mr-2 h-4 w-4" />}
-                    {createRuntimeRun.isPending ? "Running" : "Run test"}
+                    {createRuntimeRun.isPending ? "Running" : "Run sandbox test"}
                   </Button>
                 </div>
                 <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-950 p-4 text-white">

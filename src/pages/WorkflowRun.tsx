@@ -302,9 +302,21 @@ const nodeTypes = { exec: ExecNode };
 const edgeTypes = { flowEdge: FlowEdge };
 
 // ── log drawer ────────────────────────────────────────────────────────────────
-function LogDrawer({ step, token, runId, onClose, approval, onApprove, onReject, onRevise, laneColor: accent }: {
+type ApprovalGateConfig = {
+  allowedActions?: string[];
+  noteRequired?: boolean;
+  timeoutHours?: number;
+};
+
+function fmtDeadline(value: string | null) {
+  if (!value) return "No deadline recorded";
+  return parseUTC(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function LogDrawer({ step, token, runId, onClose, approval, gateConfig, onApprove, onReject, onRevise, laneColor: accent }: {
   step: RunStep; token: string; runId: string; onClose: () => void;
   approval?: RunApproval | null;
+  gateConfig?: ApprovalGateConfig;
   onApprove?: (note: string) => void;
   onReject?: (note: string) => void;
   onRevise?: (note: string) => void;
@@ -323,9 +335,10 @@ function LogDrawer({ step, token, runId, onClose, approval, onApprove, onReject,
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messagesQuery.data?.length]);
 
   // read allowed actions + noteRequired from step metadata (passed via step node data in graph)
-  const allowedActions: string[] = (step as unknown as Record<string, unknown>).allowedActions as string[] ?? ["approve", "reject", "request_revision"];
-  const noteRequired: boolean = Boolean((step as unknown as Record<string, unknown>).noteRequired);
-  const canSubmit = !noteRequired || note.trim().length > 0;
+  const allowedActions: string[] = Array.isArray(gateConfig?.allowedActions) ? gateConfig.allowedActions : ["approve", "reject", "request_revision"];
+  const noteRequired: boolean = Boolean(gateConfig?.noteRequired);
+  const expired = approval?.status === "expired" || Boolean(approval?.expires_at && parseUTC(approval.expires_at).getTime() <= Date.now());
+  const canSubmit = !expired && (!noteRequired || note.trim().length > 0);
 
   return (
     <div style={{ width: "100%", minWidth: 0, background: "white", borderLeft: "1px solid #e2e8f0", display: "flex", flexDirection: "column", fontFamily: "system-ui, -apple-system, sans-serif", flex: 1, minHeight: 0, overflow: "hidden" }}>
@@ -350,6 +363,9 @@ function LogDrawer({ step, token, runId, onClose, approval, onApprove, onReject,
             <OctagonAlert style={{ width:14,height:14,color:"#d97706",flexShrink:0,marginTop:1 }} />
             <p style={{ fontSize:12,color:"#92400e",margin:0,fontWeight:600,lineHeight:1.6 }}>{approval.reason}</p>
           </div>
+          <p style={{ fontSize:10,color:expired?"#dc2626":"#92400e",margin:"-6px 0 14px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em" }}>
+            {expired ? "Approval expired" : `Expires ${fmtDeadline(approval.expires_at)}`}
+          </p>
 
           {/* note textarea */}
           <div style={{ marginBottom:14 }}>
@@ -398,6 +414,14 @@ function LogDrawer({ step, token, runId, onClose, approval, onApprove, onReject,
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {approval?.status === "expired" && (
+        <div style={{ padding:"14px 18px",borderBottom:"1px solid #fecaca",background:"#fef2f2",flexShrink:0 }}>
+          <p style={{ fontSize:12,color:"#991b1b",margin:0,fontWeight:700,lineHeight:1.6 }}>
+            Approval expired without a response. The workflow was cancelled and will not continue.
+          </p>
         </div>
       )}
 
@@ -736,7 +760,12 @@ function RunViewInner() {
   const runStatus = run?.status ?? "running";
   const rs = sc(runStatus);
   const pendingApproval = approvals.find((a) => a.status === "pending") ?? null;
-  const selectedStepApproval = pendingApproval && selectedStep?.id === pendingApproval.workflow_step_run_id ? pendingApproval : null;
+  const selectedStepApproval = selectedStep
+    ? approvals.find((a) => a.workflow_step_run_id === selectedStep.id) ?? null
+    : null;
+  const selectedGateConfig = selectedStep
+    ? ((savedGraph.nodes ?? []).find((n: Node) => n.id === selectedStep.node_id)?.data ?? {}) as ApprovalGateConfig
+    : undefined;
   const completedCount = steps.filter((s) => s.status === "completed").length;
   const totalNodes = allNodeIds.length || steps.length;
 
@@ -879,9 +908,10 @@ function RunViewInner() {
                 step={selectedStep} token={token} runId={runId}
                 onClose={()=>{setSelectedStep(null);selectedStepIdRef.current=null;}}
                 approval={selectedStepApproval}
-                onApprove={(note)=>pendingApproval&&approveMutation.mutate({id:pendingApproval.id,note})}
-                onReject={(note)=>pendingApproval&&rejectMutation.mutate({id:pendingApproval.id,note})}
-                onRevise={(note)=>pendingApproval&&reviseMutation.mutate({id:pendingApproval.id,note})}
+                gateConfig={selectedGateConfig}
+                onApprove={(note)=>selectedStepApproval?.status==="pending"&&approveMutation.mutate({id:selectedStepApproval.id,note})}
+                onReject={(note)=>selectedStepApproval?.status==="pending"&&rejectMutation.mutate({id:selectedStepApproval.id,note})}
+                onRevise={(note)=>selectedStepApproval?.status==="pending"&&reviseMutation.mutate({id:selectedStepApproval.id,note})}
                 laneColor={selectedStepColor}
               />
               </div>

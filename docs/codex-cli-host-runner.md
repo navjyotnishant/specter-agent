@@ -1,9 +1,10 @@
-# Codex CLI Host Runner Architecture
+# Local Agent Runtime Architecture
 
-Specter Agent can use a locally authenticated Codex CLI as an execution runtime
-for software delivery agents. This keeps OpenAI-managed Codex credentials on the
-user's machine while Specter Agent records workflow state, approvals, evidence,
-and audit events.
+Specter Agent uses local execution runtimes for software delivery agents.
+Docker Sandboxes is the preferred isolation layer for agent work because it keeps
+model-driven commands inside a disposable microVM while Specter records workflow
+state, approvals, evidence, and audit events. A locally authenticated Codex CLI
+host run remains available as a compatibility fallback.
 
 ## Runtime Boundary
 
@@ -11,7 +12,10 @@ and audit events.
 flowchart TD
     Browser[Browser UI] -->|localhost| App[Specter Agent Docker App]
     App -->|localhost or host.docker.internal| Runner[Specter Agent Host Runner]
-    Runner -->|approved subprocess| Codex[Codex CLI]
+    Runner -->|preferred isolated runtime| Sandbox[Docker Sandbox]
+    Sandbox -->|agent command| CodexSandbox[Codex CLI in sandbox]
+    Runner -->|fallback approved subprocess| Codex[Host Codex CLI]
+    CodexSandbox -->|sandbox authentication| OpenAI[OpenAI-managed Codex service]
     Codex -->|user-managed authentication| OpenAI[OpenAI-managed Codex service]
 
     App -. stores .-> State[(Workflows, approvals, runs, audit trail)]
@@ -31,9 +35,22 @@ Specter Agent Docker App
 Specter Agent Host Runner
   |  workspace allowlists, command approvals, log capture
   |
+  | preferred
+  v
+Docker Sandbox
+  |  disposable microVM, mounted approved workspace
+  v
+Codex CLI in sandbox
+  |  sandbox-scoped Codex authentication
+  v
+OpenAI-managed Codex service
+
+Fallback path:
+Specter Agent Host Runner
+  |
   | subprocess
   v
-Codex CLI
+Host Codex CLI
   |  user's local Codex login or API-key authentication
   v
 OpenAI-managed Codex service
@@ -45,19 +62,62 @@ OpenAI-managed Codex service
 |---|---|
 | Browser UI | Presents runtime status, install guidance, approvals, run output, and captured artifacts. |
 | Docker app | Stores Specter Agent data and calls the host runner through a local-only interface. |
-| Host runner | Owns host checks, Codex CLI detection, approved install, subprocess execution, and filesystem guardrails. |
-| Codex CLI | Uses the user's existing Codex authentication and performs local coding-agent work. |
+| Host runner | Owns host checks, Docker Sandbox and Codex CLI detection, approved install guidance, subprocess execution, and filesystem guardrails. |
+| Docker Sandbox | Runs agent commands inside an isolated disposable environment with only approved workspace access. |
+| Codex CLI | Uses the user's Codex authentication and performs local coding-agent work. |
 | OpenAI-managed Codex service | Handles Codex model execution and plan entitlements outside Specter Agent. |
 
 ## Connection Flow
 
-1. Specter Agent asks the host runner for Codex CLI status.
-2. Host runner checks whether `codex` is available on the host PATH.
-3. If missing, Specter Agent shows an approved install action.
-4. After approval, the host runner runs the official Codex CLI installer.
-5. Specter Agent prompts the user to run or complete `codex` sign-in on the host.
-6. Host runner re-checks readiness and returns the connected runtime state.
-7. Workflow agents can request Codex CLI runs through approved workspaces only.
+1. Specter Agent asks the host runner for Docker Sandbox and Codex CLI status.
+2. Host runner checks whether `sbx` is available on the host PATH.
+3. If missing, Specter Agent shows Docker Sandbox install guidance for the host OS.
+4. Specter Agent prompts the user to configure Codex authentication for sandboxed runs.
+5. Host runner re-checks readiness and returns the preferred runtime state.
+6. If Docker Sandbox is unavailable, Specter can fall back to the host Codex CLI runtime.
+7. Workflow agents can request runtime work through approved workspaces only.
+
+## Docker Sandbox Setup
+
+Run the Specter prerequisite checker before local app startup:
+
+```bash
+python3 scripts/check_prerequisites.py
+```
+
+Use strict mode when sandboxed Codex execution is required immediately:
+
+```bash
+python3 scripts/check_prerequisites.py --strict
+```
+
+Use JSON output for installer or web-app consumption:
+
+```bash
+python3 scripts/check_prerequisites.py --json
+```
+
+Install Docker Sandboxes on the host:
+
+```bash
+brew install docker/tap/sbx
+```
+
+On Windows:
+
+```powershell
+winget install Docker.sbx
+```
+
+Then configure Codex authentication for sandboxed runs:
+
+```bash
+sbx secret set -g openai --oauth
+```
+
+The first implementation slice exposes `sbx` discovery and status in Specter.
+Sandbox-backed execution will be wired in a later slice with explicit approval
+gates, log streaming, workspace mounts, and artifact capture.
 
 ## Install And Upgrade Flow
 

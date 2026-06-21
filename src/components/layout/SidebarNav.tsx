@@ -29,7 +29,9 @@ export function SidebarNav() {
 
   const toggle = () => setCollapsed((prev) => {
     const next = !prev;
-    try { localStorage.setItem("specter_sidebar_collapsed", next ? "1" : "0"); } catch {}
+    try { localStorage.setItem("specter_sidebar_collapsed", next ? "1" : "0"); } catch {
+      return next;
+    }
     return next;
   });
 

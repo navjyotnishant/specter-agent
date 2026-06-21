@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS approval_requests (
   proposed_action_json TEXT NOT NULL DEFAULT '{}',
   context_summary TEXT NOT NULL DEFAULT '',
   requested_by_agent TEXT,
+  expires_at TEXT,
   resolved_by_user_id TEXT,
   resolved_at TEXT,
   resolution_comment TEXT,
@@ -251,6 +252,7 @@ def initialize_database() -> None:
         _add_column_if_missing(db, "users", "updated_at", "TEXT")
         _add_column_if_missing(db, "runtime_workspaces", "updated_at", "TEXT")
         _add_column_if_missing(db, "workflow_runs", "graph_json", "TEXT NOT NULL DEFAULT '{}'")
+        _add_column_if_missing(db, "approval_requests", "expires_at", "TEXT")
         db.execute("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL")
         db.execute("UPDATE runtime_workspaces SET updated_at = created_at WHERE updated_at IS NULL")
 

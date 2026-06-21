@@ -2,6 +2,7 @@ import type {
   ApprovalRequest,
   AuthUser,
   Connector,
+  DockerSandboxPolicy,
   HostRunnerLogs,
   HostRunnerMode,
   McpActionResult,
@@ -133,6 +134,14 @@ export const api = {
   deleteModelProvider: (token: string, id: string) =>
     request<{ deleted: boolean; provider_id: string }>(`/model-providers/${id}`, { method: "DELETE", headers: authHeaders(token) }),
   codexRuntimeStatus: (token: string) => request<RuntimeAdapterStatus>("/runtime-adapters/codex-cli/status", { headers: authHeaders(token) }),
+  dockerSandboxRuntimeStatus: (token: string) => request<RuntimeAdapterStatus>("/runtime-adapters/docker-sandbox/status", { headers: authHeaders(token) }),
+  dockerSandboxPolicy: (token: string) => request<DockerSandboxPolicy>("/runtime-adapters/docker-sandbox/policy", { headers: authHeaders(token) }),
+  setDockerSandboxPolicy: (token: string, policy: "allow-all" | "balanced" | "deny-all") =>
+    request<DockerSandboxPolicy>("/runtime-adapters/docker-sandbox/policy", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ policy }),
+    }),
   hostRunnerMode: (token: string) => request<HostRunnerMode>("/runtime-adapters/host-runner/mode", { headers: authHeaders(token) }),
   setHostRunnerMode: (token: string, maintenance_enabled: boolean) =>
     request<HostRunnerMode>("/runtime-adapters/host-runner/mode", {

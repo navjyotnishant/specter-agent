@@ -5,15 +5,18 @@ from __future__ import annotations
 import json
 import threading
 import time
-import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
 from app.core.config import get_settings
 from app.db.session import db_session
 from app.runtime import linear_logger
+
+DEFAULT_APPROVAL_TIMEOUT_HOURS = 24
+MIN_APPROVAL_TIMEOUT_HOURS = 1
+MAX_APPROVAL_TIMEOUT_HOURS = 24 * 30
 
 
 # ── topology ──────────────────────────────────────────────────────────────────
@@ -54,6 +57,16 @@ def topological_order(nodes: list[dict], edges: list[dict]) -> list[dict]:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _approval_timeout_hours(node: dict) -> int:
+    data = node.get("data") or {}
+    raw = data.get("timeoutHours", DEFAULT_APPROVAL_TIMEOUT_HOURS)
+    try:
+        hours = int(raw)
+    except (TypeError, ValueError):
+        hours = DEFAULT_APPROVAL_TIMEOUT_HOURS
+    return max(MIN_APPROVAL_TIMEOUT_HOURS, min(MAX_APPROVAL_TIMEOUT_HOURS, hours))
 
 
 def _write_step(run_id: str, node: dict, status: str, stdout: str = "", stderr: str = "", summary: str = "", error: str | None = None) -> str:
@@ -133,12 +146,14 @@ def _write_log(run_id: str, level: str, message: str, metadata: dict | None = No
 def _write_approval_request(run_id: str, step_id: str, node: dict) -> str:
     approval_id = str(uuid4())
     data = node.get("data") or {}
+    timeout_hours = _approval_timeout_hours(node)
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=timeout_hours)).isoformat()
     with db_session() as db:
         db.execute(
             """
             INSERT INTO approval_requests
-              (id, workflow_run_id, workflow_step_run_id, status, title, reason, context_summary, requested_by_agent)
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+              (id, workflow_run_id, workflow_step_run_id, status, title, reason, context_summary, requested_by_agent, expires_at)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
             """,
             (
                 approval_id, run_id, step_id,
@@ -146,6 +161,7 @@ def _write_approval_request(run_id: str, step_id: str, node: dict) -> str:
                 str(data.get("reason") or "Manual approval required before continuing."),
                 f"Workflow run {run_id} paused at approval gate.",
                 "workflow-runner",
+                expires_at,
             ),
         )
     return approval_id
@@ -367,13 +383,18 @@ def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str
             approval_id = _write_approval_request(run_id, step_id, node)
             _write_log(run_id, "info", f"Paused at approval gate: {label}", {"approval_id": approval_id})
 
-            # poll for approval (max 24h in 5s intervals)
-            approved = _wait_for_approval(approval_id, timeout_seconds=86400)
-            if not approved:
-                _update_step(step_id, "failed", error="Approval rejected or timed out.")
-                _update_run_status(run_id, "failed")
-                _write_log(run_id, "warn", "Run stopped: approval rejected or timed out.")
-                linear_logger.log_run_failure(run_id, workflow_name, label, "Approval rejected or timed out.", workspace_path)
+            approval_result = _wait_for_approval(approval_id)
+            if approval_result != "approved":
+                if approval_result == "expired":
+                    _update_step(step_id, "cancelled", error="Approval expired without response.")
+                    _update_run_status(run_id, "cancelled")
+                    _write_log(run_id, "warn", "Run cancelled: approval expired without response.")
+                    linear_logger.log_run_failure(run_id, workflow_name, label, "Approval expired without response.", workspace_path)
+                else:
+                    _update_step(step_id, "failed", error="Approval rejected or revision requested.")
+                    _update_run_status(run_id, "failed")
+                    _write_log(run_id, "warn", "Run stopped: approval rejected or revision requested.")
+                    linear_logger.log_run_failure(run_id, workflow_name, label, "Approval rejected or revision requested.", workspace_path)
                 return
 
             _update_step(step_id, "completed", summary="Approved by human reviewer.")
@@ -407,21 +428,31 @@ def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str
     linear_logger.log_run_complete(run_id, workflow_name)
 
 
-def _wait_for_approval(approval_id: str, timeout_seconds: int = 86400) -> bool:
-    import time
-    elapsed = 0
-    while elapsed < timeout_seconds:
+def _wait_for_approval(approval_id: str) -> str:
+    while True:
         time.sleep(5)
-        elapsed += 5
+        now = datetime.now(timezone.utc)
         with db_session() as db:
             row = db.execute(
-                "SELECT status FROM approval_requests WHERE id = ?", (approval_id,)
+                "SELECT status, expires_at FROM approval_requests WHERE id = ?", (approval_id,)
             ).fetchone()
-        if row and row["status"] == "approved":
-            return True
-        if row and row["status"] in ("rejected", "revision_requested"):
-            return False
-    return False
+            if not row:
+                return "missing"
+            if row["status"] == "approved":
+                return "approved"
+            if row["status"] in ("rejected", "revision_requested", "expired"):
+                return row["status"]
+            expires_at = row["expires_at"]
+            if expires_at and _parse_datetime(expires_at) <= now:
+                db.execute(
+                    "UPDATE approval_requests SET status = 'expired', resolved_at = ? WHERE id = ? AND status = 'pending'",
+                    (_now(), approval_id),
+                )
+                return "expired"
+
+
+def _parse_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def start_run_async(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> None:

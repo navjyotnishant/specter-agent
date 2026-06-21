@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -67,6 +68,60 @@ def _public_message(row) -> dict[str, Any]:
         "content": row["content"],
         "created_at": row["created_at"],
     }
+
+
+def _parse_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _expire_pending_approvals(run_id: str) -> None:
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    with db_session() as db:
+        rows = db.execute(
+            """
+            SELECT id, workflow_step_run_id, expires_at
+            FROM approval_requests
+            WHERE workflow_run_id = ? AND status = 'pending' AND expires_at IS NOT NULL
+            """,
+            (run_id,),
+        ).fetchall()
+        expired = [row for row in rows if _parse_datetime(row["expires_at"]) <= now]
+        if not expired:
+            return
+        for row in expired:
+            db.execute(
+                "UPDATE approval_requests SET status = 'expired', resolved_at = ? WHERE id = ? AND status = 'pending'",
+                (now_iso, row["id"]),
+            )
+            if row["workflow_step_run_id"]:
+                db.execute(
+                    "UPDATE workflow_step_runs SET status = 'cancelled', completed_at = ? WHERE id = ?",
+                    (now_iso, row["workflow_step_run_id"]),
+                )
+                db.execute(
+                    "UPDATE agent_runs SET status = 'cancelled', completed_at = ?, error = ? WHERE id = ?",
+                    (now_iso, "Approval expired without response.", row["workflow_step_run_id"]),
+                )
+        db.execute(
+            "UPDATE workflow_runs SET status = 'cancelled', completed_at = ? WHERE id = ? AND status = 'waiting_approval'",
+            (now_iso, run_id),
+        )
+        db.execute(
+            "INSERT INTO run_logs (id, workflow_run_id, level, message, metadata_json) VALUES (?, ?, 'warn', ?, ?)",
+            (str(uuid4()), run_id, "Run cancelled: approval expired without response.", json.dumps({"approval_status": "expired"})),
+        )
+
+
+def _ensure_pending_approval_open(run_id: str, approval_id: str):
+    _expire_pending_approvals(run_id)
+    with db_session() as db:
+        row = db.execute("SELECT * FROM approval_requests WHERE id = ? AND workflow_run_id = ?", (approval_id, run_id)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Approval request not found.")
+    if row["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Approval already resolved: {row['status']}")
+    return row
 
 
 @router.post("")
@@ -157,12 +212,8 @@ class ApprovalActionRequest(BaseModel):
 
 @router.post("/{run_id}/approve/{approval_id}")
 def approve_run(run_id: str, approval_id: str, body: ApprovalActionRequest = ApprovalActionRequest(), _: dict = Depends(require_admin)) -> dict[str, Any]:
+    _ensure_pending_approval_open(run_id, approval_id)
     with db_session() as db:
-        row = db.execute("SELECT * FROM approval_requests WHERE id = ? AND workflow_run_id = ?", (approval_id, run_id)).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Approval request not found.")
-        if row["status"] != "pending":
-            raise HTTPException(status_code=400, detail=f"Approval already resolved: {row['status']}")
         db.execute(
             "UPDATE approval_requests SET status = 'approved', resolved_at = CURRENT_TIMESTAMP, resolution_comment = ? WHERE id = ?",
             (body.note or None, approval_id),
@@ -172,12 +223,8 @@ def approve_run(run_id: str, approval_id: str, body: ApprovalActionRequest = App
 
 @router.post("/{run_id}/reject/{approval_id}")
 def reject_run(run_id: str, approval_id: str, body: ApprovalActionRequest = ApprovalActionRequest(), _: dict = Depends(require_admin)) -> dict[str, Any]:
+    _ensure_pending_approval_open(run_id, approval_id)
     with db_session() as db:
-        row = db.execute("SELECT * FROM approval_requests WHERE id = ? AND workflow_run_id = ?", (approval_id, run_id)).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Approval request not found.")
-        if row["status"] != "pending":
-            raise HTTPException(status_code=400, detail=f"Approval already resolved: {row['status']}")
         db.execute(
             "UPDATE approval_requests SET status = 'rejected', resolved_at = CURRENT_TIMESTAMP, resolution_comment = ? WHERE id = ?",
             (body.note or None, approval_id),
@@ -187,12 +234,8 @@ def reject_run(run_id: str, approval_id: str, body: ApprovalActionRequest = Appr
 
 @router.post("/{run_id}/request-revision/{approval_id}")
 def request_revision(run_id: str, approval_id: str, body: ApprovalActionRequest = ApprovalActionRequest(), _: dict = Depends(require_admin)) -> dict[str, Any]:
+    _ensure_pending_approval_open(run_id, approval_id)
     with db_session() as db:
-        row = db.execute("SELECT * FROM approval_requests WHERE id = ? AND workflow_run_id = ?", (approval_id, run_id)).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Approval request not found.")
-        if row["status"] != "pending":
-            raise HTTPException(status_code=400, detail=f"Approval already resolved: {row['status']}")
         db.execute(
             "UPDATE approval_requests SET status = 'revision_requested', resolved_at = CURRENT_TIMESTAMP, resolution_comment = ? WHERE id = ?",
             (body.note or None, approval_id),
@@ -217,6 +260,7 @@ def cancel_run(run_id: str, _: dict = Depends(require_admin)) -> dict[str, Any]:
 
 @router.get("/{run_id}/approvals")
 def get_run_approvals(run_id: str, _: dict = Depends(require_user)) -> list[dict[str, Any]]:
+    _expire_pending_approvals(run_id)
     with db_session() as db:
         rows = db.execute(
             "SELECT * FROM approval_requests WHERE workflow_run_id = ? ORDER BY created_at ASC",
@@ -231,6 +275,7 @@ def get_run_approvals(run_id: str, _: dict = Depends(require_user)) -> list[dict
             "context_summary": r["context_summary"],
             "workflow_step_run_id": r["workflow_step_run_id"],
             "created_at": r["created_at"],
+            "expires_at": r["expires_at"],
             "resolved_at": r["resolved_at"],
         }
         for r in rows

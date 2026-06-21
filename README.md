@@ -21,6 +21,20 @@ local work:
 | `./secrets` | `/app/secrets` | Local secret/config files |
 | `./codebases` | `/app/codebases` | Read-only mounted repositories for review |
 
+Before starting Specter Agent, check the host prerequisites:
+
+```bash
+python3 scripts/check_prerequisites.py
+```
+
+The checker reports missing Docker, Docker Compose, Docker Sandboxes, daemon,
+authentication, and host-runner prerequisites with exact remediation commands.
+Use JSON output when another installer or app flow needs to consume the result:
+
+```bash
+python3 scripts/check_prerequisites.py --json
+```
+
 Start the app with:
 
 ```bash

@@ -27,6 +27,10 @@ PORT = int(os.environ.get("SPECTER_HOST_RUNNER_PORT", "8765"))
 MAINTENANCE_MODE = os.environ.get("SPECTER_HOST_RUNNER_ENABLE_INSTALL") == "1"
 CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 CODEX_NPM_LATEST_URL = "https://registry.npmjs.org/@openai%2Fcodex/latest"
+DOCKER_SANDBOX_CODEX_DOCS_URL = "https://docs.docker.com/ai/sandboxes/agents/codex/"
+DOCKER_SANDBOX_PRODUCT_URL = "https://www.docker.com/products/docker-sandboxes/"
+DOCKER_SANDBOX_TEMPLATE = "docker/sandbox-templates:codex"
+SANDBOX_POLICY_VALUES = {"allow-all", "balanced", "deny-all"}
 LOG_LOCK = threading.Lock()
 RUNNER_LOGS: list[dict[str, Any]] = []
 MAX_LOGS = 200
@@ -239,6 +243,238 @@ def best_codex_candidate() -> tuple[dict[str, Any] | None, list[dict[str, Any]]]
     return best, candidates
 
 
+def sbx_candidate_paths() -> list[str]:
+    paths: list[str] = []
+    path_executable = shutil.which("sbx")
+    if path_executable:
+        paths.append(path_executable)
+
+    for candidate in [
+        Path("/opt/homebrew/bin/sbx"),
+        Path("/usr/local/bin/sbx"),
+    ]:
+        if candidate.exists():
+            paths.append(str(candidate))
+
+    deduped: list[str] = []
+    for path in paths:
+        if path not in deduped:
+            deduped.append(path)
+    return deduped
+
+
+def sbx_version_for(executable: str) -> dict[str, Any]:
+    version = "unknown"
+    status = "ok"
+    daemon_available = False
+    try:
+        results = []
+        for command in ([executable, "version"], [executable, "--version"]):
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            results.append(result)
+            if result.returncode == 0:
+                break
+
+        result = results[-1]
+        version = (result.stdout or result.stderr).strip() or version
+        daemon_available = "Server Version:" in version and "Server Version:  Unavailable" not in version
+        if result.returncode != 0:
+            status = "unavailable"
+        elif not daemon_available:
+            status = "daemon_unavailable"
+    except Exception as exc:
+        status = "unavailable"
+        version = f"version check failed: {exc}"
+
+    return {
+        "path": executable,
+        "version": version,
+        "parsed_version": parse_version(version),
+        "status": status,
+        "daemon_available": daemon_available,
+    }
+
+
+def best_sbx_candidate() -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    candidates = [sbx_version_for(path) for path in sbx_candidate_paths()]
+    if not candidates:
+        return None, []
+
+    def sort_key(candidate: dict[str, Any]) -> tuple[int, int, int]:
+        return version_tuple(candidate.get("parsed_version")) or (0, 0, 0)
+
+    best = sorted(candidates, key=sort_key, reverse=True)[0]
+    return best, candidates
+
+
+def docker_sandbox_status() -> dict[str, Any]:
+    best, candidates = best_sbx_candidate()
+    install_guidance = {
+        "macos": "brew install docker/tap/sbx",
+        "windows": "winget install Docker.sbx",
+        "docs_url": DOCKER_SANDBOX_CODEX_DOCS_URL,
+        "product_url": DOCKER_SANDBOX_PRODUCT_URL,
+    }
+    runner_mode_value = "maintenance" if maintenance_mode() else "safe"
+
+    if not best:
+        return {
+            "runtime_id": "docker-sandbox",
+            "display_name": "Docker Sandbox Runtime",
+            "status": "missing",
+            "available": False,
+            "installed": False,
+            "executable_path": None,
+            "version": None,
+            "current_version": None,
+            "detected_installs": [],
+            "sandbox_runtime_available": False,
+            "sbx_installed": False,
+            "sbx_version": None,
+            "sandbox_health_status": "missing",
+            "codex_sandbox_ready": False,
+            "auth_required": None,
+            "install_guidance": install_guidance,
+            "recommended_runtime": "codex-cli",
+            "base_image": DOCKER_SANDBOX_TEMPLATE,
+            "runner_mode": runner_mode_value,
+            "message": "Docker Sandboxes CLI is not installed. Install sbx to use isolated local agent execution.",
+        }
+
+    version = best["version"]
+    daemon_available = bool(best.get("daemon_available"))
+    healthy = best.get("status") == "ok" and daemon_available
+    health_status = "cli_available" if healthy else "daemon_unavailable"
+    return {
+        "runtime_id": "docker-sandbox",
+        "display_name": "Docker Sandbox Runtime",
+        "status": "ready" if healthy else "daemon_unavailable",
+        "available": healthy,
+        "installed": True,
+        "executable_path": best["path"],
+        "version": version,
+        "current_version": parse_version(version),
+        "detected_installs": candidates,
+        "sandbox_runtime_available": healthy,
+        "sbx_installed": True,
+        "sbx_version": version,
+        "sandbox_health_status": health_status,
+        "codex_sandbox_ready": healthy,
+        "auth_required": None,
+        "install_guidance": install_guidance,
+        "recommended_runtime": "docker-sandbox" if healthy else "codex-cli",
+        "base_image": DOCKER_SANDBOX_TEMPLATE,
+        "runner_mode": runner_mode_value,
+        "message": (
+            "Docker Sandboxes is ready for isolated local execution."
+            if healthy
+            else "Docker Sandboxes CLI is installed, but the sandbox daemon is not reachable. Run sbx daemon start."
+        ),
+    }
+
+
+def docker_sandbox_policy_status() -> dict[str, Any]:
+    if not best_sbx_candidate()[0]:
+        return {
+            "ok": False,
+            "status": "missing",
+            "current_policy": None,
+            "available_policies": sorted(SANDBOX_POLICY_VALUES),
+            "message": "Docker Sandboxes CLI is not installed.",
+        }
+
+    result = subprocess.run(["sbx", "policy", "ls"], capture_output=True, text=True, timeout=10, check=False)
+    output = (result.stdout or result.stderr).strip()
+    current_policy = "custom"
+    if result.returncode != 0:
+        return {
+            "ok": False,
+            "status": "unavailable",
+            "current_policy": None,
+            "available_policies": sorted(SANDBOX_POLICY_VALUES),
+            "message": "Docker Sandboxes policy status is unavailable.",
+            "diagnostic": output[-2000:],
+        }
+
+    if "default-ai-services" in output and "default-package-managers" in output:
+        current_policy = "balanced"
+    elif "allow-all" in output or "default-allow-all" in output:
+        current_policy = "allow-all"
+    elif not output or "No policy rules" in output or "deny-all" in output:
+        current_policy = "deny-all"
+
+    return {
+        "ok": True,
+        "status": "ready",
+        "current_policy": current_policy,
+        "available_policies": sorted(SANDBOX_POLICY_VALUES),
+        "message": f"Docker Sandboxes network policy is {current_policy}.",
+        "raw": output[-8000:],
+    }
+
+
+def set_docker_sandbox_policy(payload: dict[str, Any]) -> dict[str, Any]:
+    policy = str(payload.get("policy") or "").strip()
+    if policy not in SANDBOX_POLICY_VALUES:
+        return {
+            "ok": False,
+            "status": "rejected",
+            "message": "Policy must be one of: allow-all, balanced, deny-all.",
+            "available_policies": sorted(SANDBOX_POLICY_VALUES),
+        }
+
+    current = docker_sandbox_policy_status()
+    if current.get("ok") and current.get("current_policy") == policy:
+        current.update({"ok": True, "policy": policy, "status": "unchanged", "message": f"Docker Sandboxes policy is already {policy}."})
+        return current
+
+    reset_warning = ""
+    if current.get("ok") and current.get("current_policy") not in {None, policy}:
+        try:
+            reset = subprocess.run(["sbx", "policy", "reset", "--force"], capture_output=True, text=True, timeout=45, check=False)
+        except subprocess.TimeoutExpired as exc:
+            output = "\n".join(part.decode("utf-8", errors="replace") if isinstance(part, bytes) else str(part) for part in [exc.stdout, exc.stderr] if part).strip()
+            reset_warning = "Policy reset timed out after clearing the current default; continuing with set-default."
+            log_event("warn", "Docker Sandboxes policy reset timed out; continuing with set-default", policy=policy, stderr=output[-1000:])
+        else:
+            if reset.returncode != 0:
+                output = (reset.stdout or reset.stderr).strip()
+                log_event("error", "Docker Sandboxes policy reset failed", policy=policy, stderr=output[-1000:])
+                return {
+                    "ok": False,
+                    "status": "failed",
+                    "policy": policy,
+                    "message": output or "Docker Sandboxes policy reset failed.",
+                }
+
+    result = subprocess.run(["sbx", "policy", "set-default", policy], capture_output=True, text=True, timeout=30, check=False)
+    output = (result.stdout or result.stderr).strip()
+    if result.returncode != 0:
+        log_event("error", "Docker Sandboxes policy update failed", policy=policy, stderr=output[-1000:])
+        return {
+            "ok": False,
+            "status": "failed",
+            "policy": policy,
+            "message": output or "Docker Sandboxes policy update failed.",
+        }
+
+    log_event("info", "Docker Sandboxes policy updated", policy=policy)
+    status = docker_sandbox_policy_status()
+    status.update({
+        "ok": True,
+        "policy": policy,
+        "status": "updated",
+        "message": reset_warning or output or f"Docker Sandboxes policy set to {policy}.",
+    })
+    return status
+
+
 def codex_status() -> dict[str, Any]:
     best, candidates = best_codex_candidate()
     if not best:
@@ -400,30 +636,7 @@ def run_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
             line = line.rstrip()
             all_stdout_lines.append(line)
             if job_token:
-                stripped = line.strip()
-                if not stripped:
-                    pass
-                elif not stripped.startswith("{"):
-                    # plain text line — surface directly
-                    _job_append(job_token, stripped)
-                else:
-                    # JSON event — extract readable content
-                    try:
-                        ev = json.loads(stripped)
-                        ev_type = ev.get("type", "") if isinstance(ev, dict) else ""
-                        if ev_type == "item.completed":
-                            item = ev.get("item") or {}
-                            text = item.get("text") or item.get("content") or ""
-                            if text and isinstance(text, str):
-                                _job_append(job_token, text[:2000])
-                        elif ev_type in ("item.started", "turn.started", "thread.started"):
-                            pass  # skip noise
-                        elif ev_type == "turn.completed":
-                            usage = ev.get("usage") or {}
-                            out_tok = usage.get("output_tokens", "?")
-                            _job_append(job_token, f"[turn completed — {out_tok} output tokens]")
-                    except Exception:
-                        pass
+                append_codex_progress(job_token, line)
             if _time.monotonic() > deadline:
                 proc.kill()
                 timed_out = True
@@ -457,6 +670,7 @@ def run_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
     stdout_text = "\n".join(all_stdout_lines)
     ok = proc.returncode == 0
     final_message = extract_codex_final_message(stdout_text)
+    error_message = extract_codex_error_message(stdout_text)
     log_event(
         "info" if ok else "error",
         "Codex task completed" if ok else "Codex task failed",
@@ -470,12 +684,204 @@ def run_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
         "exit_code": proc.returncode,
         "stdout": stdout_text[-20000:],
         "stderr": "\n".join(stderr_buf)[-12000:],
-        "final_message": final_message,
+        "final_message": final_message or error_message,
         "metadata": {
             "workspace_path": str(workspace),
             "mode": mode,
             "timeout_seconds": timeout_seconds,
             "command": "codex exec --sandbox read-only --json",
+        },
+    }
+
+
+def append_codex_progress(job_token: str, line: str) -> None:
+    stripped = line.strip()
+    if not stripped:
+        return
+    if not stripped.startswith("{"):
+        _job_append(job_token, stripped)
+        return
+
+    try:
+        ev = json.loads(stripped)
+        ev_type = ev.get("type", "") if isinstance(ev, dict) else ""
+        if ev_type == "item.completed":
+            item = ev.get("item") or {}
+            text = item.get("text") or item.get("content") or ""
+            if text and isinstance(text, str):
+                _job_append(job_token, text[:2000])
+        elif ev_type == "turn.completed":
+            usage = ev.get("usage") or {}
+            out_tok = usage.get("output_tokens", "?")
+            _job_append(job_token, f"[turn completed - {out_tok} output tokens]")
+    except Exception:
+        return
+
+
+def safe_sandbox_name(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9.+-]+", "-", value).strip("-").lower()
+    return f"specter-{cleaned[:48] or 'run'}"
+
+
+def run_sandbox_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+    workspace_path = str(payload.get("workspace_path") or "").strip()
+    prompt = str(payload.get("prompt") or "").strip()
+    mode = str(payload.get("mode") or "read-only").strip()
+    timeout_seconds = int(payload.get("timeout_seconds") or 180)
+    job_token = str(payload.get("job_token") or "")
+
+    if mode != "read-only":
+        return {"ok": False, "status": "rejected", "message": "Only read-only sandbox tasks are supported by this runner."}
+    if not prompt:
+        return {"ok": False, "status": "rejected", "message": "Prompt is required."}
+
+    workspace = Path(workspace_path).expanduser().resolve()
+    if not workspace.exists() or not workspace.is_dir():
+        return {"ok": False, "status": "rejected", "message": "Workspace path does not exist or is not a directory."}
+
+    sandbox_status = docker_sandbox_status()
+    if sandbox_status.get("status") != "ready":
+        return {
+            "ok": False,
+            "status": "sandbox_unavailable",
+            "message": sandbox_status.get("message") or "Docker Sandbox runtime is not ready.",
+            "metadata": {"runtime": sandbox_status},
+        }
+
+    if job_token:
+        _job_create(job_token)
+
+    sandbox_name = safe_sandbox_name(job_token or f"{workspace.name}-{int(_time.time())}")
+    create_command = ["sbx", "create", "--clone", "--name", sandbox_name, "codex", str(workspace)]
+    exec_command = [
+        "sbx",
+        "exec",
+        sandbox_name,
+        "codex",
+        "exec",
+        "--sandbox",
+        "read-only",
+        "--json",
+        "--color",
+        "never",
+        prompt,
+    ]
+
+    all_stdout_lines: list[str] = []
+    stderr_buf: list[str] = []
+    timed_out = False
+    proc: subprocess.Popen[str] | None = None
+    deadline = _time.monotonic() + timeout_seconds
+
+    def run_streaming(command: list[str], label: str) -> int | None:
+        nonlocal proc, timed_out
+        if job_token:
+            _job_append(job_token, label)
+        proc = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        if job_token:
+            _job_set_proc(job_token, proc)
+
+        def _read_stderr() -> None:
+            for line in proc.stderr:  # type: ignore[union-attr]
+                stripped = line.rstrip()
+                stderr_buf.append(stripped)
+                if job_token and stripped:
+                    _job_append(job_token, stripped[:2000])
+
+        stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+        stderr_thread.start()
+
+        for line in proc.stdout:  # type: ignore[union-attr]
+            stripped = line.rstrip()
+            all_stdout_lines.append(stripped)
+            if job_token:
+                append_codex_progress(job_token, stripped)
+            if _time.monotonic() > deadline:
+                proc.kill()
+                timed_out = True
+                break
+
+        proc.wait()
+        stderr_thread.join(timeout=2)
+        return proc.returncode
+
+    log_event("info", "Starting Docker Sandbox read-only Codex task", workspace=str(workspace), sandbox=sandbox_name, timeout_seconds=timeout_seconds)
+
+    try:
+        create_exit = run_streaming(create_command, "[sandbox] creating isolated clone")
+        if create_exit != 0:
+            stdout_text = "\n".join(all_stdout_lines)
+            return {
+                "ok": False,
+                "status": "failed",
+                "message": "Docker Sandbox creation failed.",
+                "exit_code": create_exit,
+                "stdout": stdout_text[-20000:],
+                "stderr": "\n".join(stderr_buf)[-12000:],
+                "final_message": "",
+                "metadata": {"workspace_path": str(workspace), "mode": mode, "sandbox_name": sandbox_name, "runtime_id": "docker-sandbox"},
+            }
+
+        exec_exit = run_streaming(exec_command, "[sandbox] running Codex in read-only mode")
+    except Exception as exc:
+        if job_token:
+            _job_done(job_token)
+        return {"ok": False, "status": "error", "message": str(exc), "stdout": "", "stderr": "", "final_message": ""}
+    finally:
+        cleanup = subprocess.run(["sbx", "rm", "--force", sandbox_name], capture_output=True, text=True, timeout=30, check=False)
+        if cleanup and cleanup.returncode != 0:
+            log_event("warn", "Docker Sandbox cleanup failed", sandbox=sandbox_name, stderr=cleanup.stderr[-1000:])
+        if job_token:
+            _job_done(job_token)
+
+    stdout_text = "\n".join(all_stdout_lines)
+    stderr_text = "\n".join(stderr_buf)
+    if timed_out:
+        log_event("error", "Docker Sandbox Codex task timed out", workspace=str(workspace), sandbox=sandbox_name, timeout_seconds=timeout_seconds)
+        return {
+            "ok": False,
+            "status": "timeout",
+            "message": "Docker Sandbox Codex task timed out.",
+            "exit_code": None,
+            "stdout": stdout_text[-20000:],
+            "stderr": stderr_text[-12000:],
+            "final_message": extract_codex_final_message(stdout_text),
+            "metadata": {"workspace_path": str(workspace), "mode": mode, "timeout_seconds": timeout_seconds, "sandbox_name": sandbox_name, "runtime_id": "docker-sandbox"},
+        }
+
+    ok = exec_exit == 0
+    final_message = extract_codex_final_message(stdout_text)
+    error_message = extract_codex_error_message(stdout_text)
+    log_event(
+        "info" if ok else "error",
+        "Docker Sandbox Codex task completed" if ok else "Docker Sandbox Codex task failed",
+        workspace=str(workspace),
+        sandbox=sandbox_name,
+        exit_code=exec_exit,
+    )
+    return {
+        "ok": ok,
+        "status": "completed" if ok else "failed",
+        "message": "Docker Sandbox Codex task completed." if ok else error_message or "Docker Sandbox Codex task failed.",
+        "exit_code": exec_exit,
+        "stdout": stdout_text[-20000:],
+        "stderr": stderr_text[-12000:],
+        "final_message": final_message or error_message,
+        "metadata": {
+            "workspace_path": str(workspace),
+            "mode": mode,
+            "timeout_seconds": timeout_seconds,
+            "sandbox_name": sandbox_name,
+            "runtime_id": "docker-sandbox",
+            "command": "sbx create --clone codex && sbx exec codex exec --sandbox read-only --json",
         },
     }
 
@@ -493,6 +899,26 @@ def extract_codex_final_message(stdout: str) -> str:
             if isinstance(text, str):
                 final_message = text
     return final_message
+
+
+def extract_codex_error_message(stdout: str) -> str:
+    error_message = ""
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "error":
+            message = event.get("message")
+            if isinstance(message, str):
+                error_message = message
+        elif event.get("type") == "turn.failed":
+            error = event.get("error")
+            if isinstance(error, dict) and isinstance(error.get("message"), str):
+                error_message = error["message"]
+    return error_message
 
 
 # ── MCP catalog ─────────────────────────────────────────────────────────────
@@ -812,6 +1238,12 @@ class HostRunnerHandler(BaseHTTPRequestHandler):
         if self.path == "/runtimes/codex/status":
             self.write_json(codex_status())
             return
+        if self.path == "/runtimes/docker-sandbox/status":
+            self.write_json(docker_sandbox_status())
+            return
+        if self.path == "/runtimes/docker-sandbox/policy":
+            self.write_json(docker_sandbox_policy_status())
+            return
         if self.path == "/mcp/list":
             self.write_json(mcp_list())
             return
@@ -851,6 +1283,12 @@ class HostRunnerHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/runtimes/codex/run":
             self.write_json(run_codex_task(self.read_json()))
+            return
+        if self.path == "/runtimes/docker-sandbox/codex/run":
+            self.write_json(run_sandbox_codex_task(self.read_json()))
+            return
+        if self.path == "/runtimes/docker-sandbox/policy":
+            self.write_json(set_docker_sandbox_policy(self.read_json()))
             return
         if self.path.startswith("/runtimes/codex/kill/"):
             token = self.path[len("/runtimes/codex/kill/"):]

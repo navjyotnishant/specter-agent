@@ -342,6 +342,19 @@ export function AgentInspector({
             <Field label="Approval reason">
               <TextArea value={String(d.reason ?? "")} onChange={(v) => patch({ reason: v })} rows={3} />
             </Field>
+            <Field label="Approval timeout">
+              <TextInput
+                value={String(d.timeoutHours ?? 24)}
+                onChange={(v) => {
+                  const parsed = Number.parseInt(v, 10);
+                  patch({ timeoutHours: Number.isFinite(parsed) ? Math.max(1, Math.min(720, parsed)) : 24 });
+                }}
+                placeholder="24"
+              />
+              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                Hours before the pending approval is cancelled. Default is 24.
+              </p>
+            </Field>
             <Field label="Allowed actions">
               <p className="mb-1.5 text-[9px] text-[#9ca3af]" style={MONO}>Which actions the reviewer can take</p>
               {(["approve", "reject", "request_revision"] as const).map((action) => {
