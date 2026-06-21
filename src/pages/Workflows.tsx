@@ -50,6 +50,9 @@ function fmtDuration(run: WorkflowRun) {
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
 
 // ── status ────────────────────────────────────────────────────────────────────
 const STATUS: Record<string, { color: string; bg: string; border: string; label: string }> = {
@@ -166,6 +169,7 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
   const workspacesQuery = useQuery({ queryKey: ["workspaces"], queryFn: () => api.runtimeWorkspaces(token) });
   const workspaces: RuntimeWorkspace[] = workspacesQuery.data ?? [];
   const [changing, setChanging] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState(false);
 
   // Resolve preferred workspace: builder's localStorage selection → active → first
   const preferredId = (() => { try { return localStorage.getItem(`specter_workspace_${workflowId}`) ?? ""; } catch { return ""; } })();
@@ -176,6 +180,39 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
   const [selWsId, setSelWsId] = useState<string>("");
   const effectiveWs = workspaces.find((w) => w.id === (selWsId || preferred?.id)) ?? preferred;
   const canRun = !!effectiveWs && !isPending;
+  const cliPath =
+    (import.meta.env.VITE_SPECTER_CLI_PATH as string | undefined)
+    ?? "/Users/navjyotnishant/Desktop/github/navjyotnishant/specter-agent/scripts/specter_cli.py";
+  const apiBase =
+    (import.meta.env.VITE_API_BASE_URL as string | undefined)
+    ?? `${window.location.origin}/api`;
+  const webBase =
+    (import.meta.env.VITE_SPECTER_WEB_BASE_URL as string | undefined)
+    ?? window.location.origin;
+  const terminalCommand = effectiveWs
+    ? [
+        `cd ${shellQuote(effectiveWs.path)}`,
+        [
+          `SPECTER_API_BASE_URL=${shellQuote(apiBase)}`,
+          `SPECTER_WEB_BASE_URL=${shellQuote(webBase)}`,
+          shellQuote(cliPath),
+          "workflow",
+          "run",
+          shellQuote(workflow.id),
+          "--workspace",
+          ".",
+          "--wait",
+          "--json",
+        ].join(" "),
+      ].join(" && ")
+    : "";
+
+  const copyTerminalCommand = async () => {
+    if (!terminalCommand) return;
+    await navigator.clipboard.writeText(terminalCommand);
+    setCopiedCommand(true);
+    window.setTimeout(() => setCopiedCommand(false), 1600);
+  };
 
   const truncatePath = (p: string) => {
     const home = p.replace(/^\/Users\/[^/]+/, "~");
@@ -184,7 +221,7 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(15,23,42,0.3)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div style={{ background: "white", borderRadius: 16, padding: 24, width: 400, boxShadow: "0 24px 64px rgba(0,0,0,0.14)" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: "white", borderRadius: 16, padding: 24, width: 560, maxWidth: "calc(100vw - 32px)", boxShadow: "0 24px 64px rgba(0,0,0,0.14)" }} onClick={(e) => e.stopPropagation()}>
 
         {/* header */}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
@@ -279,6 +316,48 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
                 </ReactFlow>
               </ReactFlowProvider>
             </div>
+          </div>
+        )}
+
+        {effectiveWs && (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
+                Terminal command
+              </p>
+              <button
+                onClick={copyTerminalCommand}
+                style={{
+                  display: "flex", alignItems: "center", gap: 5,
+                  padding: "5px 9px", borderRadius: 7,
+                  border: "1px solid #c7d2fe", background: copiedCommand ? "#ecfdf5" : "#f0f4ff",
+                  color: copiedCommand ? "#047857" : "#4f46e5",
+                  fontSize: 11, fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                {copiedCommand ? <CheckCircle2 style={{ width: 11, height: 11 }} /> : <Copy style={{ width: 11, height: 11 }} />}
+                {copiedCommand ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <pre style={{
+              margin: 0,
+              padding: "12px 14px",
+              borderRadius: 10,
+              border: "1px solid #e2e8f0",
+              background: "#0f172a",
+              color: "#e2e8f0",
+              fontSize: 11,
+              lineHeight: 1.6,
+              overflowX: "auto",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            }}>
+              {terminalCommand}
+            </pre>
+            <p style={{ fontSize: 10, color: "#94a3b8", margin: "6px 0 0" }}>
+              Requires <code>SPECTER_TOKEN</code> in that terminal session.
+            </p>
           </div>
         )}
 
