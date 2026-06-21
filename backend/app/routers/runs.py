@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -124,9 +125,29 @@ def _ensure_pending_approval_open(run_id: str, approval_id: str):
     return row
 
 
+def _normalize_workspace_path(path: str) -> str:
+    return str(Path(path).expanduser().resolve())
+
+
+def _approved_workspace_path(path: str) -> str:
+    requested = Path(_normalize_workspace_path(path))
+    with db_session() as db:
+        rows = db.execute("SELECT path FROM runtime_workspaces WHERE is_active = 1").fetchall()
+    candidates: list[tuple[int, str]] = []
+    for row in rows:
+        approved = Path(_normalize_workspace_path(row["path"]))
+        if requested == approved or approved in requested.parents:
+            candidates.append((len(approved.parts), str(approved)))
+    if not candidates:
+        raise HTTPException(status_code=403, detail="Workspace path is not approved for workflow execution.")
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
 @router.post("")
 def start_run(request: StartRunRequest, user: dict = Depends(require_admin)) -> dict[str, Any]:
     run_id = str(uuid4())
+    workspace_path = _approved_workspace_path(request.workspace_path)
 
     # resolve graph — use saved workflow graph if not provided
     graph = request.graph
@@ -143,9 +164,9 @@ def start_run(request: StartRunRequest, user: dict = Depends(require_admin)) -> 
             (run_id, request.workflow_id, json.dumps(graph)),
         )
 
-    start_run_async(run_id, request.workflow_id, graph, request.workspace_path)
+    start_run_async(run_id, request.workflow_id, graph, workspace_path)
 
-    return {"run_id": run_id, "status": "queued", "workflow_id": request.workflow_id}
+    return {"run_id": run_id, "status": "queued", "workflow_id": request.workflow_id, "workspace_path": workspace_path}
 
 
 @router.get("")

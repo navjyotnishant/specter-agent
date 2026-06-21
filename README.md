@@ -63,3 +63,32 @@ To allow UI-approved Codex CLI install and upgrade actions during setup:
 ```bash
 SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 python3 scripts/specter_host_runner.py
 ```
+
+## Terminal Workflow Gate
+
+Specter workflows can be triggered from a terminal for local release gates,
+agent instructions, or project scripts.
+
+Authenticate once and export the token for the current shell:
+
+```bash
+scripts/specter_cli.py auth login --email you@example.com
+export SPECTER_TOKEN='...'
+```
+
+Run an approved workflow against the current repository:
+
+```bash
+scripts/specter_cli.py workflow run security-review-team --workspace . --wait
+```
+
+Automation can request final JSON and use the process exit code:
+
+```bash
+scripts/specter_cli.py workflow run security-review-team --workspace . --wait --json
+```
+
+Exit code `0` means the workflow completed successfully. A non-zero exit means
+the workflow failed, was cancelled, timed out, hit an approval/policy stop, or
+could not be started. The repository path must already be approved in Specter
+Agent before the command can run.

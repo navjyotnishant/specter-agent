@@ -170,6 +170,49 @@ the run is active.
 
 ---
 
+## Terminal Execution
+
+The local CLI entrypoint is:
+
+```bash
+scripts/specter_cli.py workflow run <workflow-id-or-slug> --workspace . --wait
+```
+
+Authentication uses the same local FastAPI auth token as the web app. The CLI
+reads `SPECTER_TOKEN` by default, or accepts `--token`.
+
+```bash
+scripts/specter_cli.py auth login --email you@example.com
+export SPECTER_TOKEN='...'
+```
+
+Behavior:
+
+- Resolves the workflow by id, exact name, or slugified name.
+- Resolves the requested path to an approved Specter runtime workspace.
+- Starts the workflow via `POST /api/workflow-runs`.
+- Streams run logs while waiting.
+- Prints the web evidence URL for the run.
+- Exits `0` only when the workflow status is `completed`.
+- Exits non-zero for failed, cancelled, timed-out, unapproved workspace, auth,
+  unavailable API, or missing workflow cases.
+- `--json` prints a machine-readable final result for automation.
+
+Project-level `CLAUDE.md` or `AGENTS.md` gate example:
+
+```md
+Before production build, release, or high-risk code change, run:
+
+scripts/specter_cli.py workflow run security-review-team --workspace . --wait
+
+Proceed only if the command exits 0.
+```
+
+The backend start-run API also checks that the requested workspace path is
+inside an active approved workspace before launching execution.
+
+---
+
 ## Removed Pages
 
 The following pages were removed — do not re-add routes or nav entries for them:
