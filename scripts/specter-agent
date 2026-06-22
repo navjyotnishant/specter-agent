@@ -108,6 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token", default=os.environ.get("SPECTER_TOKEN"), help="Specter bearer token. Defaults to SPECTER_TOKEN.")
     parser.add_argument("--no-save-token", action="store_true", help="Do not cache the token after interactive login.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable final JSON.")
+    parser.add_argument("--quiet", action="store_true", help="Suppress live progress output while waiting.")
     parser.add_argument("--timeout", type=int, default=0, help="Maximum seconds to wait. 0 means no wrapper wait timeout.")
     parser.add_argument("--poll-interval", type=float, default=3.0, help="Polling interval while waiting.")
     return parser
@@ -128,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
             workspace=args.workspace,
             wait=True,
             json=args.json,
+            quiet=args.quiet,
             poll_interval=args.poll_interval,
             timeout=args.timeout,
         )

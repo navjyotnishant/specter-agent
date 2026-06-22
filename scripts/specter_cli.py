@@ -186,12 +186,12 @@ def print_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 
-def emit_log_line(log: dict[str, Any]) -> None:
+def emit_log_line(log: dict[str, Any], stream=sys.stdout) -> None:
     level = str(log.get("level") or "info").upper()
     message = str(log.get("message") or "")
     created_at = str(log.get("created_at") or "")
     prefix = f"[{created_at}] " if created_at else ""
-    print(f"{prefix}{level}: {message}")
+    print(f"{prefix}{level}: {message}", file=stream)
 
 
 def wait_for_run(
@@ -202,11 +202,13 @@ def wait_for_run(
     poll_interval: float,
     timeout_seconds: int,
     json_output: bool,
+    quiet: bool,
 ) -> int:
     start = time.monotonic()
     seen_logs: set[str] = set()
     last_approval_ids: set[str] = set()
     final_run: dict[str, Any] | None = None
+    progress_stream = sys.stderr if json_output else sys.stdout
 
     while True:
         if timeout_seconds > 0 and time.monotonic() - start > timeout_seconds:
@@ -226,19 +228,19 @@ def wait_for_run(
 
         run = client.get_run(run_id)
         final_run = run
-        if not json_output:
+        if not quiet:
             for log in client.get_logs(run_id):
                 log_id = str(log.get("id") or "")
                 if log_id and log_id not in seen_logs:
                     seen_logs.add(log_id)
-                    emit_log_line(log)
+                    emit_log_line(log, stream=progress_stream)
             approvals = [approval for approval in client.get_approvals(run_id) if approval.get("status") == "pending"]
             approval_ids = {str(approval.get("id")) for approval in approvals}
             for approval in approvals:
                 approval_id = str(approval.get("id"))
                 if approval_id not in last_approval_ids:
                     expires_at = approval.get("expires_at") or "deadline not recorded"
-                    print(f"WAITING APPROVAL: {approval.get('title')} expires at {expires_at}")
+                    print(f"WAITING APPROVAL: {approval.get('title')} expires at {expires_at}", file=progress_stream)
             last_approval_ids = approval_ids
 
         status = str(run.get("status") or "")
@@ -322,7 +324,12 @@ def cmd_workflow_run(args: argparse.Namespace) -> int:
         print(f"Workflow: {workflow['name']}")
         print(f"Workspace: {workspace_path}")
         print(f"Evidence: {result['url']}")
-    return wait_for_run(client, run_id, workflow, args.web_base, args.poll_interval, args.timeout, args.json)
+    elif not args.quiet:
+        print(f"Started workflow run: {run_id}", file=sys.stderr)
+        print(f"Workflow: {workflow['name']}", file=sys.stderr)
+        print(f"Workspace: {workspace_path}", file=sys.stderr)
+        print(f"Evidence: {result['url']}", file=sys.stderr)
+    return wait_for_run(client, run_id, workflow, args.web_base, args.poll_interval, args.timeout, args.json, args.quiet)
 
 
 def cmd_workflow_status(args: argparse.Namespace) -> int:
@@ -390,6 +397,7 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_run.add_argument("--workspace", default=".", help="Repository path to map to an approved Specter workspace.")
     workflow_run.add_argument("--wait", action="store_true", help="Wait for completion and return pass/fail exit code.")
     workflow_run.add_argument("--json", action="store_true", help="Print machine-readable final JSON.")
+    workflow_run.add_argument("--quiet", action="store_true", help="Suppress live progress output while waiting.")
     workflow_run.add_argument("--poll-interval", type=float, default=3.0, help="Polling interval while waiting.")
     workflow_run.add_argument("--timeout", type=int, default=0, help="Maximum seconds to wait. 0 means no CLI wait timeout.")
     workflow_run.set_defaults(func=cmd_workflow_run)

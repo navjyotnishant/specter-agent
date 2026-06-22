@@ -345,7 +345,7 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
               {terminalCommand}
             </pre>
             <p style={{ fontSize: 10, color: "#94a3b8", margin: "6px 0 0" }}>
-              One command for another repo. If needed, it prompts for Specter login once and caches the token locally.
+              Shows live progress in terminal; final JSON remains machine-readable for automation.
             </p>
           </div>
         )}
