@@ -142,11 +142,16 @@ Specter Agent adds its own layer on top:
 
 ---
 
-## Claude Code vs Codex in Sandboxes
+## Supported Agents
 
-Specter Agent currently uses the **Codex** sandbox template
-(`docker/sandbox-templates:codex`) and the `codex exec` command. The Claude Code
-template (`docker/sandbox-templates:claude-code`) uses `sbx run claude` and is a
-separate agent. If Claude Code sandbox support is added to Specter in future, the
-base image and exec command would need to change and a separate auth flow
-(`sbx secret set -g anthropic`) would be required.
+Specter Agent supports two sandbox agents, selectable per run:
+
+| Agent | Template | Exec command | Auth |
+|---|---|---|---|
+| `codex` | `docker/sandbox-templates:codex` | `codex exec --sandbox read-only --json` | `sbx secret set -g openai --oauth` |
+| `claude` | `docker/sandbox-templates:claude-code` | `sbx run claude --dangerously-skip-permissions` | `sbx secret set -g anthropic` |
+
+The agent is passed as `"agent": "codex" | "claude"` in the run payload. The
+host runner selects the correct template and exec command. The Models page
+exposes an agent selector ("Codex" / "Claude Code") that is persisted to
+`localStorage` and sent with each run request.

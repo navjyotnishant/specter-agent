@@ -232,6 +232,81 @@ Discovery guardrails:
 - Repositories are never auto-approved; the user selects which candidates become
   approved runtime workspaces.
 
+## MCP Connector Architecture
+
+The host runner manages MCP (Model Context Protocol) server configuration for
+multiple AI agent clients through a pluggable adapter pattern.
+
+### Adapter registry
+
+```python
+class McpClientAdapter:
+    client_id: str        # e.g. "codex", "claude-code"
+    display_name: str
+
+    def list_configured(self) -> dict[str, Any]: ...  # live state from CLI
+    def build_server_list(self) -> dict[str, Any]:    # merge catalog + live
+    def add(self, payload) -> dict[str, Any]: ...
+    def remove(self, name) -> dict[str, Any]: ...
+    def login_instructions(self, name) -> dict[str, Any]: ...
+```
+
+Two adapters are registered:
+
+| Adapter | `client_id` | Live source | Config written to |
+|---|---|---|---|
+| `CodexMcpAdapter` | `codex` | `codex mcp list --json` | Codex CLI config |
+| `ClaudeCodeMcpAdapter` | `claude-code` | `claude mcp list` (text) | `~/.claude/settings.json` |
+
+Adding support for a new client (e.g. Cursor, Kiro) requires only a new
+`McpClientAdapter` subclass — no frontend changes needed.
+
+### Binary path resolution
+
+The host runner runs as a launchd service with a minimal PATH. Each adapter
+resolves its CLI binary with explicit fallback paths:
+
+- `ClaudeCodeMcpAdapter._claude_exe()` checks `shutil.which("claude")` then
+  `/opt/homebrew/bin/claude`, `~/.npm-global/bin/claude`, etc.
+- `CodexMcpAdapter` delegates to `codex_candidate_paths()` which already
+  includes `/opt/homebrew/bin/codex` and `~/.local/bin/codex`.
+
+### MCP catalog
+
+`MCP_CATALOG` is a list of known MCP server entries. Each entry may include a
+`"clients"` field to scope it to specific adapters:
+
+```python
+{ "id": "claude-ai-gmail", "name": "claude.ai Gmail", ..., "clients": ["claude-code"] }
+```
+
+Entries without `"clients"` appear for all adapters. Claude Code-only entries
+(Gmail, Google Drive, Google Calendar, Canva, Gamma, Atlassian Rovo, Microsoft
+Learn, GoDaddy, KRISP) are scoped this way.
+
+### URL-based matching
+
+Claude Code renames catalog servers (e.g. catalog `"figma"` → live `"claude.ai
+Figma"`). `build_server_list()` falls back to URL comparison when the name
+doesn't match, using the catalog entry's `url` field against the live
+server's transport URL.
+
+### HTTP routes
+
+All `/mcp/*` routes accept a `?client=` query parameter:
+
+| Route | Method | Description |
+|---|---|---|
+| `/mcp/list?client=` | GET | Returns merged catalog + live state |
+| `/mcp/add?client=` | POST | Adds a server to the client's config |
+| `/mcp/remove/<name>?client=` | POST | Removes a server |
+| `/mcp/login/<name>?client=` | GET | Returns login/auth instructions |
+
+The backend proxies these at `/api/runtime-adapters/mcp/*`, forwarding the
+`client` query param through to the host runner.
+
+---
+
 ## Product Positioning
 
 Codex CLI Runtime is not a raw model provider. It is a local execution runtime
