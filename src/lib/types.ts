@@ -82,6 +82,7 @@ export type DockerSandboxPolicy = {
 };
 
 export type HostRunnerLogEntry = {
+  seq: number;
   timestamp: string;
   level: "debug" | "info" | "warn" | "error" | string;
   message: string;
@@ -91,6 +92,8 @@ export type HostRunnerLogEntry = {
 export type HostRunnerLogs = {
   logs: HostRunnerLogEntry[];
   count: number;
+  latest_seq: number;
+  total: number;
 };
 
 export type RuntimeWorkspace = {

@@ -1,17 +1,19 @@
 import { useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   Bot,
   ChevronLeft,
   ChevronRight,
   GitBranch,
   LayoutDashboard,
+  LogOut,
   Network,
   Settings2,
   ShieldCheck,
   Users,
   Wrench,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -23,9 +25,16 @@ const navItems = [
 ];
 
 export function SidebarNav() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem("specter_sidebar_collapsed") === "1"; } catch { return false; }
   });
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
+  };
 
   const toggle = () => setCollapsed((prev) => {
     const next = !prev;
@@ -112,6 +121,40 @@ export function SidebarNav() {
               <Settings2 className="h-4 w-4" /> Agent safety defaults
             </div>
             <p className="mt-2 text-xs leading-5 text-slate-600">Bounded iterations, allowlisted tools, masked memory, and approval gates before risky actions.</p>
+          </div>
+        )}
+
+        {/* user profile */}
+        {user && (
+          <div className={`mt-auto pt-6 ${collapsed ? "" : "border-t border-slate-100"}`}>
+            {collapsed ? (
+              <button
+                type="button"
+                onClick={handleLogout}
+                title="Logout"
+                className="flex w-full items-center justify-center rounded-2xl py-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-3 rounded-2xl p-2">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-sm font-black text-indigo-700">
+                  {user.email[0].toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-bold text-slate-900">{user.email}</p>
+                  <p className="text-xs font-semibold capitalize text-slate-400">{user.role}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  title="Logout"
+                  className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

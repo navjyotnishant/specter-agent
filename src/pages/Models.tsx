@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -21,11 +21,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 const codexSigninCommand = "codex";
@@ -82,6 +83,8 @@ export default function Models() {
   const queryClient = useQueryClient();
   const [error, setError] = useState("");
   const [copiedCommand, setCopiedCommand] = useState("");
+  const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
+  const [logSince, setLogSince] = useState(0);
   const [sandboxAgent, setSandboxAgent] = useState<string>(() => {
     try { return localStorage.getItem("specter_sandbox_agent") ?? "codex"; } catch { return "codex"; }
   });
@@ -114,11 +117,15 @@ export default function Models() {
     retry: false,
   });
   const { data: runnerLogs } = useQuery({
-    queryKey: ["host-runner", "logs"],
-    queryFn: () => api.hostRunnerLogs(token ?? ""),
+    queryKey: ["host-runner", "logs", logLevelFilter],
+    queryFn: () => api.hostRunnerLogs(token ?? "", 0, logLevelFilter === "all" ? undefined : logLevelFilter),
     enabled: canUseBackend && dockerSandboxRuntime?.status !== "host_runner_unavailable",
     retry: false,
-    refetchInterval: activeRunStartedAt ? 1000 : 5000,
+    refetchInterval: activeRunStartedAt ? 1000 : 3000,
+    select: (data) => {
+      if (data.latest_seq > logSince) setLogSince(data.latest_seq);
+      return data;
+    },
   });
   const { data: sandboxPolicy } = useQuery({
     queryKey: ["runtime-adapter", "docker-sandbox", "policy"],
@@ -137,6 +144,36 @@ export default function Models() {
     queryFn: () => api.codexRuntimeRuns(token ?? ""),
     enabled: canUseBackend,
     retry: false,
+  });
+  const { data: launchdSvc, refetch: refetchLaunchd } = useQuery({
+    queryKey: ["host-runner", "launchd"],
+    queryFn: () => api.launchdStatus(token ?? ""),
+    enabled: canUseBackend,
+    retry: false,
+    refetchInterval: 8000,
+  });
+  const { data: hostRunnerVersion } = useQuery({
+    queryKey: ["host-runner", "version"],
+    queryFn: () => api.hostRunnerVersion(token ?? ""),
+    enabled: canUseBackend && dockerSandboxRuntime?.status !== "host_runner_unavailable",
+    retry: false,
+    refetchInterval: 30000,
+  });
+
+  const installLaunchd = useMutation({
+    mutationFn: () => api.launchdInstall(token ?? ""),
+    onSuccess: () => { void refetchLaunchd(); },
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to install launchd service"),
+  });
+  const uninstallLaunchd = useMutation({
+    mutationFn: () => api.launchdUninstall(token ?? ""),
+    onSuccess: () => { void refetchLaunchd(); },
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to uninstall launchd service"),
+  });
+  const restartLaunchd = useMutation({
+    mutationFn: () => api.launchdRestart(token ?? ""),
+    onSuccess: () => { window.setTimeout(() => { void refetchLaunchd(); }, 1200); },
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to restart host runner"),
   });
 
   const installCodex = useMutation({
@@ -158,6 +195,13 @@ export default function Models() {
       queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "docker-sandbox"] });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Unable to update host runner mode"),
+  });
+  const startSandboxDaemon = useMutation({
+    mutationFn: () => api.startDockerSandboxDaemon(token ?? ""),
+    onSuccess: () => {
+      window.setTimeout(() => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "docker-sandbox"] }), 1500);
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to start sbx daemon"),
   });
   const setSandboxPolicy = useMutation({
     mutationFn: (policy: "allow-all" | "balanced" | "deny-all") => api.setDockerSandboxPolicy(token ?? "", policy),
@@ -234,7 +278,7 @@ export default function Models() {
   const canInstallCodex = Boolean(canUseBackend && codexRuntime?.status === "missing" && codexRuntime.install_supported);
   const canUpgradeCodex = Boolean(canUseBackend && codexRuntime?.installed && codexRuntime?.upgrade_supported);
   const maintenanceEnabled = runnerMode?.maintenance_enabled ?? codexRuntime?.install_enabled ?? false;
-  const recentRunnerLogs = runnerLogs?.logs?.slice(-20).reverse() ?? [];
+  const recentRunnerLogs = runnerLogs?.logs ?? [];
   const activeRuntimeWorkspaces = runtimeWorkspaces.filter((workspace) => workspace.is_active);
   const latestRuntimeRun = runtimeRuns[0];
   const runtimeRunInProgress = Boolean(activeRunStartedAt) || createRuntimeRun.isPending;
@@ -266,6 +310,11 @@ export default function Models() {
     { label: "Runs", value: completedRuntimeRuns, className: "border-slate-100 bg-white text-slate-950", labelClassName: "text-slate-500" },
   ];
 
+  const logsEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [recentRunnerLogs.length]);
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -274,12 +323,24 @@ export default function Models() {
           <h2 className="text-3xl font-black text-slate-950">Models</h2>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {summaryTiles.map((tile) => (
-            <div key={tile.label} className={`rounded-2xl border px-4 py-3 text-center shadow-sm ${tile.className}`}>
-              <p className="text-xl font-black">{tile.value}</p>
-              <p className={`text-xs font-bold uppercase ${tile.labelClassName}`}>{tile.label}</p>
-            </div>
-          ))}
+          {/* Host runner status */}
+          <div className={`rounded-2xl border px-4 py-3 text-center shadow-sm ${hostRunnerOffline ? "border-slate-200 bg-slate-100 text-slate-800" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
+            <p className="text-xl font-black">{hostRunnerOffline ? "Offline" : "Online"}</p>
+            <p className={`text-xs font-bold uppercase ${hostRunnerOffline ? "text-slate-500" : "text-emerald-700"}`}>Host Runner</p>
+          </div>
+          {/* Docker Sandbox status */}
+          <div className={`rounded-2xl border px-4 py-3 text-center shadow-sm ${sandboxReady ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+            <p className="text-xl font-black">{sandboxReady ? "Ready" : "Setup"}</p>
+            <p className={`text-xs font-bold uppercase ${sandboxReady ? "text-emerald-700" : "text-amber-700"}`}>Docker Sandbox</p>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-center shadow-sm text-slate-950">
+            <p className="text-xl font-black">{activeRuntimeWorkspaces.length}</p>
+            <p className="text-xs font-bold uppercase text-slate-500">Repos</p>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-center shadow-sm text-slate-950">
+            <p className="text-xl font-black">{completedRuntimeRuns}</p>
+            <p className="text-xs font-bold uppercase text-slate-500">Runs</p>
+          </div>
         </div>
       </div>
 
@@ -289,10 +350,26 @@ export default function Models() {
         </Alert>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+      <Tabs defaultValue="infrastructure">
+        <TabsList className="rounded-2xl bg-slate-100 p-1">
+          <TabsTrigger value="infrastructure" className="rounded-xl px-5 font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            Infrastructure
+          </TabsTrigger>
+          <TabsTrigger value="logs" className="rounded-xl px-5 font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            <span className="flex items-center gap-2">
+              Logs
+              {!hostRunnerOffline && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+              {runnerLogs?.total ? <span className="text-[10px] text-slate-400">{runnerLogs.total}</span> : null}
+            </span>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="infrastructure" className="mt-4">
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        {/* ── Docker Sandbox ── */}
         <Card className="rounded-[1.5rem] border-emerald-100 bg-white/90 shadow-sm">
           <CardContent className="p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-800">
                   <Box className="h-6 w-6" />
@@ -302,26 +379,45 @@ export default function Models() {
                     <h3 className="text-xl font-black text-slate-950">Docker Sandbox</h3>
                     <Badge className="rounded-full bg-slate-900 text-white hover:bg-slate-900">Preferred</Badge>
                     <Badge className={`rounded-full ${dockerSandboxBadge.className} hover:bg-current/0`}>
-                      {sandboxRuntimeLoading && canUseBackend ? "Checking" : dockerSandboxBadge.label}
+                      {sandboxRuntimeLoading && canUseBackend ? "Checking…" : dockerSandboxBadge.label}
                     </Badge>
                   </div>
-                  <p className="mt-1 text-sm font-semibold text-slate-600">{sandboxStatusLine(dockerSandboxRuntime)}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-500">{sandboxStatusLine(dockerSandboxRuntime)}</p>
                   {dockerSandboxRuntime?.executable_path && (
-                    <p className="mt-1 break-all text-xs font-semibold text-slate-400">{shortPath(dockerSandboxRuntime.executable_path)}</p>
+                    <p className="mt-0.5 break-all text-xs text-slate-400">{shortPath(dockerSandboxRuntime.executable_path)}</p>
                   )}
                 </div>
               </div>
               <Button
                 type="button"
-                disabled={!canUseBackend}
+                size="sm"
+                disabled={!canUseBackend || sandboxRuntimeLoading}
                 onClick={() => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "docker-sandbox"] })}
                 variant="outline"
-                className="rounded-2xl bg-white"
+                className="rounded-xl bg-white"
               >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Re-check
+                {sandboxRuntimeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               </Button>
             </div>
+
+            {/* Action needed banner */}
+            {dockerSandboxRuntime?.sandbox_health_status === "daemon_unavailable" && (
+              <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5">
+                <p className="text-xs font-semibold text-amber-800">
+                  {startSandboxDaemon.data?.message ?? "sbx daemon is not running."}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl bg-white text-xs"
+                  disabled={!canUseBackend || hostRunnerOffline || startSandboxDaemon.isPending}
+                  onClick={() => startSandboxDaemon.mutate()}
+                >
+                  {startSandboxDaemon.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
+                  {startSandboxDaemon.isPending ? "Starting…" : "Start daemon"}
+                </Button>
+              </div>
+            )}
 
             {/* Agent selector */}
             <div className="mt-4 flex gap-1 rounded-2xl border border-slate-100 bg-slate-50 p-1">
@@ -346,33 +442,32 @@ export default function Models() {
               ))}
             </div>
 
-            <div className="mt-4 grid gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="rounded-full bg-white text-emerald-800 hover:bg-white">microVM isolation</Badge>
-                <Badge className="rounded-full bg-white text-emerald-800 hover:bg-white">
-                  {SANDBOX_AGENTS[sandboxAgent]?.template ?? dockerSandboxRuntime?.base_image ?? "docker/sandbox-templates:codex"}
-                </Badge>
-              </div>
-              <p className="text-sm font-semibold leading-6 text-emerald-950">
-                {SANDBOX_AGENTS[sandboxAgent]?.label ?? "Agent"} tasks will run inside a disposable Docker Sandbox while Specter keeps approvals, workspace allowlists, logs, and evidence in the app.
-              </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Badge className="rounded-full bg-emerald-50 text-emerald-800 hover:bg-emerald-50">microVM isolation</Badge>
+              <Badge className="rounded-full bg-slate-100 text-slate-700 hover:bg-slate-100">
+                {SANDBOX_AGENTS[sandboxAgent]?.template ?? dockerSandboxRuntime?.base_image ?? "docker/sandbox-templates:codex"}
+              </Badge>
             </div>
 
             <div className="mt-4 rounded-2xl border border-slate-100 bg-white p-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-sm font-black text-slate-950">Network policy</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-black text-slate-950">Network policy</p>
+                    {setSandboxPolicy.isPending && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+                    {setSandboxPolicy.isSuccess && <span className="text-xs font-semibold text-emerald-600">Saved</span>}
+                  </div>
                   <p className="text-xs font-semibold leading-5 text-slate-500">
                     {sandboxPolicyDescriptions[sandboxPolicy?.current_policy ?? ""] ?? sandboxPolicy?.message ?? "Current policy unavailable."}
                   </p>
                 </div>
                 <Select
-                  value={sandboxPolicy?.current_policy && ["balanced", "deny-all", "allow-all"].includes(sandboxPolicy.current_policy) ? sandboxPolicy.current_policy : ""}
+                  value={["balanced", "deny-all", "allow-all"].includes(sandboxPolicy?.current_policy ?? "") ? sandboxPolicy!.current_policy : undefined}
                   onValueChange={(value) => setSandboxPolicy.mutate(value as "allow-all" | "balanced" | "deny-all")}
-                  disabled={!canUseBackend || hostRunnerOffline || setSandboxPolicy.isPending}
+                  disabled={!canUseBackend || !sandboxReady || setSandboxPolicy.isPending}
                 >
                   <SelectTrigger className="w-full rounded-2xl bg-white sm:w-44">
-                    <SelectValue placeholder="Select policy" />
+                    <SelectValue placeholder="Select…" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="balanced">Balanced</SelectItem>
@@ -383,168 +478,122 @@ export default function Models() {
               </div>
             </div>
 
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button type="button" variant="outline" className="mt-4 rounded-2xl bg-white">
-                  Setup commands
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl rounded-3xl">
-                <DialogHeader>
-                  <DialogTitle>Docker Sandbox Setup</DialogTitle>
-                  <DialogDescription>
-                    Install sbx once on the host, then authenticate {SANDBOX_AGENTS[sandboxAgent]?.label ?? "the agent"} for sandboxed runs.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3">
-                  <CommandCopy command={dockerSandboxRuntime?.install_guidance?.macos ?? dockerSandboxMacInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
-                  <CommandCopy command={dockerSandboxRuntime?.install_guidance?.windows ?? dockerSandboxWindowsInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
-                  <CommandCopy command={SANDBOX_AGENTS[sandboxAgent]?.authCommand ?? "sbx secret set -g openai --oauth"} copiedCommand={copiedCommand} onCopy={copyCommand} />
-                </div>
-              </DialogContent>
-            </Dialog>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button type="button" variant="outline" className="rounded-2xl bg-white">Setup</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl rounded-3xl">
+                  <DialogHeader>
+                    <DialogTitle>Docker Sandbox Setup</DialogTitle>
+                    <DialogDescription>
+                      Install sbx once on the host, then authenticate {SANDBOX_AGENTS[sandboxAgent]?.label ?? "the agent"} for sandboxed runs.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <CommandCopy command={dockerSandboxRuntime?.install_guidance?.macos ?? dockerSandboxMacInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                    <CommandCopy command={dockerSandboxRuntime?.install_guidance?.windows ?? dockerSandboxWindowsInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                    <CommandCopy command={SANDBOX_AGENTS[sandboxAgent]?.authCommand ?? "sbx secret set -g openai --oauth"} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
           </CardContent>
         </Card>
 
+        {/* ── Host Runner ── */}
         <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
           <CardContent className="p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-900">
                   <TerminalSquare className="h-6 w-6" />
                 </span>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-xl font-black text-slate-950">Codex CLI</h3>
-                    <Badge className="rounded-full bg-slate-100 text-slate-700 hover:bg-slate-100">Fallback</Badge>
-                    <Badge className={`rounded-full ${codexBadge.className} hover:bg-current/0`}>
-                      {runtimeLoading && canUseBackend ? "Checking" : codexBadge.label}
+                    <h3 className="text-xl font-black text-slate-950">Host Runner</h3>
+                    <Badge className={`rounded-full ${hostRunnerOffline ? "bg-slate-100 text-slate-600" : "bg-emerald-100 text-emerald-800"} hover:bg-current/0`}>
+                      {hostRunnerOffline ? "Offline" : "Online"}
                     </Badge>
                   </div>
-                  <p className="mt-1 text-sm font-semibold text-slate-600">{statusLine(codexRuntime)}</p>
-                  {codexRuntime?.executable_path && (
-                    <p className="mt-1 break-all text-xs font-semibold text-slate-400">{shortPath(codexRuntime.executable_path)}</p>
-                  )}
+                  <p className="mt-1 text-sm font-semibold text-slate-500">
+                    {hostRunnerOffline ? "Not reachable on localhost:8765" : `Bridges Docker container → host sbx · ${hostRunnerVersion?.version ? `v${hostRunnerVersion.version}` : ""}`}
+                  </p>
                 </div>
               </div>
-              <Button
-                type="button"
-                disabled={!canUseBackend}
-                onClick={() => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "codex-cli"] })}
-                variant="outline"
-                className="rounded-2xl bg-white"
-              >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Re-check
-              </Button>
-            </div>
-
-            <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
-              <div className="flex items-center gap-3">
-                <ShieldCheck className="h-5 w-5 text-emerald-700" />
-                <div>
-                  <p className="text-sm font-black text-slate-950">Maintenance mode</p>
-                  <p className="text-xs font-semibold text-slate-500">{maintenanceEnabled ? "Install and upgrade enabled" : "Safe mode"}</p>
-                </div>
-              </div>
-              <Switch
-                checked={maintenanceEnabled}
-                disabled={!canUseBackend || hostRunnerOffline || setRunnerMode.isPending}
-                onCheckedChange={(checked) => setRunnerMode.mutate(checked)}
-              />
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                disabled={!canInstallCodex || installCodex.isPending || !codexRuntime?.install_enabled}
-                onClick={() => installCodex.mutate()}
-                className="rounded-2xl bg-slate-900 hover:bg-slate-800"
-              >
-                {installCodex.isPending && <Loader2 className="mr-2 h-4 w-4" />}
-                Install
-              </Button>
-              <Button
-                type="button"
-                disabled={!canUpgradeCodex || upgradeCodex.isPending || !codexRuntime?.upgrade_enabled}
-                onClick={() => upgradeCodex.mutate()}
-                variant={codexRuntime?.outdated ? "default" : "outline"}
-                className={`rounded-2xl ${codexRuntime?.outdated ? "bg-emerald-700 hover:bg-emerald-800" : "bg-white"}`}
-              >
-                {upgradeCodex.isPending ? <Loader2 className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                Upgrade
-              </Button>
               <Dialog>
                 <DialogTrigger asChild>
-                  <Button type="button" variant="outline" className="rounded-2xl bg-white">
-                    <KeyRound className="mr-2 h-4 w-4" />
-                    Sign in
-                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="rounded-xl bg-white">Start</Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-lg rounded-3xl">
                   <DialogHeader>
-                    <DialogTitle>Authenticate Codex CLI</DialogTitle>
-                    <DialogDescription>Run this on the host machine, then re-check.</DialogDescription>
+                    <DialogTitle>Start Host Runner</DialogTitle>
+                    <DialogDescription>Run once in your terminal from the repo directory.</DialogDescription>
                   </DialogHeader>
-                  <CommandCopy command={codexSigninCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
-                  <p className="text-sm font-semibold text-slate-500">Credentials stay in the official Codex CLI session.</p>
+                  <CommandCopy command={runnerSafeCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                  <p className="text-xs text-slate-400">Or install as a launchd service below so it starts automatically.</p>
                 </DialogContent>
               </Dialog>
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button type="button" variant="outline" className="rounded-2xl bg-white">
-                    Runner
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl rounded-3xl">
-                  <DialogHeader>
-                    <DialogTitle>Host Runner</DialogTitle>
-                    <DialogDescription>Start once from the host terminal.</DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-3">
-                    <CommandCopy command={runnerSafeCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
-                    <CommandCopy command={runnerMaintenanceCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+            </div>
+
+            {/* Auto-start service */}
+            <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={`h-2 w-2 rounded-full ${launchdSvc?.running ? "bg-emerald-500" : "bg-slate-300"}`} />
+                  <div>
+                    <p className="text-sm font-black text-slate-950">Auto-start service</p>
+                    <p className="text-xs font-semibold text-slate-500">
+                      {launchdSvc?.installed
+                        ? launchdSvc.running ? "Running via launchd · restarts automatically" : "Installed · not running"
+                        : "Not installed · starts manually only"}
+                    </p>
                   </div>
-                </DialogContent>
-              </Dialog>
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button type="button" variant="outline" className="rounded-2xl bg-white">
-                    Logs
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-3xl rounded-3xl">
-                  <DialogHeader>
-                    <DialogTitle>Runner Logs</DialogTitle>
-                    <DialogDescription>Latest host runner events.</DialogDescription>
-                  </DialogHeader>
-                  <div className="max-h-[28rem] space-y-2 overflow-auto rounded-2xl bg-slate-950 p-3 text-white">
-                    {recentRunnerLogs.length ? (
-                      recentRunnerLogs.map((entry) => (
-                        <div key={`${entry.timestamp}-${entry.message}`} className="rounded-xl bg-white/5 p-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge className="rounded-full bg-white/10 text-white hover:bg-white/10">{entry.level}</Badge>
-                            <span className="text-[11px] font-semibold text-slate-400">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                          </div>
-                          <p className="mt-1 text-xs font-semibold leading-5 text-slate-200">{entry.message}</p>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm font-semibold text-slate-400">No log entries.</p>
-                    )}
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-2xl bg-white"
-                      onClick={() => queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] })}
-                    >
-                      Refresh
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+                </div>
+                <div className="flex gap-2">
+                  {!launchdSvc?.installed ? (
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button type="button" size="sm" className="rounded-xl bg-slate-900 text-xs hover:bg-slate-800">Install</Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-lg rounded-3xl">
+                        <DialogHeader>
+                          <DialogTitle>Install auto-start service</DialogTitle>
+                          <DialogDescription>
+                            Run once in your terminal. The host runner starts immediately and restarts automatically on every login or crash.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <CommandCopy command="python3 scripts/specter_host_runner.py --install-service" copiedCommand={copiedCommand} onCopy={copyCommand} />
+                        <p className="text-xs text-slate-400">Future updates only need <code>git pull</code> — no reinstall required.</p>
+                      </DialogContent>
+                    </Dialog>
+                  ) : (
+                    <>
+                      <Button
+                        type="button" size="sm" variant="outline" className="rounded-xl bg-white text-xs"
+                        disabled={!canUseBackend || restartLaunchd.isPending}
+                        onClick={() => restartLaunchd.mutate()}
+                      >
+                        {restartLaunchd.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1.5 h-3 w-3" />}
+                        Restart
+                      </Button>
+                      <Button
+                        type="button" size="sm" variant="outline" className="rounded-xl bg-white text-xs text-red-600 hover:text-red-700"
+                        disabled={!canUseBackend || uninstallLaunchd.isPending}
+                        onClick={() => uninstallLaunchd.mutate()}
+                      >
+                        {uninstallLaunchd.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
+                        Uninstall
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+              {(installLaunchd.data || uninstallLaunchd.data || restartLaunchd.data) && (
+                <p className="mt-2 text-xs text-slate-500">
+                  {(installLaunchd.data ?? uninstallLaunchd.data ?? restartLaunchd.data)?.message}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -746,7 +795,87 @@ export default function Models() {
             )}
           </CardContent>
         </Card>
-      </div>
+        </div>
+        </TabsContent>
+
+        <TabsContent value="logs" className="mt-4">
+          <div className="rounded-2xl bg-slate-950 text-white">
+            {/* toolbar */}
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-2.5">
+              <div className="flex items-center gap-3">
+                {!hostRunnerOffline && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                <span className="font-mono text-[11px] text-slate-400">
+                  {hostRunnerOffline ? "offline" : `${runnerLogs?.total ?? 0} events · #${logSince}`}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex gap-0.5">
+                  {(["all", "debug", "info", "warn", "error"] as const).map((l) => (
+                    <button
+                      key={l}
+                      type="button"
+                      onClick={() => setLogLevelFilter(l)}
+                      className={`rounded px-2 py-0.5 font-mono text-[10px] uppercase transition-colors ${logLevelFilter === l ? "bg-white/15 text-white" : "text-slate-500 hover:text-slate-300"}`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => queryClient.invalidateQueries({ queryKey: ["host-runner", "logs", logLevelFilter] })}
+                  className="rounded p-1 text-slate-500 hover:text-slate-300"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+            {/* log rows */}
+            <div className="overflow-auto font-mono text-[11px] leading-5" style={{ height: "calc(100vh - 18rem)" }}>
+              {recentRunnerLogs.length ? (
+                <>
+                  {recentRunnerLogs.map((entry) => {
+                    const levelColor =
+                      entry.level === "error" ? "text-red-400" :
+                      entry.level === "warn"  ? "text-amber-400" :
+                      entry.level === "info"  ? "text-emerald-400" :
+                      "text-slate-500";
+                    const msgColor =
+                      entry.level === "error" ? "text-red-200" :
+                      entry.level === "warn"  ? "text-amber-200" :
+                      entry.level === "info"  ? "text-slate-100" :
+                      "text-slate-400";
+                    const metadata = entry.metadata ? Object.entries(entry.metadata) : [];
+                    return (
+                      <div
+                        key={entry.seq ?? `${entry.timestamp}-${entry.message}`}
+                        className="flex items-baseline gap-4 border-b border-white/5 px-4 py-2 hover:bg-white/5"
+                      >
+                        <span className="w-8 shrink-0 text-right text-slate-600">#{entry.seq}</span>
+                        <span className="w-24 shrink-0 whitespace-nowrap text-slate-600">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                        <span className={`w-10 shrink-0 uppercase ${levelColor}`}>{entry.level}</span>
+                        <span className={`min-w-0 break-all ${msgColor}`}>
+                          {entry.message}
+                          {metadata.length > 0 && (
+                            <span className="ml-2 text-slate-600">
+                              {metadata.map(([k, v]) => `${k}=${String(v).slice(0, 80)}`).join(" ")}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div ref={logsEndRef} />
+                </>
+              ) : (
+                <div className="flex h-32 items-center justify-center text-slate-500">
+                  {hostRunnerOffline ? "Start the host runner to see logs." : `No entries${logLevelFilter !== "all" ? ` · level=${logLevelFilter}` : ""}`}
+                </div>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

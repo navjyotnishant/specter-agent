@@ -119,6 +119,52 @@ The first implementation slice exposes `sbx` discovery and status in Specter.
 Sandbox-backed execution will be wired in a later slice with explicit approval
 gates, log streaming, workspace mounts, and artifact capture.
 
+## Host Runner Versioning
+
+The host runner exposes its version via:
+
+```bash
+python3 scripts/specter_host_runner.py --version
+```
+
+And via the HTTP route `GET /version` (proxied through the backend at
+`/api/runtime-adapters/host-runner/version`). The Models page displays the
+running version next to the Auto-start service status indicator.
+
+## Auto-Start Service (launchd)
+
+The host runner can register itself as a macOS launchd service so it starts
+automatically on login and restarts on crash. Run once from the repo directory:
+
+```bash
+python3 scripts/specter_host_runner.py --install-service
+```
+
+This generates a plist pointing directly to `python3 + specter_host_runner.py`
+(no shell script wrapper — avoids macOS Gatekeeper prompts), writes it to
+`~/Library/LaunchAgents/com.specter-agent.host-runner.plist`, and loads it
+immediately via `launchctl load -w`.
+
+Key launchd properties:
+- `KeepAlive: true` — auto-restarts on crash or kill
+- `RunAtLoad: true` — starts on every login
+- `ThrottleInterval: 5` — prevents tight restart loops on repeated failures
+- Logs to `/tmp/specter-host-runner.log`
+
+After the initial install, future code updates only require `git pull` — no
+reinstall needed. The plist path resolves at install time from the running
+script's location.
+
+To uninstall:
+
+```bash
+launchctl unload -w ~/Library/LaunchAgents/com.specter-agent.host-runner.plist
+rm ~/Library/LaunchAgents/com.specter-agent.host-runner.plist
+```
+
+The Models page also exposes Restart and Uninstall controls once the service
+is running, requiring no terminal interaction for day-to-day management.
+
 ## Install And Upgrade Flow
 
 The host runner can execute the official Codex CLI installer only when started

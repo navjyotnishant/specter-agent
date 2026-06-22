@@ -1,5 +1,13 @@
 # Specter Agent — Claude Code Instructions
 
+## MANDATORY: Docker rebuild after every change
+
+> **After every code change — no exceptions — run:**
+> ```bash
+> docker compose up -d --build
+> ```
+> Verify the container restarted before reporting anything as done. Never skip this step. Never ask the user if they want a rebuild — just do it.
+
 ## Canonical rules
 
 All AI agent rules for this repository are defined in [AGENTS.md](AGENTS.md).

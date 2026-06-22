@@ -137,6 +137,11 @@ def docker_sandbox_status(_: dict = Depends(require_user)) -> dict[str, Any]:
     )
 
 
+@router.post("/docker-sandbox/daemon/start")
+def start_docker_sandbox_daemon(_: dict = Depends(require_admin)) -> dict[str, Any]:
+    return call_host_runner("/runtimes/docker-sandbox/daemon/start", method="POST", timeout=20)
+
+
 @router.get("/docker-sandbox/policy")
 def docker_sandbox_policy(_: dict = Depends(require_user)) -> dict[str, Any]:
     return call_host_runner(
@@ -286,28 +291,36 @@ def set_host_runner_mode(request: HostRunnerModeRequest, _: dict = Depends(requi
 
 
 @router.get("/host-runner/logs")
-def host_runner_logs(_: dict = Depends(require_user)) -> dict[str, Any]:
-    return call_host_runner("/logs")
+def host_runner_logs(
+    since: int = 0,
+    level: str | None = None,
+    limit: int = 200,
+    _: dict = Depends(require_user),
+) -> dict[str, Any]:
+    qs = f"?since={since}&limit={min(limit, 500)}"
+    if level:
+        qs += f"&level={level}"
+    return call_host_runner(f"/logs{qs}")
 
 
 @router.get("/mcp/list")
-def mcp_list(_: dict = Depends(require_user)) -> dict[str, Any]:
-    return call_host_runner("/mcp/list", timeout=15)
+def mcp_list(client: str = "codex", _: dict = Depends(require_user)) -> dict[str, Any]:
+    return call_host_runner(f"/mcp/list?client={client}", timeout=15)
 
 
 @router.post("/mcp/add")
-def mcp_add(request: McpAddRequest, _: dict = Depends(require_admin)) -> dict[str, Any]:
-    return call_host_runner("/mcp/add", method="POST", body=request.model_dump(), timeout=30)
+def mcp_add(request: McpAddRequest, client: str = "codex", _: dict = Depends(require_admin)) -> dict[str, Any]:
+    return call_host_runner(f"/mcp/add?client={client}", method="POST", body=request.model_dump(), timeout=30)
 
 
 @router.post("/mcp/remove/{name}")
-def mcp_remove(name: str, _: dict = Depends(require_admin)) -> dict[str, Any]:
-    return call_host_runner(f"/mcp/remove/{name}", method="POST", timeout=15)
+def mcp_remove(name: str, client: str = "codex", _: dict = Depends(require_admin)) -> dict[str, Any]:
+    return call_host_runner(f"/mcp/remove/{name}?client={client}", method="POST", timeout=15)
 
 
 @router.get("/mcp/login/{name}")
-def mcp_login_instructions(name: str, _: dict = Depends(require_user)) -> dict[str, Any]:
-    return call_host_runner(f"/mcp/login/{name}", timeout=5)
+def mcp_login_instructions(name: str, client: str = "codex", _: dict = Depends(require_user)) -> dict[str, Any]:
+    return call_host_runner(f"/mcp/login/{name}?client={client}", timeout=5)
 
 
 @router.post("/codex-cli/install")
@@ -318,3 +331,28 @@ def install_codex_cli(_: dict = Depends(require_admin)) -> dict[str, Any]:
 @router.post("/codex-cli/upgrade")
 def upgrade_codex_cli(_: dict = Depends(require_admin)) -> dict[str, Any]:
     return call_host_runner("/runtimes/codex/upgrade", method="POST", timeout=360)
+
+
+@router.get("/host-runner/version")
+def host_runner_version(_: dict = Depends(require_user)) -> dict[str, Any]:
+    return call_host_runner("/version", timeout=3)
+
+
+@router.get("/host-runner/launchd/status")
+def launchd_status(_: dict = Depends(require_user)) -> dict[str, Any]:
+    return call_host_runner("/launchd/status", timeout=5)
+
+
+@router.post("/host-runner/launchd/install")
+def launchd_install(_: dict = Depends(require_admin)) -> dict[str, Any]:
+    return call_host_runner("/launchd/install", method="POST", timeout=15)
+
+
+@router.post("/host-runner/launchd/uninstall")
+def launchd_uninstall(_: dict = Depends(require_admin)) -> dict[str, Any]:
+    return call_host_runner("/launchd/uninstall", method="POST", timeout=15)
+
+
+@router.post("/host-runner/launchd/restart")
+def launchd_restart(_: dict = Depends(require_admin)) -> dict[str, Any]:
+    return call_host_runner("/launchd/restart", method="POST", timeout=10)

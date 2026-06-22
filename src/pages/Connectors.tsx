@@ -17,75 +17,60 @@ import {
 import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 import type { McpServer } from "@/lib/types";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
-const MONO: React.CSSProperties = { fontFamily: "ui-monospace, 'Cascadia Code', monospace" };
+const CLIENTS = [
+  { id: "codex",       label: "Codex",       note: "codex mcp CLI" },
+  { id: "claude-code", label: "Claude Code",  note: "~/.claude/settings.json" },
+] as const;
+type ClientId = typeof CLIENTS[number]["id"];
 
-// ── status badge ─────────────────────────────────────────────────────────────
+// ── badges ────────────────────────────────────────────────────────────────────
 function StatusBadge({ server }: { server: McpServer }) {
-  if (!server.configured) {
-    return (
-      <span className="border border-[#e5e7eb] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-[#9ca3af]" style={MONO}>
-        not configured
-      </span>
-    );
-  }
-  if (!server.enabled) {
-    return (
-      <span className="border border-[#fcd34d] bg-[#fffbeb] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-[#92400e]" style={MONO}>
-        disabled
-      </span>
-    );
-  }
-  if (server.auth_status === "o_auth") {
-    return (
-      <span className="border border-[#c4b5fd] bg-[#f5f3ff] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-[#5b21b6]" style={MONO}>
-        oauth connected
-      </span>
-    );
-  }
-  if (server.auth_status === "unsupported") {
-    return (
-      <span className="border border-[#6ee7b7] bg-[#ecfdf5] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-[#065f46]" style={MONO}>
-        active
-      </span>
-    );
-  }
-  return (
-    <span className="border border-[#6ee7b7] bg-[#ecfdf5] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-[#065f46]" style={MONO}>
-      {server.auth_status ?? "active"}
-    </span>
-  );
+  if (!server.configured)
+    return <Badge variant="outline" className="text-slate-400 border-slate-200 text-[10px]">not configured</Badge>;
+  if (!server.enabled)
+    return <Badge className="bg-amber-100 text-amber-800 text-[10px]">disabled</Badge>;
+  if (server.auth_status === "o_auth" || server.auth_status === "oauth")
+    return <Badge className="bg-violet-100 text-violet-700 text-[10px]">oauth connected</Badge>;
+  if (server.auth_status === "needs_auth")
+    return <Badge className="bg-amber-100 text-amber-800 text-[10px]">needs auth</Badge>;
+  if (server.auth_status === "unsupported")
+    return <Badge className="bg-slate-100 text-slate-500 text-[10px]">no auth</Badge>;
+  return <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">{server.auth_status ?? "active"}</Badge>;
 }
 
 function AuthTypeTag({ type }: { type: string }) {
-  const map: Record<string, { label: string; color: string }> = {
-    none:    { label: "no auth",  color: "#6b7280" },
-    token:   { label: "api token", color: "#0ea5e9" },
-    oauth:   { label: "oauth",    color: "#6366f1" },
-    unknown: { label: "unknown",  color: "#9ca3af" },
+  const map: Record<string, string> = {
+    none:    "bg-slate-100 text-slate-500",
+    token:   "bg-sky-100 text-sky-700",
+    oauth:   "bg-indigo-100 text-indigo-700",
+    unknown: "bg-slate-100 text-slate-400",
   };
-  const cfg = map[type] ?? map.unknown;
+  const labels: Record<string, string> = { none: "no auth", token: "api token", oauth: "oauth", unknown: "unknown" };
   return (
-    <span
-      className="border px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide"
-      style={{ borderColor: `${cfg.color}40`, color: cfg.color, background: `${cfg.color}0d`, ...MONO }}
-    >
-      {cfg.label}
-    </span>
+    <Badge className={`text-[10px] ${map[type] ?? map.unknown}`}>
+      {labels[type] ?? type}
+    </Badge>
   );
 }
 
 function TransportTag({ type }: { type: string }) {
   return (
-    <span className="border border-[#e5e7eb] px-1.5 py-[1px] text-[9px] text-[#9ca3af]" style={MONO}>
+    <Badge variant="outline" className="text-[10px] text-slate-400 font-mono">
       {type === "streamable_http" ? "http" : type}
-    </span>
+    </Badge>
   );
 }
 
-// ── add form for a single catalog entry ──────────────────────────────────────
-function AddForm({ server, token, onDone }: { server: McpServer; token: string; onDone: () => void }) {
-  const [token_value, setTokenValue] = useState("");
+// ── add form ──────────────────────────────────────────────────────────────────
+function AddForm({ server, token, client, onDone }: { server: McpServer; token: string; client: ClientId; onDone: () => void }) {
+  const [tokenVal, setTokenVal] = useState("");
   const queryClient = useQueryClient();
 
   const add = useMutation({
@@ -94,310 +79,354 @@ function AddForm({ server, token, onDone }: { server: McpServer; token: string; 
         name: server.name,
         transport_type: server.transport_type,
       };
-      if (server.transport_type === "streamable_http" && server.url) {
-        payload.url = server.url;
-      } else if (server.add_command) {
-        payload.command = server.add_command as string[];
-      }
-      if (server.auth_type === "token" && server.token_env_var && token_value) {
-        payload.env_vars = { [server.token_env_var]: token_value };
-      }
-      return api.mcpAdd(token, payload);
+      if (server.transport_type === "streamable_http" && server.url) payload.url = server.url;
+      else if (server.add_command) payload.command = server.add_command as string[];
+      if (server.auth_type === "token" && server.token_env_var && tokenVal)
+        payload.env_vars = { [server.token_env_var]: tokenVal };
+      return api.mcpAdd(token, payload, client);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["mcp-list"] });
-      onDone();
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["mcp-list", client] }); onDone(); },
   });
 
+  const clientLabel = client === "claude-code" ? "Claude Code" : "Codex";
+  const configNote = client === "claude-code"
+    ? "Written to ~/.claude/settings.json. Restart Claude Code after adding."
+    : "Stored in your local Codex config.";
+
   return (
-    <div className="border-t border-[#f3f4f6] bg-[#fafafa] px-4 py-3" style={MONO}>
+    <div className="border-t border-slate-100 bg-slate-50 rounded-b-2xl px-4 py-4 space-y-3">
       {server.auth_type === "token" && server.token_env_var && (
-        <div className="mb-3">
-          <label className="mb-1 block text-[9px] font-semibold uppercase tracking-widest text-[#6b7280]">{server.token_label ?? server.token_env_var}</label>
-          <input
+        <div className="space-y-1.5">
+          <Label className="text-xs text-slate-600">{server.token_label ?? server.token_env_var}</Label>
+          <Input
             type="password"
             placeholder={`Enter ${server.token_env_var}`}
-            value={token_value}
-            onChange={(e) => setTokenValue(e.target.value)}
-            className="w-full border border-[#d1d5db] bg-white px-2.5 py-1.5 text-[11px] text-[#374151] outline-none focus:border-[#374151]"
-            style={MONO}
+            value={tokenVal}
+            onChange={(e) => setTokenVal(e.target.value)}
+            className="font-mono text-xs"
           />
-          <p className="mt-1 text-[9px] text-[#9ca3af]">Stored as env var in Codex config — not sent to Specter backend.</p>
+          <p className="text-[11px] text-slate-400">{configNote}</p>
         </div>
       )}
       {server.auth_type === "oauth" && (
-        <p className="mb-3 text-[10px] text-[#6b7280]">
-          After adding, run <code className="bg-[#f3f4f6] px-1">codex mcp login {server.name}</code> in your terminal to complete OAuth.
+        <p className="text-xs text-slate-500">
+          {client === "claude-code"
+            ? "Claude Code handles OAuth automatically on first use after adding."
+            : `After adding, run codex mcp login ${server.name} in your terminal to complete OAuth.`}
         </p>
       )}
-      {server.auth_type === "none" && (
-        <p className="mb-3 text-[10px] text-[#6b7280]">No authentication required.</p>
-      )}
-      <div className="flex items-center gap-2">
-        <button
+      {server.auth_type === "none" && <p className="text-xs text-slate-500">No authentication required.</p>}
+      <div className="flex items-center gap-2 pt-1">
+        <Button
+          size="sm"
           onClick={() => add.mutate()}
-          disabled={add.isPending || (server.auth_type === "token" && !token_value)}
-          className="flex items-center gap-1.5 border border-[#0f1117] bg-[#0f1117] px-3 py-1.5 text-[10px] font-semibold text-white disabled:opacity-40 hover:bg-[#1f2937]"
-          style={MONO}
+          disabled={add.isPending || (server.auth_type === "token" && !tokenVal)}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8"
         >
-          {add.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-          Add to Codex
-        </button>
-        <button onClick={onDone} className="text-[10px] text-[#9ca3af] hover:text-[#374151]" style={MONO}>Cancel</button>
-        {add.data && !add.data.ok && (
-          <span className="text-[10px] text-[#dc2626]" style={MONO}>{add.data.message}</span>
-        )}
+          {add.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1.5" />}
+          Add to {clientLabel}
+        </Button>
+        <button onClick={onDone} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+        {add.data && !add.data.ok && <span className="text-xs text-red-600">{add.data.message}</span>}
+        {add.data?.ok && <span className="text-xs text-emerald-600">{add.data.message}</span>}
       </div>
     </div>
   );
 }
 
-// ── single server card ───────────────────────────────────────────────────────
-function ServerCard({ server, token }: { server: McpServer; token: string }) {
+// ── server card ───────────────────────────────────────────────────────────────
+function ServerCard({ server, token, client }: { server: McpServer; token: string; client: ClientId }) {
   const [expanded, setExpanded] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [loginInfo, setLoginInfo] = useState<{ command: string; message: string } | null>(null);
+  const [loginInfo, setLoginInfo] = useState<{ command?: string; message: string } | null>(null);
   const queryClient = useQueryClient();
 
   const remove = useMutation({
-    mutationFn: () => api.mcpRemove(token, server.name),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["mcp-list"] }),
+    mutationFn: () => api.mcpRemove(token, server.name, client),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["mcp-list", client] }),
   });
 
   const getLoginInstructions = useMutation({
-    mutationFn: () => api.mcpLoginInstructions(token, server.name),
-    onSuccess: (data) => setLoginInfo({ command: data.command ?? "", message: data.message }),
+    mutationFn: () => api.mcpLoginInstructions(token, server.name, client),
+    onSuccess: (data) => setLoginInfo({ command: data.command, message: data.message }),
   });
 
   return (
-    <div className="border border-[#e5e7eb] bg-white" style={MONO}>
-      {/* header row */}
-      <div
-        className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-[#fafafa]"
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center border border-[#e5e7eb] bg-[#f9fafb]">
-          {server.configured
-            ? server.enabled
-              ? <CheckCircle2 className="h-3.5 w-3.5 text-[#10b981]" />
-              : <XCircle className="h-3.5 w-3.5 text-[#9ca3af]" />
-            : <Network className="h-3.5 w-3.5 text-[#d1d5db]" />
-          }
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[12px] font-semibold text-[#0f1117]">{server.display_name}</span>
-            <StatusBadge server={server} />
-            <AuthTypeTag type={server.auth_type} />
-            <TransportTag type={server.transport_type} />
+    <Card className={`rounded-2xl border shadow-none transition-colors ${server.configured ? "border-slate-200" : "border-slate-100"}`}>
+      <CardContent className="p-0">
+        <div
+          className="flex cursor-pointer items-center gap-3 px-4 py-3.5 hover:bg-slate-50 rounded-2xl"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {/* icon */}
+          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${server.configured ? "bg-indigo-50" : "bg-slate-100"}`}>
+            {server.configured
+              ? server.enabled
+                ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                : <XCircle className="h-4 w-4 text-slate-400" />
+              : <Network className="h-4 w-4 text-slate-300" />}
           </div>
-          <p className="mt-0.5 text-[10px] text-[#6b7280]">{server.description}</p>
-        </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          {server.docs_url && (
-            <a
-              href={server.docs_url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-[#9ca3af] hover:text-[#374151]"
-              title="Docs"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          )}
-          {expanded ? <ChevronDown className="h-3.5 w-3.5 text-[#9ca3af]" /> : <ChevronRight className="h-3.5 w-3.5 text-[#9ca3af]" />}
-        </div>
-      </div>
-
-      {/* expanded section */}
-      {expanded && (
-        <div className="border-t border-[#f3f4f6]">
-          {server.configured ? (
-            <div className="px-4 py-3 space-y-3">
-              {/* live config summary */}
-              {server.live?.transport && (
-                <div>
-                  <p className="mb-1 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]">Transport config</p>
-                  <pre className="overflow-x-auto border border-[#f3f4f6] bg-[#fafafa] p-2.5 text-[9px] leading-relaxed text-[#374151]">
-                    {JSON.stringify(server.live.transport, null, 2)}
-                  </pre>
-                </div>
-              )}
-
-              {/* oauth login helper */}
-              {server.auth_type === "oauth" && (
-                <div>
-                  <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]">Authentication</p>
-                  {loginInfo ? (
-                    <div className="border border-[#c4b5fd] bg-[#f5f3ff] p-3">
-                      <p className="text-[10px] text-[#5b21b6]">{loginInfo.message}</p>
-                      <div className="mt-2 flex items-center gap-2 border border-[#ddd6fe] bg-white p-2">
-                        <Terminal className="h-3 w-3 shrink-0 text-[#7c3aed]" />
-                        <code className="text-[10px] text-[#374151]">{loginInfo.command}</code>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => getLoginInstructions.mutate()}
-                      disabled={getLoginInstructions.isPending}
-                      className="flex items-center gap-1.5 border border-[#c4b5fd] bg-[#f5f3ff] px-3 py-1.5 text-[10px] font-semibold text-[#5b21b6] hover:bg-[#ede9fe]"
-                      style={MONO}
-                    >
-                      {getLoginInstructions.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
-                      Get login instructions
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* remove */}
-              <div className="flex items-center gap-2 pt-1 border-t border-[#f3f4f6]">
-                <button
-                  onClick={() => remove.mutate()}
-                  disabled={remove.isPending}
-                  className="flex items-center gap-1.5 border border-[#fca5a5] bg-white px-3 py-1.5 text-[10px] font-semibold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-40"
-                  style={MONO}
-                >
-                  {remove.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                  Remove from Codex
-                </button>
-                {remove.data && !remove.data.ok && (
-                  <span className="text-[10px] text-[#dc2626]">{remove.data.message}</span>
-                )}
-              </div>
+          {/* info */}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-sm font-semibold text-slate-800">{server.display_name}</span>
+              <StatusBadge server={server} />
+              <AuthTypeTag type={server.auth_type} />
+              <TransportTag type={server.transport_type} />
             </div>
-          ) : (
-            <>
-              {!showAdd ? (
-                <div className="flex items-center gap-2 px-4 py-3">
-                  <button
-                    onClick={() => setShowAdd(true)}
-                    className="flex items-center gap-1.5 border border-[#0f1117] bg-[#0f1117] px-3 py-1.5 text-[10px] font-semibold text-white hover:bg-[#1f2937]"
-                    style={MONO}
-                  >
-                    Configure &amp; add
-                  </button>
-                  {server.docs_url && (
-                    <a
-                      href={server.docs_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1 text-[10px] text-[#6b7280] hover:text-[#374151]"
-                      style={MONO}
-                    >
-                      <ExternalLink className="h-3 w-3" /> Docs
-                    </a>
-                  )}
-                </div>
-              ) : (
-                <AddForm server={server} token={token} onDone={() => setShowAdd(false)} />
-              )}
-            </>
-          )}
+            <p className="mt-0.5 text-xs text-slate-400">{server.description}</p>
+          </div>
+
+          {/* right side */}
+          <div className="flex shrink-0 items-center gap-2">
+            {server.docs_url && (
+              <a
+                href={server.docs_url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-slate-300 hover:text-slate-500"
+                title="Docs"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
+            {expanded
+              ? <ChevronDown className="h-4 w-4 text-slate-300" />
+              : <ChevronRight className="h-4 w-4 text-slate-300" />}
+          </div>
         </div>
-      )}
-    </div>
+
+        {expanded && (
+          <div className="border-t border-slate-100">
+            {server.configured ? (
+              <div className="px-4 py-4 space-y-4">
+                {server.live?.transport && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Current config</p>
+                    <pre className="overflow-x-auto rounded-xl border border-slate-100 bg-slate-50 p-3 text-[11px] font-mono leading-relaxed text-slate-600">
+                      {JSON.stringify(server.live.transport, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {server.auth_type === "oauth" && client === "codex" && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Authentication</p>
+                    {loginInfo ? (
+                      <div className="rounded-xl border border-violet-100 bg-violet-50 p-3 space-y-2">
+                        <p className="text-xs text-violet-700">{loginInfo.message}</p>
+                        {loginInfo.command && (
+                          <div className="flex items-center gap-2 rounded-lg border border-violet-100 bg-white p-2">
+                            <Terminal className="h-3 w-3 shrink-0 text-violet-500" />
+                            <code className="text-xs text-slate-700 font-mono">{loginInfo.command}</code>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => getLoginInstructions.mutate()}
+                        disabled={getLoginInstructions.isPending}
+                        className="h-8 text-xs border-violet-200 text-violet-700 hover:bg-violet-50"
+                      >
+                        {getLoginInstructions.isPending
+                          ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                          : <Globe className="h-3 w-3 mr-1.5" />}
+                        Get login instructions
+                      </Button>
+                    )}
+                  </div>
+                )}
+                <div className="pt-2 border-t border-slate-100">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => remove.mutate()}
+                    disabled={remove.isPending}
+                    className="h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+                  >
+                    {remove.isPending
+                      ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                      : <Trash2 className="h-3 w-3 mr-1.5" />}
+                    Remove
+                  </Button>
+                  {remove.data && !remove.data.ok && <span className="ml-2 text-xs text-red-600">{remove.data.message}</span>}
+                </div>
+              </div>
+            ) : (
+              <>
+                {!showAdd ? (
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <Button
+                      size="sm"
+                      onClick={() => setShowAdd(true)}
+                      className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+                    >
+                      Configure &amp; add
+                    </Button>
+                    {server.docs_url && (
+                      <a
+                        href={server.docs_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600"
+                      >
+                        <ExternalLink className="h-3 w-3" /> Docs
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <AddForm server={server} token={token} client={client} onDone={() => setShowAdd(false)} />
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
-// ── page ─────────────────────────────────────────────────────────────────────
+// ── page ──────────────────────────────────────────────────────────────────────
 export default function Connectors() {
   const token = getStoredToken() ?? "";
   const queryClient = useQueryClient();
+  const [client, setClient] = useState<ClientId>("codex");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["mcp-list"],
-    queryFn: () => api.mcpList(token),
-    enabled: Boolean(token && token !== "preview-mode"),
-    refetchInterval: 30_000,
+  const canFetch = Boolean(token && token !== "preview-mode");
+
+  const { data, isLoading, isFetching, isError, error } = useQuery({
+    queryKey: ["mcp-list", client],
+    queryFn: () => api.mcpList(token, client),
+    enabled: canFetch,
+    refetchInterval: 60_000,
+    staleTime: 20_000,
+    // keep previous data visible while switching tabs
+    placeholderData: (prev) => prev,
   });
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await queryClient.refetchQueries({ queryKey: ["mcp-list", client], exact: true });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const configured = data?.servers.filter((s) => s.configured) ?? [];
-  const available = data?.servers.filter((s) => !s.configured) ?? [];
+  const available  = data?.servers.filter((s) => !s.configured) ?? [];
 
   return (
-    <div className="space-y-6" style={MONO}>
-
-      {/* page header */}
-      <div className="border border-[#e5e7eb] bg-white px-6 py-5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="flex h-10 w-10 items-center justify-center border border-[#e5e7eb] bg-[#f9fafb]">
-              <Network className="h-5 w-5 text-[#374151]" />
-            </div>
-            <div>
-              <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]">MCP Tool Registry</p>
-              <h1 className="text-[15px] font-semibold text-[#0f1117]">Connectors</h1>
-              <p className="text-[11px] text-[#6b7280]">MCP servers configured in your local Codex CLI. Changes write directly to your Codex config.</p>
-            </div>
+    <div className="space-y-6">
+      {/* header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-100">
+            <Network className="h-5 w-5" />
           </div>
-          <button
-            onClick={() => queryClient.invalidateQueries({ queryKey: ["mcp-list"] })}
-            className="flex items-center gap-1.5 border border-[#e5e7eb] bg-white px-3 py-1.5 text-[10px] text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#374151]"
-            style={MONO}
-          >
-            <RefreshCw className="h-3 w-3" /> Refresh
-          </button>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Connectors</h1>
+            <p className="text-sm text-slate-500">Manage MCP servers for each AI agent client</p>
+          </div>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          disabled={isRefreshing || isFetching}
+          className="h-9 text-sm rounded-xl"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isRefreshing || isFetching ? "animate-spin" : ""}`} /> Refresh
+        </Button>
       </div>
 
-      {/* error / loading */}
-      {isLoading && (
-        <div className="flex items-center gap-2 border border-[#e5e7eb] bg-white px-5 py-4 text-[11px] text-[#6b7280]">
-          <Loader2 className="h-4 w-4 animate-spin" /> Querying Codex CLI for MCP servers…
+      {/* client selector */}
+      <div className="flex gap-2">
+        {CLIENTS.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => setClient(c.id)}
+            className={`flex flex-col items-start rounded-2xl border px-4 py-2.5 text-left transition-colors ${
+              client === c.id
+                ? "border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-100"
+                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            <span className="text-sm font-semibold">{c.label}</span>
+            <span className={`text-[11px] font-mono ${client === c.id ? "text-indigo-200" : "text-slate-400"}`}>{c.note}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* states */}
+      {isLoading && !data && (
+        <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin text-indigo-500" /> Loading MCP catalog…
         </div>
       )}
       {isError && (
-        <div className="flex items-center gap-2 border border-[#fca5a5] bg-[#fef2f2] px-5 py-4 text-[11px] text-[#dc2626]">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error instanceof Error ? error.message : "Host runner unavailable — start the Specter Host Runner to manage MCP servers."}
-        </div>
+        <Alert variant="destructive" className="rounded-2xl">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            {error instanceof Error ? error.message : "Host runner unavailable — start it to load the MCP catalog."}
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* configured servers */}
-      {configured.length > 0 && (
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <p className="text-[9px] font-semibold uppercase tracking-widest text-[#6b7280]">Configured ({configured.length})</p>
-          </div>
-          <div className="space-y-px">
-            {configured.map((s) => <ServerCard key={s.id} server={s} token={token} />)}
-          </div>
-        </div>
-      )}
+      {!isLoading && !isError && (
+        <>
+          {/* configured */}
+          {configured.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                Configured ({configured.length})
+              </p>
+              <div className="space-y-2">
+                {configured.map((s) => <ServerCard key={s.id} server={s} token={token} client={client} />)}
+              </div>
+            </div>
+          )}
 
-      {/* available to add */}
-      {available.length > 0 && (
-        <div>
-          <div className="mb-2">
-            <p className="text-[9px] font-semibold uppercase tracking-widest text-[#6b7280]">Available to configure ({available.length})</p>
-            <p className="mt-0.5 text-[10px] text-[#9ca3af]">Expand a row to add the MCP server to your Codex CLI config.</p>
-          </div>
-          <div className="space-y-px">
-            {available.map((s) => <ServerCard key={s.id} server={s} token={token} />)}
-          </div>
-        </div>
-      )}
+          {/* available */}
+          {available.length > 0 && (
+            <div className="space-y-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                  Available ({available.length})
+                </p>
+                <p className="text-xs text-slate-400 mt-0.5">Expand a row to configure and add.</p>
+              </div>
+              <div className="space-y-2">
+                {available.map((s) => <ServerCard key={s.id} server={s} token={token} client={client} />)}
+              </div>
+            </div>
+          )}
 
-      {/* empty state */}
-      {!isLoading && !isError && !data?.servers.length && (
-        <div className="border border-[#e5e7eb] bg-white px-5 py-8 text-center">
-          <p className="text-[11px] text-[#9ca3af]">No MCP servers found. Start the Specter Host Runner and ensure Codex CLI is installed.</p>
-        </div>
+          {!configured.length && !available.length && (
+            <Card className="rounded-2xl border-slate-100">
+              <CardContent className="px-5 py-10 text-center">
+                <p className="text-sm text-slate-400">No MCP servers found. Ensure the host runner is running.</p>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
       {/* footer note */}
-      <div className="border border-[#e5e7eb] bg-[#fafafa] px-5 py-3">
-        <p className="text-[10px] text-[#9ca3af]">
-          MCP servers are managed by <code className="text-[#6b7280]">codex mcp</code> and stored in your local Codex config.
-          Specter reads live status from the host runner at <code className="text-[#6b7280]">127.0.0.1:8765</code>.
-          OAuth servers require running <code className="text-[#6b7280]">codex mcp login &lt;name&gt;</code> in your terminal.
-        </p>
-      </div>
+      <Card className="rounded-2xl border-slate-100 bg-slate-50 shadow-none">
+        <CardContent className="px-5 py-3">
+          <p className="text-xs text-slate-400">
+            {client === "codex"
+              ? <>MCP servers managed via <code className="font-mono text-slate-600">codex mcp</code>. OAuth requires <code className="font-mono text-slate-600">codex mcp login &lt;name&gt;</code> in your terminal.</>
+              : <>Config written to <code className="font-mono text-slate-600">~/.claude/settings.json</code> under <code className="font-mono text-slate-600">mcpServers</code>. Restart Claude Code after changes.</>}
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

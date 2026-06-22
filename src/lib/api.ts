@@ -135,6 +135,8 @@ export const api = {
     request<{ deleted: boolean; provider_id: string }>(`/model-providers/${id}`, { method: "DELETE", headers: authHeaders(token) }),
   codexRuntimeStatus: (token: string) => request<RuntimeAdapterStatus>("/runtime-adapters/codex-cli/status", { headers: authHeaders(token) }),
   dockerSandboxRuntimeStatus: (token: string) => request<RuntimeAdapterStatus>("/runtime-adapters/docker-sandbox/status", { headers: authHeaders(token) }),
+  startDockerSandboxDaemon: (token: string) =>
+    request<{ ok: boolean; message: string }>("/runtime-adapters/docker-sandbox/daemon/start", { method: "POST", headers: authHeaders(token) }),
   dockerSandboxPolicy: (token: string) => request<DockerSandboxPolicy>("/runtime-adapters/docker-sandbox/policy", { headers: authHeaders(token) }),
   setDockerSandboxPolicy: (token: string, policy: "allow-all" | "balanced" | "deny-all") =>
     request<DockerSandboxPolicy>("/runtime-adapters/docker-sandbox/policy", {
@@ -149,7 +151,8 @@ export const api = {
       headers: authHeaders(token),
       body: JSON.stringify({ maintenance_enabled }),
     }),
-  hostRunnerLogs: (token: string) => request<HostRunnerLogs>("/runtime-adapters/host-runner/logs", { headers: authHeaders(token) }),
+  hostRunnerLogs: (token: string, since = 0, level?: string) =>
+    request<HostRunnerLogs>(`/runtime-adapters/host-runner/logs?since=${since}${level ? `&level=${level}` : ""}`, { headers: authHeaders(token) }),
   runtimeWorkspaces: (token: string) => request<RuntimeWorkspace[]>("/runtime-adapters/workspaces", { headers: authHeaders(token) }),
   createRuntimeWorkspace: (token: string, workspace: { name: string; path: string }) =>
     request<RuntimeWorkspace>("/runtime-adapters/workspaces", {
@@ -182,6 +185,27 @@ export const api = {
     }),
   upgradeCodexRuntime: (token: string) =>
     request<{ ok: boolean; status: string; message?: string; manual_command?: string; runtime?: RuntimeAdapterStatus }>("/runtime-adapters/codex-cli/upgrade", {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
+  hostRunnerVersion: (token: string) =>
+    request<{ version: string }>("/runtime-adapters/host-runner/version", { headers: authHeaders(token) }),
+  launchdStatus: (token: string) =>
+    request<{ installed: boolean; running: boolean; plist_src: string; plist_dst: string; pid_line: string }>("/runtime-adapters/host-runner/launchd/status", {
+      headers: authHeaders(token),
+    }),
+  launchdInstall: (token: string) =>
+    request<{ ok: boolean; message: string }>("/runtime-adapters/host-runner/launchd/install", {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
+  launchdUninstall: (token: string) =>
+    request<{ ok: boolean; message: string }>("/runtime-adapters/host-runner/launchd/uninstall", {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
+  launchdRestart: (token: string) =>
+    request<{ ok: boolean; message: string }>("/runtime-adapters/host-runner/launchd/restart", {
       method: "POST",
       headers: authHeaders(token),
     }),
@@ -224,13 +248,13 @@ export const api = {
     request<{ revision_requested: boolean }>(`/workflow-runs/${runId}/request-revision/${approvalId}`, { method: "POST", headers: authHeaders(token), body: JSON.stringify({ note: note ?? "" }) }),
   cancelRun: (token: string, runId: string) =>
     request<{ cancelled: boolean }>(`/workflow-runs/${runId}/cancel`, { method: "POST", headers: authHeaders(token) }),
-  mcpList: (token: string) => request<McpListResult>("/runtime-adapters/mcp/list", { headers: authHeaders(token) }),
-  mcpAdd: (token: string, payload: { name: string; transport_type: string; url?: string; command?: string[]; env_vars?: Record<string, string> }) =>
-    request<McpActionResult>("/runtime-adapters/mcp/add", { method: "POST", headers: authHeaders(token), body: JSON.stringify(payload) }),
-  mcpRemove: (token: string, name: string) =>
-    request<McpActionResult>(`/runtime-adapters/mcp/remove/${name}`, { method: "POST", headers: authHeaders(token) }),
-  mcpLoginInstructions: (token: string, name: string) =>
-    request<McpActionResult>(`/runtime-adapters/mcp/login/${name}`, { headers: authHeaders(token) }),
+  mcpList: (token: string, client = "codex") => request<McpListResult>(`/runtime-adapters/mcp/list?client=${client}`, { headers: authHeaders(token) }),
+  mcpAdd: (token: string, payload: { name: string; transport_type: string; url?: string; command?: string[]; env_vars?: Record<string, string> }, client = "codex") =>
+    request<McpActionResult>(`/runtime-adapters/mcp/add?client=${client}`, { method: "POST", headers: authHeaders(token), body: JSON.stringify(payload) }),
+  mcpRemove: (token: string, name: string, client = "codex") =>
+    request<McpActionResult>(`/runtime-adapters/mcp/remove/${name}?client=${client}`, { method: "POST", headers: authHeaders(token) }),
+  mcpLoginInstructions: (token: string, name: string, client = "codex") =>
+    request<McpActionResult>(`/runtime-adapters/mcp/login/${name}?client=${client}`, { headers: authHeaders(token) }),
   connectors: (token: string) => request<Connector[]>("/connectors", { headers: authHeaders(token) }),
   createConnector: (token: string, connector: { name: string; connector_type: string; config: Record<string, unknown>; is_configured: boolean }) =>
     request<Connector>("/connectors", {
