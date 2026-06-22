@@ -97,7 +97,7 @@ def resolve_token(args: argparse.Namespace) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="specter_gate",
+        prog="specter-agent",
         description="Run a Specter workflow gate from the current repository with automatic local login handling.",
     )
     parser.add_argument("workflow", help="Workflow id, exact name, or slug.")

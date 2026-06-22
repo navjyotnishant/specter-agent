@@ -175,7 +175,7 @@ the run is active.
 The recommended local entrypoint is the wrapper:
 
 ```bash
-scripts/specter_gate.py <workflow-id-or-slug> --workspace .
+scripts/specter-agent <workflow-id-or-slug> --workspace .
 ```
 
 The wrapper uses the same local FastAPI auth token as the web app. If
@@ -190,7 +190,7 @@ The cache file is written with user-only permissions. For non-interactive
 automation, set `SPECTER_TOKEN` explicitly.
 
 ```bash
-scripts/specter_gate.py <workflow-id-or-slug> --workspace . --json
+scripts/specter-agent <workflow-id-or-slug> --workspace . --json
 ```
 
 Advanced users can still call the lower-level CLI directly with
@@ -214,7 +214,7 @@ Project-level `CLAUDE.md` or `AGENTS.md` gate example:
 ```md
 Before production build, release, or high-risk code change, run:
 
-scripts/specter_gate.py security-review-team --workspace . --json
+scripts/specter-agent security-review-team --workspace . --json
 
 Proceed only if the command exits 0.
 ```

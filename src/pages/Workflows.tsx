@@ -183,7 +183,7 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
   const gatePath =
     (import.meta.env.VITE_SPECTER_GATE_PATH as string | undefined)
     ?? (import.meta.env.VITE_SPECTER_CLI_PATH as string | undefined)
-    ?? "/Users/navjyotnishant/Desktop/github/navjyotnishant/specter-agent/scripts/specter_gate.py";
+    ?? "/Users/navjyotnishant/Desktop/github/navjyotnishant/specter-agent/scripts/specter-agent";
   const apiBase =
     (import.meta.env.VITE_API_BASE_URL as string | undefined)
     ?? `${window.location.origin}/api`;

@@ -71,7 +71,7 @@ release gates, agent instructions, or project scripts. Use the wrapper for the
 simple path:
 
 ```bash
-scripts/specter_gate.py security-review-team --workspace .
+scripts/specter-agent security-review-team --workspace .
 ```
 
 The wrapper prompts for Specter login when needed, caches the local token under
@@ -81,7 +81,7 @@ workflow and waits for the pass/fail result.
 Automation can request final JSON and use the process exit code:
 
 ```bash
-scripts/specter_gate.py security-review-team --workspace . --json
+scripts/specter-agent security-review-team --workspace . --json
 ```
 
 Exit code `0` means the workflow completed successfully. A non-zero exit means
