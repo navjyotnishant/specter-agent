@@ -183,18 +183,10 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
   const gatePath =
     (import.meta.env.VITE_SPECTER_GATE_PATH as string | undefined)
     ?? "/Users/navjyotnishant/Desktop/github/navjyotnishant/specter-agent/scripts/specter-agent";
-  const apiBase =
-    (import.meta.env.VITE_API_BASE_URL as string | undefined)
-    ?? `${window.location.origin}/api`;
-  const webBase =
-    (import.meta.env.VITE_SPECTER_WEB_BASE_URL as string | undefined)
-    ?? window.location.origin;
   const terminalCommand = effectiveWs
     ? [
         `cd ${shellQuote(effectiveWs.path)}`,
         [
-          `SPECTER_API_BASE_URL=${shellQuote(apiBase)}`,
-          `SPECTER_WEB_BASE_URL=${shellQuote(webBase)}`,
           shellQuote(gatePath),
           shellQuote(workflow.id),
           "--workspace",
