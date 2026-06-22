@@ -305,6 +305,19 @@ Do not re-add nav items or routes for `/runs` or `/approvals`.
 - The runtime approval UI in `WorkflowRun.tsx` renders only the configured actions and enforces note requirement before enabling submission.
 - Three backend endpoints: `POST /approve/{id}`, `POST /reject/{id}`, `POST /request-revision/{id}` — all accept `{ note: string }`.
 
+### Docker Sandbox runtime
+
+Specter prefers Docker Sandboxes over raw Codex CLI when `sbx` is installed and healthy.
+Key facts for agents working in this codebase:
+
+- Base image: `docker/sandbox-templates:codex` (not the Claude Code template)
+- Exec command: `sbx create --clone --name <name> codex <workspace>` then `sbx exec <name> codex exec --sandbox read-only --json <prompt>` then `sbx rm --force <name>`
+- Only `read-only` mode is supported. Write-capable sandbox tasks are out of scope.
+- Network policy (deny-all / balanced / allow-all) is set via `sbx policy set-default` and surfaced in the Models page policy selector.
+- Auth: `sbx secret set -g openai --oauth` on the host — never stored in the Docker container.
+- Linux is not yet supported by Docker Sandboxes (macOS and Windows only).
+- Full details: `docs/docker-sandbox.md`
+
 ### Parallel lane color coding
 
 - `topoLayout()` in `WorkflowRun.tsx` returns `{ nodes, colMap }` where `colMap` maps node ID → topological column (depth).
