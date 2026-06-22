@@ -207,9 +207,10 @@ Behavior:
 - Exits `0` only when the workflow status is `completed`.
 - Exits non-zero for failed, cancelled, timed-out, unapproved workspace, auth,
   unavailable API, or missing workflow cases.
-- `--json` prints a machine-readable final result on stdout and streams live
-  progress to stderr.
+- `--json` prints a machine-readable final result on stdout and streams
+  color-coded live progress to stderr.
 - `--quiet` suppresses live progress output for strict automation.
+- `--no-color` disables ANSI color in terminal progress output.
 
 Project-level `CLAUDE.md` or `AGENTS.md` gate example:
 

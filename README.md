@@ -84,9 +84,9 @@ Automation can request final JSON and use the process exit code:
 scripts/specter-agent security-review-team --workspace . --json
 ```
 
-With `--json`, live progress is written to stderr while the final
+With `--json`, color-coded live progress is written to stderr while the final
 machine-readable result stays on stdout. Use `--quiet` to suppress progress in
-strict CI scripts.
+strict CI scripts, or `--no-color` to disable ANSI color.
 
 Exit code `0` means the workflow completed successfully. A non-zero exit means
 the workflow failed, was cancelled, timed out, hit an approval/policy stop, or

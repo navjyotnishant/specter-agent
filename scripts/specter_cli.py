@@ -33,6 +33,22 @@ EXIT_WORKSPACE_NOT_APPROVED = 5
 EXIT_NOT_FOUND = 6
 EXIT_TIMEOUT = 124
 
+ANSI_RESET = "\033[0m"
+ANSI_DIM = "\033[2m"
+ANSI_BLUE = "\033[34m"
+ANSI_CYAN = "\033[36m"
+ANSI_GREEN = "\033[32m"
+ANSI_RED = "\033[31m"
+ANSI_YELLOW = "\033[33m"
+
+LEVEL_COLORS = {
+    "ERROR": ANSI_RED,
+    "WARN": ANSI_YELLOW,
+    "WARNING": ANSI_YELLOW,
+    "INFO": ANSI_CYAN,
+    "DEBUG": ANSI_DIM,
+}
+
 
 class SpecterCliError(Exception):
     def __init__(self, message: str, exit_code: int = 1) -> None:
@@ -186,12 +202,23 @@ def print_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 
-def emit_log_line(log: dict[str, Any], stream=sys.stdout) -> None:
+def should_use_color(stream, no_color: bool) -> bool:
+    return not no_color and "NO_COLOR" not in os.environ and hasattr(stream, "isatty") and stream.isatty()
+
+
+def colorize(value: str, color: str, use_color: bool) -> str:
+    if not use_color:
+        return value
+    return f"{color}{value}{ANSI_RESET}"
+
+
+def emit_log_line(log: dict[str, Any], stream=sys.stdout, use_color: bool = False) -> None:
     level = str(log.get("level") or "info").upper()
     message = str(log.get("message") or "")
     created_at = str(log.get("created_at") or "")
-    prefix = f"[{created_at}] " if created_at else ""
-    print(f"{prefix}{level}: {message}", file=stream)
+    prefix = colorize(f"[{created_at}] ", ANSI_DIM, use_color) if created_at else ""
+    level_text = colorize(f"{level}:", LEVEL_COLORS.get(level, ANSI_CYAN), use_color)
+    print(f"{prefix}{level_text} {message}", file=stream)
 
 
 def wait_for_run(
@@ -203,12 +230,14 @@ def wait_for_run(
     timeout_seconds: int,
     json_output: bool,
     quiet: bool,
+    no_color: bool,
 ) -> int:
     start = time.monotonic()
     seen_logs: set[str] = set()
     last_approval_ids: set[str] = set()
     final_run: dict[str, Any] | None = None
     progress_stream = sys.stderr if json_output else sys.stdout
+    use_color = should_use_color(progress_stream, no_color)
 
     while True:
         if timeout_seconds > 0 and time.monotonic() - start > timeout_seconds:
@@ -223,7 +252,8 @@ def wait_for_run(
             if json_output:
                 print_json(result)
             else:
-                print(f"Timed out waiting for workflow run: {run_id}", file=sys.stderr)
+                timeout_message = f"Timed out waiting for workflow run: {run_id}"
+                print(colorize(timeout_message, ANSI_YELLOW, should_use_color(sys.stderr, no_color)), file=sys.stderr)
             return EXIT_TIMEOUT
 
         run = client.get_run(run_id)
@@ -233,14 +263,15 @@ def wait_for_run(
                 log_id = str(log.get("id") or "")
                 if log_id and log_id not in seen_logs:
                     seen_logs.add(log_id)
-                    emit_log_line(log, stream=progress_stream)
+                    emit_log_line(log, stream=progress_stream, use_color=use_color)
             approvals = [approval for approval in client.get_approvals(run_id) if approval.get("status") == "pending"]
             approval_ids = {str(approval.get("id")) for approval in approvals}
             for approval in approvals:
                 approval_id = str(approval.get("id"))
                 if approval_id not in last_approval_ids:
                     expires_at = approval.get("expires_at") or "deadline not recorded"
-                    print(f"WAITING APPROVAL: {approval.get('title')} expires at {expires_at}", file=progress_stream)
+                    label = colorize("WAITING APPROVAL:", ANSI_YELLOW, use_color)
+                    print(f"{label} {approval.get('title')} expires at {expires_at}", file=progress_stream)
             last_approval_ids = approval_ids
 
         status = str(run.get("status") or "")
@@ -264,8 +295,10 @@ def wait_for_run(
         print_json(result)
     else:
         verdict = "PASS" if ok else "FAIL"
-        print(f"{verdict}: workflow run {run_id} finished with status `{status}`")
-        print(f"Evidence: {result['url']}")
+        use_stdout_color = should_use_color(sys.stdout, no_color)
+        verdict_color = ANSI_GREEN if ok else ANSI_RED
+        print(f"{colorize(verdict + ':', verdict_color, use_stdout_color)} workflow run {run_id} finished with status `{status}`")
+        print(f"{colorize('Evidence:', ANSI_BLUE, use_stdout_color)} {result['url']}")
     return EXIT_SUCCESS if ok else EXIT_WORKFLOW_FAILED
 
 
@@ -320,16 +353,18 @@ def cmd_workflow_run(args: argparse.Namespace) -> int:
         return EXIT_SUCCESS
 
     if not args.json:
-        print(f"Started workflow run: {run_id}")
-        print(f"Workflow: {workflow['name']}")
-        print(f"Workspace: {workspace_path}")
-        print(f"Evidence: {result['url']}")
+        use_color = should_use_color(sys.stdout, args.no_color)
+        print(f"{colorize('Started workflow run:', ANSI_GREEN, use_color)} {run_id}")
+        print(f"{colorize('Workflow:', ANSI_CYAN, use_color)} {workflow['name']}")
+        print(f"{colorize('Workspace:', ANSI_CYAN, use_color)} {workspace_path}")
+        print(f"{colorize('Evidence:', ANSI_BLUE, use_color)} {result['url']}")
     elif not args.quiet:
-        print(f"Started workflow run: {run_id}", file=sys.stderr)
-        print(f"Workflow: {workflow['name']}", file=sys.stderr)
-        print(f"Workspace: {workspace_path}", file=sys.stderr)
-        print(f"Evidence: {result['url']}", file=sys.stderr)
-    return wait_for_run(client, run_id, workflow, args.web_base, args.poll_interval, args.timeout, args.json, args.quiet)
+        use_color = should_use_color(sys.stderr, args.no_color)
+        print(f"{colorize('Started workflow run:', ANSI_GREEN, use_color)} {run_id}", file=sys.stderr)
+        print(f"{colorize('Workflow:', ANSI_CYAN, use_color)} {workflow['name']}", file=sys.stderr)
+        print(f"{colorize('Workspace:', ANSI_CYAN, use_color)} {workspace_path}", file=sys.stderr)
+        print(f"{colorize('Evidence:', ANSI_BLUE, use_color)} {result['url']}", file=sys.stderr)
+    return wait_for_run(client, run_id, workflow, args.web_base, args.poll_interval, args.timeout, args.json, args.quiet, args.no_color)
 
 
 def cmd_workflow_status(args: argparse.Namespace) -> int:
@@ -361,7 +396,7 @@ def cmd_workflow_logs(args: argparse.Namespace) -> int:
             if args.json:
                 print(json.dumps(log, sort_keys=True))
             else:
-                emit_log_line(log)
+                emit_log_line(log, use_color=should_use_color(sys.stdout, args.no_color))
         if not args.follow or str(run.get("status")) not in ACTIVE_STATUSES:
             break
         time.sleep(args.poll_interval)
@@ -398,6 +433,7 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_run.add_argument("--wait", action="store_true", help="Wait for completion and return pass/fail exit code.")
     workflow_run.add_argument("--json", action="store_true", help="Print machine-readable final JSON.")
     workflow_run.add_argument("--quiet", action="store_true", help="Suppress live progress output while waiting.")
+    workflow_run.add_argument("--no-color", action="store_true", help="Disable ANSI color in terminal progress output.")
     workflow_run.add_argument("--poll-interval", type=float, default=3.0, help="Polling interval while waiting.")
     workflow_run.add_argument("--timeout", type=int, default=0, help="Maximum seconds to wait. 0 means no CLI wait timeout.")
     workflow_run.set_defaults(func=cmd_workflow_run)
@@ -411,6 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_logs.add_argument("run_id")
     workflow_logs.add_argument("--follow", action="store_true")
     workflow_logs.add_argument("--json", action="store_true")
+    workflow_logs.add_argument("--no-color", action="store_true")
     workflow_logs.add_argument("--poll-interval", type=float, default=3.0)
     workflow_logs.set_defaults(func=cmd_workflow_logs)
 
