@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""
+Primary author: Navjyot Nishant
+Created on: 2026-06-21
+Last updated: 2026-06-21 21:51 CDT
+Description: One-command wrapper for running a Specter workflow gate from another repository.
+AI usage: Built with assistance from AI tools for implementation acceleration, review, and refactoring.
+"""
+from __future__ import annotations
+
+import argparse
+import getpass
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any
+
+from specter_cli import (
+    DEFAULT_API_BASE,
+    EXIT_AUTH_REQUIRED,
+    EXIT_SUCCESS,
+    SpecterCliError,
+    SpecterClient,
+    cmd_workflow_run,
+    web_base_from_api,
+)
+
+TOKEN_CACHE_PATH = Path.home() / ".specter-agent" / "token.json"
+
+
+def load_cached_token(api_base: str) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(TOKEN_CACHE_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    if payload.get("api_base") != api_base:
+        return None
+    token = payload.get("token")
+    if not isinstance(token, str) or not token:
+        return None
+    return payload
+
+
+def save_cached_token(api_base: str, token: str, email: str) -> None:
+    TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"api_base": api_base, "token": token, "email": email}
+    TOKEN_CACHE_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    TOKEN_CACHE_PATH.chmod(0o600)
+
+
+def validate_token(api_base: str, token: str) -> bool:
+    client = SpecterClient(api_base, token)
+    try:
+        client.request("GET", "/auth/me")
+        return True
+    except SpecterCliError as exc:
+        if exc.exit_code == EXIT_AUTH_REQUIRED:
+            return False
+        raise
+
+
+def prompt_for_token(api_base: str, email: str | None, save_token: bool) -> str:
+    selected_email = email or input("Specter email: ").strip()
+    if not selected_email:
+        raise SpecterCliError("Specter email is required.", EXIT_AUTH_REQUIRED)
+    password = getpass.getpass("Specter password: ")
+    response = SpecterClient(api_base, None).login(selected_email, password)
+    token = str(response.get("token") or "")
+    if not token:
+        raise SpecterCliError("Specter login did not return a token.", EXIT_AUTH_REQUIRED)
+    if save_token:
+        save_cached_token(api_base, token, selected_email)
+        print(f"Cached Specter token at {TOKEN_CACHE_PATH} with user-only permissions.", file=sys.stderr)
+    return token
+
+
+def resolve_token(args: argparse.Namespace) -> str:
+    if args.token:
+        return args.token
+
+    cached = load_cached_token(args.api_base)
+    if cached and validate_token(args.api_base, str(cached["token"])):
+        return str(cached["token"])
+
+    if cached:
+        print("Cached Specter token is no longer valid. Please sign in again.", file=sys.stderr)
+
+    if not sys.stdin.isatty():
+        raise SpecterCliError(
+            "Specter token required for non-interactive use. Run this wrapper once in a terminal, or set SPECTER_TOKEN.",
+            EXIT_AUTH_REQUIRED,
+        )
+
+    return prompt_for_token(args.api_base, args.email or (cached or {}).get("email"), not args.no_save_token)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="specter_gate",
+        description="Run a Specter workflow gate from the current repository with automatic local login handling.",
+    )
+    parser.add_argument("workflow", help="Workflow id, exact name, or slug.")
+    parser.add_argument("--workspace", default=".", help="Repository path. Defaults to the current directory.")
+    parser.add_argument("--email", help="Specter login email. Used only when login is required.")
+    parser.add_argument("--api-base", default=os.environ.get("SPECTER_API_BASE_URL", DEFAULT_API_BASE), help="Specter API base URL.")
+    parser.add_argument("--web-base", default=os.environ.get("SPECTER_WEB_BASE_URL"), help="Specter web base URL for evidence links.")
+    parser.add_argument("--token", default=os.environ.get("SPECTER_TOKEN"), help="Specter bearer token. Defaults to SPECTER_TOKEN.")
+    parser.add_argument("--no-save-token", action="store_true", help="Do not cache the token after interactive login.")
+    parser.add_argument("--json", action="store_true", help="Print machine-readable final JSON.")
+    parser.add_argument("--timeout", type=int, default=0, help="Maximum seconds to wait. 0 means no wrapper wait timeout.")
+    parser.add_argument("--poll-interval", type=float, default=3.0, help="Polling interval while waiting.")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    args.api_base = args.api_base.rstrip("/")
+    args.web_base = (args.web_base or web_base_from_api(args.api_base)).rstrip("/")
+    try:
+        token = resolve_token(args)
+        workflow_args = argparse.Namespace(
+            api_base=args.api_base,
+            web_base=args.web_base,
+            token=token,
+            workflow=args.workflow,
+            workspace=args.workspace,
+            wait=True,
+            json=args.json,
+            poll_interval=args.poll_interval,
+            timeout=args.timeout,
+        )
+        return cmd_workflow_run(workflow_args)
+    except SpecterCliError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

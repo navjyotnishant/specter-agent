@@ -170,7 +170,6 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
   const workspaces: RuntimeWorkspace[] = workspacesQuery.data ?? [];
   const [changing, setChanging] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState(false);
-  const [copiedAuthCommand, setCopiedAuthCommand] = useState(false);
 
   // Resolve preferred workspace: builder's localStorage selection → active → first
   const preferredId = (() => { try { return localStorage.getItem(`specter_workspace_${workflowId}`) ?? ""; } catch { return ""; } })();
@@ -181,9 +180,10 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
   const [selWsId, setSelWsId] = useState<string>("");
   const effectiveWs = workspaces.find((w) => w.id === (selWsId || preferred?.id)) ?? preferred;
   const canRun = !!effectiveWs && !isPending;
-  const cliPath =
-    (import.meta.env.VITE_SPECTER_CLI_PATH as string | undefined)
-    ?? "/Users/navjyotnishant/Desktop/github/navjyotnishant/specter-agent/scripts/specter_cli.py";
+  const gatePath =
+    (import.meta.env.VITE_SPECTER_GATE_PATH as string | undefined)
+    ?? (import.meta.env.VITE_SPECTER_CLI_PATH as string | undefined)
+    ?? "/Users/navjyotnishant/Desktop/github/navjyotnishant/specter-agent/scripts/specter_gate.py";
   const apiBase =
     (import.meta.env.VITE_API_BASE_URL as string | undefined)
     ?? `${window.location.origin}/api`;
@@ -196,29 +196,20 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
         [
           `SPECTER_API_BASE_URL=${shellQuote(apiBase)}`,
           `SPECTER_WEB_BASE_URL=${shellQuote(webBase)}`,
-          shellQuote(cliPath),
-          "workflow",
-          "run",
+          shellQuote(gatePath),
           shellQuote(workflow.id),
           "--workspace",
           ".",
-          "--wait",
           "--json",
         ].join(" "),
       ].join(" && ")
     : "";
-  const authCommand = `${shellQuote(cliPath)} auth login --email <your-specter-login-email>`;
 
   const copyTerminalCommand = async () => {
     if (!terminalCommand) return;
     await navigator.clipboard.writeText(terminalCommand);
     setCopiedCommand(true);
     window.setTimeout(() => setCopiedCommand(false), 1600);
-  };
-  const copyAuthCommand = async () => {
-    await navigator.clipboard.writeText(authCommand);
-    setCopiedAuthCommand(true);
-    window.setTimeout(() => setCopiedAuthCommand(false), 1600);
   };
 
   const truncatePath = (p: string) => {
@@ -328,48 +319,9 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
 
         {effectiveWs && (
           <div style={{ marginBottom: 18 }}>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
-                <p style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
-                  Authenticate once
-                </p>
-                <button
-                  onClick={copyAuthCommand}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "5px 9px", borderRadius: 7,
-                    border: "1px solid #c7d2fe", background: copiedAuthCommand ? "#ecfdf5" : "#f8fafc",
-                    color: copiedAuthCommand ? "#047857" : "#4f46e5",
-                    fontSize: 11, fontWeight: 700, cursor: "pointer",
-                  }}
-                >
-                  {copiedAuthCommand ? <CheckCircle2 style={{ width: 11, height: 11 }} /> : <Copy style={{ width: 11, height: 11 }} />}
-                  {copiedAuthCommand ? "Copied" : "Copy"}
-                </button>
-              </div>
-              <pre style={{
-                margin: 0,
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid #e2e8f0",
-                background: "#f8fafc",
-                color: "#334155",
-                fontSize: 11,
-                lineHeight: 1.6,
-                overflowX: "auto",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-              }}>
-                {authCommand}
-              </pre>
-              <p style={{ fontSize: 10, color: "#64748b", margin: "6px 0 0" }}>
-                Paste the printed <code>export SPECTER_TOKEN=...</code> line into the same terminal before running the workflow command.
-              </p>
-            </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
               <p style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
-                Workflow command
+                Workflow gate command
               </p>
               <button
                 onClick={copyTerminalCommand}
@@ -402,7 +354,7 @@ function RunModal({ token, workflowId, workflowName, workflow, onClose, onRun, i
               {terminalCommand}
             </pre>
             <p style={{ fontSize: 10, color: "#94a3b8", margin: "6px 0 0" }}>
-              Run this from any terminal after authentication. It changes into the approved repository before starting the workflow.
+              One command for another repo. If needed, it prompts for Specter login once and caches the token locally.
             </p>
           </div>
         )}

@@ -172,32 +172,35 @@ the run is active.
 
 ## Terminal Execution
 
-The local CLI entrypoint is:
+The recommended local entrypoint is the wrapper:
 
 ```bash
-scripts/specter_cli.py workflow run <workflow-id-or-slug> --workspace . --wait
+scripts/specter_gate.py <workflow-id-or-slug> --workspace .
 ```
 
-Authentication uses the same local FastAPI auth token as the web app. Run the
-login helper first:
+The wrapper uses the same local FastAPI auth token as the web app. If
+`SPECTER_TOKEN` is not set and no cached token exists, it prompts for Specter
+email/password, validates the token, and caches it at:
+
+```text
+~/.specter-agent/token.json
+```
+
+The cache file is written with user-only permissions. For non-interactive
+automation, set `SPECTER_TOKEN` explicitly.
 
 ```bash
-scripts/specter_cli.py auth login --email you@example.com
+scripts/specter_gate.py <workflow-id-or-slug> --workspace . --json
 ```
 
-The command prints an export line. Paste that line into the same terminal
-before running a workflow:
-
-```bash
-export SPECTER_TOKEN='...'
-```
-
-The CLI reads `SPECTER_TOKEN` by default, or accepts `--token`.
+Advanced users can still call the lower-level CLI directly with
+`scripts/specter_cli.py`.
 
 Behavior:
 
 - Resolves the workflow by id, exact name, or slugified name.
 - Resolves the requested path to an approved Specter runtime workspace.
+- Prompts for login only when no valid token is available.
 - Starts the workflow via `POST /api/workflow-runs`.
 - Streams run logs while waiting.
 - Prints the web evidence URL for the run.
@@ -211,7 +214,7 @@ Project-level `CLAUDE.md` or `AGENTS.md` gate example:
 ```md
 Before production build, release, or high-risk code change, run:
 
-scripts/specter_cli.py workflow run security-review-team --workspace . --wait
+scripts/specter_gate.py security-review-team --workspace . --json
 
 Proceed only if the command exits 0.
 ```

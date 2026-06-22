@@ -66,31 +66,22 @@ SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 python3 scripts/specter_host_runner.py
 
 ## Terminal Workflow Gate
 
-Specter workflows can be triggered from a terminal for local release gates,
-agent instructions, or project scripts.
-
-Authenticate once:
-
-```bash
-scripts/specter_cli.py auth login --email you@example.com
-```
-
-The command prints an export line. Paste that line into the same terminal:
+Specter workflows can be triggered from another project terminal for local
+release gates, agent instructions, or project scripts. Use the wrapper for the
+simple path:
 
 ```bash
-export SPECTER_TOKEN='...'
+scripts/specter_gate.py security-review-team --workspace .
 ```
 
-Run an approved workflow against the current repository:
-
-```bash
-scripts/specter_cli.py workflow run security-review-team --workspace . --wait
-```
+The wrapper prompts for Specter login when needed, caches the local token under
+`~/.specter-agent/token.json` with user-only permissions, then starts the
+workflow and waits for the pass/fail result.
 
 Automation can request final JSON and use the process exit code:
 
 ```bash
-scripts/specter_cli.py workflow run security-review-team --workspace . --wait --json
+scripts/specter_gate.py security-review-team --workspace . --json
 ```
 
 Exit code `0` means the workflow completed successfully. A non-zero exit means
