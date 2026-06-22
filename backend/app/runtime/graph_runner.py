@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -178,6 +179,19 @@ def _call_host_runner(path: str, body: dict) -> dict[str, Any]:
     try:
         with urllib.request.urlopen(req, timeout=600) as resp:
             return json.loads(resp.read())
+    except urllib.error.URLError as exc:
+        return {
+            "ok": False,
+            "status": "host_runner_unavailable",
+            "message": (
+                "Specter Host Runner is unavailable. Start it from the Specter Agent repository with "
+                "`python3 scripts/specter_host_runner.py`, then retry the workflow."
+            ),
+            "diagnostic": str(exc.reason),
+            "stdout": "",
+            "stderr": "",
+            "final_message": "",
+        }
     except Exception as exc:
         return {"ok": False, "message": str(exc), "stdout": "", "stderr": "", "final_message": ""}
 

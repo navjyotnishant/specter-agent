@@ -115,6 +115,9 @@ class SpecterClient:
     def get_approvals(self, run_id: str) -> list[dict[str, Any]]:
         return self.request("GET", f"/workflow-runs/{run_id}/approvals")
 
+    def codex_runtime_status(self) -> dict[str, Any]:
+        return self.request("GET", "/runtime-adapters/codex-cli/status")
+
 
 def resolve_workflow(client: SpecterClient, selector: str) -> dict[str, Any]:
     workflows = client.list_workflows()
@@ -150,6 +153,29 @@ def resolve_approved_workspace(client: SpecterClient, requested_path: str) -> di
         )
     candidates.sort(key=lambda item: item[0], reverse=True)
     return candidates[0][1]
+
+
+def ensure_runtime_ready(client: SpecterClient) -> None:
+    status = client.codex_runtime_status()
+    runtime_status = str(status.get("status") or "")
+    if runtime_status == "ready":
+        return
+
+    message = str(status.get("message") or "Specter local execution runtime is not ready.")
+    diagnostic = str(status.get("diagnostic") or "").strip()
+    install_hint = ""
+    if runtime_status == "host_runner_unavailable":
+        install_hint = "\nStart it from the Specter Agent repository: python3 scripts/specter_host_runner.py"
+    elif runtime_status == "missing":
+        install_hint = "\nInstall Codex CLI from the Specter Models page, then sign in from your terminal."
+    elif runtime_status in {"not_authenticated", "auth_required"}:
+        install_hint = "\nRun `codex` in your terminal and complete sign-in, then retry."
+
+    details = f"\nDiagnostic: {diagnostic}" if diagnostic else ""
+    raise SpecterCliError(
+        f"Specter runtime is not ready: {message}{install_hint}{details}",
+        EXIT_API_UNAVAILABLE,
+    )
 
 
 def workflow_url(web_base: str, workflow_id: str, run_id: str) -> str:
@@ -270,6 +296,7 @@ def cmd_workflow_run(args: argparse.Namespace) -> int:
     client = SpecterClient(args.api_base, args.token)
     workflow = resolve_workflow(client, args.workflow)
     workspace = resolve_approved_workspace(client, args.workspace)
+    ensure_runtime_ready(client)
     workspace_path = str(workspace["path"])
     response = client.start_run(str(workflow["id"]), workspace_path)
     run_id = str(response["run_id"])
