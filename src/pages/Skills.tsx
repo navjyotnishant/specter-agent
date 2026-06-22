@@ -4,20 +4,19 @@ import {
   BookOpenCheck,
   Plus,
   Save,
+  Search,
   Trash2,
+  Wrench,
 } from "lucide-react";
 import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 import type { Skill } from "@/lib/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor } from "@/components/ui/rich-text-editor";
 
 const templates = [
   { label: "Repository Analysis", value: "Repository Analysis", description: "Map a local repository before an agent is allowed to plan or modify work." },
@@ -55,7 +54,7 @@ const builtInSkills: Skill[] = [
     name: "Repository Analysis",
     description: "Map a local repository before an agent is allowed to plan or modify work.",
     prompt_template: promptByTemplate["Repository Analysis"],
-    compatible_agent_roles: "Codex CLI, read-only, local repositories",
+    compatible_agent_roles: "read-only, local repositories",
     created_at: new Date().toISOString(),
   },
   {
@@ -63,7 +62,7 @@ const builtInSkills: Skill[] = [
     name: "Code Review",
     description: "Review a branch, diff, or focused file set for production-impacting defects.",
     prompt_template: promptByTemplate["Code Review"],
-    compatible_agent_roles: "Codex CLI, read-only, approval-required write",
+    compatible_agent_roles: "read-only, approval-required write",
     created_at: new Date().toISOString(),
   },
   {
@@ -71,7 +70,7 @@ const builtInSkills: Skill[] = [
     name: "Security Review",
     description: "Assess code changes for security risks before release or privileged execution.",
     prompt_template: promptByTemplate["Security Review"],
-    compatible_agent_roles: "Codex CLI, read-only, security gate",
+    compatible_agent_roles: "read-only, security gate",
     created_at: new Date().toISOString(),
   },
   {
@@ -79,7 +78,7 @@ const builtInSkills: Skill[] = [
     name: "Test Failure Diagnosis",
     description: "Investigate failing checks from logs and repository context before proposing fixes.",
     prompt_template: promptByTemplate["Test Failure Diagnosis"],
-    compatible_agent_roles: "Codex CLI, read-only, local repositories",
+    compatible_agent_roles: "read-only, local repositories",
     created_at: new Date().toISOString(),
   },
   {
@@ -87,7 +86,7 @@ const builtInSkills: Skill[] = [
     name: "Web Quality Audit",
     description: "Audit frontend quality across performance, accessibility, SEO, and best practices.",
     prompt_template: promptByTemplate["Web Quality Audit"],
-    compatible_agent_roles: "Codex CLI, read-only, browser-assisted",
+    compatible_agent_roles: "read-only, browser-assisted",
     created_at: new Date().toISOString(),
   },
   {
@@ -95,7 +94,7 @@ const builtInSkills: Skill[] = [
     name: "Web App Testing",
     description: "Test local web applications with browser automation, screenshots, DOM inspection, and console logs.",
     prompt_template: promptByTemplate["Web App Testing"],
-    compatible_agent_roles: "Codex CLI, read-only, browser-assisted",
+    compatible_agent_roles: "read-only, browser-assisted",
     created_at: new Date().toISOString(),
   },
   {
@@ -103,7 +102,7 @@ const builtInSkills: Skill[] = [
     name: "Production PR Review",
     description: "Run a pre-landing review focused on production failures that normal tests miss.",
     prompt_template: promptByTemplate["Production PR Review"],
-    compatible_agent_roles: "Codex CLI, read-only, release gate",
+    compatible_agent_roles: "read-only, release gate",
     created_at: new Date().toISOString(),
   },
   {
@@ -111,7 +110,7 @@ const builtInSkills: Skill[] = [
     name: "Product Copy QA",
     description: "Remove vague, generic, or AI-sounding product language from user-facing surfaces.",
     prompt_template: promptByTemplate["Product Copy QA"],
-    compatible_agent_roles: "Codex CLI, read-only, user-facing copy",
+    compatible_agent_roles: "read-only, user-facing copy",
     created_at: new Date().toISOString(),
   },
   {
@@ -119,7 +118,7 @@ const builtInSkills: Skill[] = [
     name: "Chief Security Audit",
     description: "Run a multi-phase security audit across code, dependencies, CI/CD, secrets, and AI trust boundaries.",
     prompt_template: promptByTemplate["Chief Security Audit"],
-    compatible_agent_roles: "Codex CLI, read-only, security gate",
+    compatible_agent_roles: "read-only, security gate",
     created_at: new Date().toISOString(),
   },
   {
@@ -127,7 +126,7 @@ const builtInSkills: Skill[] = [
     name: "Focused Security PR Review",
     description: "Review only newly introduced security risk in a branch or PR with high-confidence false-positive filtering.",
     prompt_template: promptByTemplate["Focused Security PR Review"],
-    compatible_agent_roles: "Codex CLI, read-only, security gate",
+    compatible_agent_roles: "read-only, security gate",
     created_at: new Date().toISOString(),
   },
   {
@@ -135,7 +134,7 @@ const builtInSkills: Skill[] = [
     name: "Codex Second Opinion",
     description: "Use Codex CLI as an independent reviewer for diff review, adversarial challenge, or consultation.",
     prompt_template: promptByTemplate["Codex Second Opinion"],
-    compatible_agent_roles: "Codex CLI, read-only, cross-model review",
+    compatible_agent_roles: "read-only, cross-model review",
     created_at: new Date().toISOString(),
   },
 ];
@@ -143,9 +142,6 @@ const builtInSkills: Skill[] = [
 type SkillDraft = {
   name: string;
   description: string;
-  runtime: string;
-  mode: string;
-  scope: string;
   promptTemplate: string;
 };
 
@@ -159,19 +155,15 @@ function parseMetadata(value: string) {
 }
 
 function draftFromSkill(skill: Skill): SkillDraft {
-  const metadata = parseMetadata(skill.compatible_agent_roles);
   return {
     name: skill.name,
     description: skill.description,
-    runtime: metadata[0] || "Codex CLI",
-    mode: metadata[1] || "read-only",
-    scope: metadata[2] || "approved repositories",
     promptTemplate: skill.prompt_template,
   };
 }
 
-function metadataFromDraft(draft: SkillDraft) {
-  return [draft.runtime, draft.mode, draft.scope].filter(Boolean);
+function metadataFromDraft(_draft: SkillDraft) {
+  return [];
 }
 
 export default function Skills() {
@@ -277,9 +269,6 @@ export default function Skills() {
     setDraft({
       name: template.label,
       description: template.description,
-      runtime: "Codex CLI",
-      mode: "read-only",
-      scope: "approved repositories",
       promptTemplate: promptByTemplate[template.value],
     });
   };
@@ -294,168 +283,117 @@ export default function Skills() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-950">Skills</h2>
-          <p className="mt-1 text-sm text-slate-600">Configure reusable instructions for governed local agent work.</p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
-          {[
-            ["Saved", activeSkills],
-            ["Templates", builtInSkills.length],
-            ["Runtime", "Codex CLI"],
-            ["Mode", "Safe"],
-          ].map(([label, value]) => (
-            <span key={label} className="rounded-md border border-slate-200 bg-white px-2.5 py-1">
-              <span className="text-slate-500">{label}:</span> <span className="text-slate-900">{value}</span>
-            </span>
-          ))}
+    <div className="space-y-6">
+      {/* header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-100">
+            <Wrench className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Skills</h1>
+            <p className="text-sm text-slate-500">Configure reusable instructions for governed local agent work</p>
+          </div>
         </div>
       </div>
 
       {error && (
-        <Alert variant="destructive" className="rounded-lg">
+        <Alert variant="destructive" className="rounded-2xl">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
-      <div className="grid min-h-[720px] gap-3 xl:grid-cols-[340px_minmax(0,1fr)]">
-        <Card className="rounded-lg border border-slate-200 bg-white shadow-none">
+      <div className="grid min-h-[720px] gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        {/* left panel — skill library */}
+        <Card className="rounded-2xl border-slate-200 shadow-none">
           <CardContent className="flex h-full flex-col p-0">
-            <div className="border-b border-slate-200 px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Skill library</h3>
-                  <p className="mt-0.5 text-xs text-slate-500">{savedSkills.length} saved, {builtInSkills.length} templates</p>
-                </div>
-                <BookOpenCheck className="h-4 w-4 text-slate-500" />
+            {/* library header */}
+            <div className="flex items-center gap-2.5 border-b border-slate-100 px-4 py-3.5">
+              <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-indigo-50">
+                <BookOpenCheck className="h-3.5 w-3.5 text-indigo-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-800">Skill library</p>
+                <p className="text-[11px] text-slate-400">{savedSkills.length} saved · {builtInSkills.length - savedSkills.length > 0 ? builtInSkills.length - savedSkills.length : builtInSkills.length} templates</p>
               </div>
             </div>
 
-            <div className="grid gap-2 border-b border-slate-200 px-4 py-3">
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search skills"
-                className="h-9 rounded-md bg-white text-sm"
-              />
-              <Select onValueChange={applyTemplate} value={templates.some((template) => template.value === draft.name) ? draft.name : undefined}>
-                <SelectTrigger className="h-9 rounded-md bg-white text-sm">
-                  <SelectValue placeholder="Start from template" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templates.map((template) => (
-                    <SelectItem key={template.value} value={template.value}>
-                      {template.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* search */}
+            <div className="border-b border-slate-100 px-3 py-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search skills"
+                  className="h-8 rounded-xl bg-slate-50 pl-8 text-xs border-slate-200"
+                />
+              </div>
             </div>
 
             {!canUseBackend && (
-              <div className="m-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+              <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
                 <p className="text-xs font-semibold text-amber-900">Backend session required to save changes.</p>
               </div>
             )}
 
+            {/* skill list */}
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="divide-y divide-slate-100">
-                {filteredSkills.map((skill) => {
-                  const saved = savedSkills.some((savedSkill) => savedSkill.id === skill.id);
-                  const selected = skill.id === selectedSkillId;
-                  return (
-                    <button
-                      key={skill.id}
-                      type="button"
-                      onClick={() => selectSkill(skill)}
-                      className={`w-full border-l-2 px-4 py-3 text-left ${
-                        selected
-                          ? "border-l-slate-900 bg-slate-50 text-slate-950"
-                          : "border-l-transparent bg-white text-slate-950 hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">{skill.name}</p>
-                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
-                            {skill.description || "No description provided."}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="shrink-0 rounded-md border-slate-200 bg-slate-50 px-1.5 py-0 text-[11px] font-medium text-slate-600">
-                          {saved ? "Saved" : "Template"}
-                        </Badge>
-                      </div>
-                    </button>
-                  );
-                })}
-                {!filteredSkills.length && (
-                  <div className="p-4 text-sm text-slate-500">
-                    No skills match the current search.
-                  </div>
-                )}
-              </div>
+              <SkillList skills={filteredSkills} savedSkills={savedSkills} selectedSkillId={selectedSkillId} onSelect={selectSkill} />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="rounded-lg border border-slate-200 bg-white shadow-none">
+        {/* right panel — editor */}
+        <Card className="rounded-2xl border-slate-200 shadow-none">
           <CardContent className="p-0">
-            <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className="rounded-md border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
-                    {selectedSaved ? "Saved skill" : "Template draft"}
-                  </Badge>
-                  {metadataFromDraft(draft).map((item) => (
-                    <Badge key={item} variant="outline" className="rounded-md border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">
-                      {item}
-                    </Badge>
-                  ))}
-                </div>
-                <h3 className="mt-3 text-xl font-semibold text-slate-950">{draft.name || "Untitled skill"}</h3>
-                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                  {draft.description || "Add a description that makes the skill easy to choose."}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  disabled={create.isPending || update.isPending || !canUseBackend}
-                  onClick={saveSelectedSkill}
-                  className="h-9 rounded-md bg-slate-900 px-3 text-sm hover:bg-slate-800"
-                >
-                  <Save className="mr-2 h-4 w-4" />
-                  {create.isPending || update.isPending ? "Saving" : selectedSaved ? "Save changes" : "Save skill"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 rounded-md bg-white px-3 text-sm"
-                  onClick={() => applyTemplate("Repository Analysis")}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  New from template
-                </Button>
-                {selectedSaved && (
+            {/* editor header */}
+            <div className="border-b border-slate-100 px-5 py-4">
+              {/* top row: action buttons */}
+              <div className="flex items-center justify-end gap-4">
+                <div className="flex items-center gap-2 shrink-0">
                   <Button
                     type="button"
                     variant="outline"
-                    size="icon"
-                    disabled={remove.isPending}
-                    onClick={() => remove.mutate(selectedSkill.id)}
-                    className="h-9 w-9 rounded-md border-red-200 text-red-700 hover:bg-red-50"
-                    aria-label="Delete skill"
+                    className="h-9 rounded-xl px-3 text-sm"
+                    onClick={() => applyTemplate("Repository Analysis")}
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    New
                   </Button>
-                )}
+                  {selectedSaved && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      disabled={remove.isPending}
+                      onClick={() => remove.mutate(selectedSkill.id)}
+                      className="h-9 w-9 rounded-xl border-red-200 text-red-600 hover:bg-red-50"
+                      aria-label="Delete skill"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    disabled={create.isPending || update.isPending || !canUseBackend}
+                    onClick={saveSelectedSkill}
+                    className="h-9 rounded-xl bg-indigo-600 px-3 text-sm hover:bg-indigo-700"
+                  >
+                    <Save className="mr-1.5 h-3.5 w-3.5" />
+                    {create.isPending || update.isPending ? "Saving…" : selectedSaved ? "Save changes" : "Save skill"}
+                  </Button>
+                </div>
               </div>
+              {/* title + description below */}
+              <h2 className="mt-3 text-xl font-bold text-slate-900">{draft.name || "Untitled skill"}</h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
+                {draft.description || "Add a description that makes the skill easy to choose."}
+              </p>
             </div>
 
             {!canUseBackend && (
-              <Alert className="m-5 rounded-md border-amber-200 bg-amber-50">
+              <Alert className="m-5 rounded-2xl border-amber-200 bg-amber-50">
                 <AlertDescription className="text-sm text-amber-900">
                   Saving is disabled until the backend session is available.
                 </AlertDescription>
@@ -472,102 +410,87 @@ export default function Skills() {
   );
 }
 
+function SkillBtn({ skill, selected, onSelect }: { skill: Skill; selected: boolean; onSelect: (s: Skill) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(skill)}
+      className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
+        selected ? "bg-indigo-50" : "hover:bg-slate-50"
+      }`}
+    >
+      <p className={`truncate text-sm font-semibold ${selected ? "text-indigo-800" : "text-slate-800"}`}>{skill.name}</p>
+      <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400">
+        {skill.description || "No description provided."}
+      </p>
+    </button>
+  );
+}
+
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400">{label}</p>
+  );
+}
+
+function SkillList({ skills, savedSkills, selectedSkillId, onSelect }: {
+  skills: Skill[];
+  savedSkills: Skill[];
+  selectedSkillId: string;
+  onSelect: (s: Skill) => void;
+}) {
+  const savedSet = new Set(savedSkills.map((s) => s.id));
+  const saved = skills.filter((s) => savedSet.has(s.id));
+  const templates = skills.filter((s) => !savedSet.has(s.id));
+  const noResults = skills.length === 0;
+
+  return (
+    <div className="p-2">
+      {noResults && <p className="p-3 text-xs text-slate-400">No skills match the current search.</p>}
+      {saved.length > 0 && (
+        <>
+          <SectionHeader label="Your skills" />
+          <div className="space-y-0.5">
+            {saved.map((s) => <SkillBtn key={s.id} skill={s} selected={s.id === selectedSkillId} onSelect={onSelect} />)}
+          </div>
+        </>
+      )}
+      {templates.length > 0 && (
+        <>
+          {saved.length > 0 && <div className="my-2 border-t border-slate-100" />}
+          <SectionHeader label="Templates" />
+          <div className="space-y-0.5">
+            {templates.map((s) => <SkillBtn key={s.id} skill={s} selected={s.id === selectedSkillId} onSelect={onSelect} />)}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function SkillEditor({ draft, onChange }: { draft: SkillDraft; onChange: (draft: SkillDraft) => void }) {
   return (
     <div className="grid gap-4">
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-2">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-slate-600">Name</Label>
-          <Input className="h-9 rounded-md bg-white text-sm" value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} required />
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Name</Label>
+          <Input className="h-9 rounded-xl text-sm" value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} required />
         </div>
-        <div className="space-y-2">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-slate-600">Description</Label>
-          <Input className="h-9 rounded-md bg-white text-sm" value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} />
-        </div>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-2">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-slate-600">Runtime</Label>
-          <Select value={draft.runtime} onValueChange={(runtime) => onChange({ ...draft, runtime })}>
-            <SelectTrigger className="h-9 rounded-md bg-white text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Codex CLI">Codex CLI</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-slate-600">Mode</Label>
-          <Select value={draft.mode} onValueChange={(mode) => onChange({ ...draft, mode })}>
-            <SelectTrigger className="h-9 rounded-md bg-white text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="read-only">Read-only</SelectItem>
-              <SelectItem value="approval-required write">Approval-required write</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-slate-600">Scope</Label>
-          <Select value={draft.scope} onValueChange={(scope) => onChange({ ...draft, scope })}>
-            <SelectTrigger className="h-9 rounded-md bg-white text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="approved repositories">Approved repositories</SelectItem>
-              <SelectItem value="selected repository">Selected repository</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Description</Label>
+          <Input className="h-9 rounded-xl text-sm" value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} />
         </div>
       </div>
-      <div className="space-y-2">
-        <Label className="text-xs font-semibold uppercase tracking-wide text-slate-600">Skill Markdown</Label>
-        <Tabs defaultValue="edit" className="w-full">
-          <TabsList className="grid h-9 w-full grid-cols-2 rounded-md border border-slate-200 bg-slate-50 p-1">
-            <TabsTrigger value="edit" className="rounded-sm text-sm">Edit</TabsTrigger>
-            <TabsTrigger value="preview" className="rounded-sm text-sm">Preview</TabsTrigger>
-          </TabsList>
-          <TabsContent value="edit" className="mt-3">
-            <Textarea
-              className="min-h-[430px] rounded-md border-slate-300 bg-slate-50 font-mono text-sm leading-6"
-              value={draft.promptTemplate}
-              onChange={(event) => onChange({ ...draft, promptTemplate: event.target.value })}
-            />
-          </TabsContent>
-          <TabsContent value="preview" className="mt-3">
-            <MarkdownPreview markdown={draft.promptTemplate} />
-          </TabsContent>
-        </Tabs>
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Skill instructions</Label>
+        <RichTextEditor
+          value={draft.promptTemplate}
+          onChange={(md) => onChange({ ...draft, promptTemplate: md })}
+          placeholder="Write skill instructions using headings, lists, and code blocks…"
+          minHeight="430px"
+        />
       </div>
     </div>
   );
 }
 
-function MarkdownPreview({ markdown }: { markdown: string }) {
-  const lines = markdown.split("\n");
-  const blocks: Array<{ type: "h1" | "h2" | "h3" | "li" | "p" | "blank"; text: string }> = lines.map((line) => {
-    if (!line.trim()) return { type: "blank", text: "" };
-    if (line.startsWith("### ")) return { type: "h3", text: line.replace(/^###\s+/, "") };
-    if (line.startsWith("## ")) return { type: "h2", text: line.replace(/^##\s+/, "") };
-    if (line.startsWith("# ")) return { type: "h1", text: line.replace(/^#\s+/, "") };
-    if (line.startsWith("- ")) return { type: "li", text: line.replace(/^-\s+/, "") };
-    if (/^\d+\.\s/.test(line)) return { type: "li", text: line.replace(/^\d+\.\s+/, "") };
-    return { type: "p", text: line };
-  });
-
-  return (
-    <div className="min-h-[430px] rounded-md border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-      {blocks.map((block, index) => {
-        const key = `${block.type}-${index}`;
-        if (block.type === "blank") return <div key={key} className="h-3" />;
-        if (block.type === "h1") return <h1 key={key} className="text-lg font-semibold text-slate-950">{block.text}</h1>;
-        if (block.type === "h2") return <h2 key={key} className="mt-3 text-base font-semibold text-slate-950">{block.text}</h2>;
-        if (block.type === "h3") return <h3 key={key} className="mt-3 font-semibold text-slate-950">{block.text}</h3>;
-        if (block.type === "li") return <p key={key} className="pl-4 text-slate-700">- {block.text}</p>;
-        return <p key={key} className="text-slate-700">{block.text}</p>;
-      })}
-    </div>
-  );
-}
