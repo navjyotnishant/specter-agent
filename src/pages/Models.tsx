@@ -234,7 +234,7 @@ export default function Models() {
   const canInstallCodex = Boolean(canUseBackend && codexRuntime?.status === "missing" && codexRuntime.install_supported);
   const canUpgradeCodex = Boolean(canUseBackend && codexRuntime?.installed && codexRuntime?.upgrade_supported);
   const maintenanceEnabled = runnerMode?.maintenance_enabled ?? codexRuntime?.install_enabled ?? false;
-  const recentRunnerLogs = runnerLogs?.logs.slice(-20).reverse() ?? [];
+  const recentRunnerLogs = runnerLogs?.logs?.slice(-20).reverse() ?? [];
   const activeRuntimeWorkspaces = runtimeWorkspaces.filter((workspace) => workspace.is_active);
   const latestRuntimeRun = runtimeRuns[0];
   const runtimeRunInProgress = Boolean(activeRunStartedAt) || createRuntimeRun.isPending;
