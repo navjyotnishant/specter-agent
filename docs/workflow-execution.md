@@ -178,13 +178,21 @@ The local CLI entrypoint is:
 scripts/specter_cli.py workflow run <workflow-id-or-slug> --workspace . --wait
 ```
 
-Authentication uses the same local FastAPI auth token as the web app. The CLI
-reads `SPECTER_TOKEN` by default, or accepts `--token`.
+Authentication uses the same local FastAPI auth token as the web app. Run the
+login helper first:
 
 ```bash
 scripts/specter_cli.py auth login --email you@example.com
+```
+
+The command prints an export line. Paste that line into the same terminal
+before running a workflow:
+
+```bash
 export SPECTER_TOKEN='...'
 ```
+
+The CLI reads `SPECTER_TOKEN` by default, or accepts `--token`.
 
 Behavior:
 

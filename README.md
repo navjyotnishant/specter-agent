@@ -69,10 +69,15 @@ SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 python3 scripts/specter_host_runner.py
 Specter workflows can be triggered from a terminal for local release gates,
 agent instructions, or project scripts.
 
-Authenticate once and export the token for the current shell:
+Authenticate once:
 
 ```bash
 scripts/specter_cli.py auth login --email you@example.com
+```
+
+The command prints an export line. Paste that line into the same terminal:
+
+```bash
 export SPECTER_TOKEN='...'
 ```
 
