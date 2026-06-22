@@ -31,8 +31,12 @@ import { Textarea } from "@/components/ui/textarea";
 const codexSigninCommand = "codex";
 const dockerSandboxMacInstallCommand = "brew install docker/tap/sbx";
 const dockerSandboxWindowsInstallCommand = "winget install Docker.sbx";
-const dockerSandboxAuthCommand = "sbx secret set -g openai --oauth";
 const runnerSafeCommand = "python3 scripts/specter_host_runner.py";
+
+const SANDBOX_AGENTS: Record<string, { label: string; authCommand: string; template: string }> = {
+  codex:  { label: "Codex",       authCommand: "sbx secret set -g openai --oauth", template: "docker/sandbox-templates:codex" },
+  claude: { label: "Claude Code", authCommand: "sbx secret set -g anthropic",      template: "docker/sandbox-templates:claude-code" },
+};
 const runnerMaintenanceCommand = "SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 python3 scripts/specter_host_runner.py";
 const defaultRuntimePrompt = "Summarize this repository structure and identify the main application entry points. Do not modify files.";
 
@@ -78,6 +82,9 @@ export default function Models() {
   const queryClient = useQueryClient();
   const [error, setError] = useState("");
   const [copiedCommand, setCopiedCommand] = useState("");
+  const [sandboxAgent, setSandboxAgent] = useState<string>(() => {
+    try { return localStorage.getItem("specter_sandbox_agent") ?? "codex"; } catch { return "codex"; }
+  });
   const [discoveryRoot, setDiscoveryRoot] = useState("/Users/navjyotnishant/Desktop/github");
   const [selectedDiscoveredPaths, setSelectedDiscoveredPaths] = useState<string[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
@@ -196,6 +203,7 @@ export default function Models() {
         prompt: runtimePrompt,
         mode: "read-only",
         timeout_seconds: 180,
+        agent: sandboxAgent,
       }),
     onMutate: () => {
       setActiveRunStartedAt(new Date().toLocaleTimeString());
@@ -315,13 +323,38 @@ export default function Models() {
               </Button>
             </div>
 
-            <div className="mt-5 grid gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3">
+            {/* Agent selector */}
+            <div className="mt-4 flex gap-1 rounded-2xl border border-slate-100 bg-slate-50 p-1">
+              {Object.entries(SANDBOX_AGENTS).map(([key, ag]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    setSandboxAgent(key);
+                    try { localStorage.setItem("specter_sandbox_agent", key); } catch {}
+                  }}
+                  style={{
+                    flex: 1, padding: "6px 10px", borderRadius: 12, fontSize: 12, fontWeight: 700,
+                    border: "none", cursor: "pointer", transition: "all 0.15s",
+                    background: sandboxAgent === key ? "white" : "transparent",
+                    color: sandboxAgent === key ? "#0f172a" : "#64748b",
+                    boxShadow: sandboxAgent === key ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  }}
+                >
+                  {ag.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 grid gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className="rounded-full bg-white text-emerald-800 hover:bg-white">microVM isolation</Badge>
-                <Badge className="rounded-full bg-white text-emerald-800 hover:bg-white">{dockerSandboxRuntime?.base_image ?? "docker/sandbox-templates:codex"}</Badge>
+                <Badge className="rounded-full bg-white text-emerald-800 hover:bg-white">
+                  {SANDBOX_AGENTS[sandboxAgent]?.template ?? dockerSandboxRuntime?.base_image ?? "docker/sandbox-templates:codex"}
+                </Badge>
               </div>
               <p className="text-sm font-semibold leading-6 text-emerald-950">
-                Agent tasks will run inside a disposable Docker Sandbox while Specter keeps approvals, workspace allowlists, logs, and evidence in the app.
+                {SANDBOX_AGENTS[sandboxAgent]?.label ?? "Agent"} tasks will run inside a disposable Docker Sandbox while Specter keeps approvals, workspace allowlists, logs, and evidence in the app.
               </p>
             </div>
 
@@ -359,12 +392,14 @@ export default function Models() {
               <DialogContent className="max-w-2xl rounded-3xl">
                 <DialogHeader>
                   <DialogTitle>Docker Sandbox Setup</DialogTitle>
-                  <DialogDescription>Install sbx once on the host, then authenticate Codex for sandboxed runs.</DialogDescription>
+                  <DialogDescription>
+                    Install sbx once on the host, then authenticate {SANDBOX_AGENTS[sandboxAgent]?.label ?? "the agent"} for sandboxed runs.
+                  </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3">
                   <CommandCopy command={dockerSandboxRuntime?.install_guidance?.macos ?? dockerSandboxMacInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
                   <CommandCopy command={dockerSandboxRuntime?.install_guidance?.windows ?? dockerSandboxWindowsInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
-                  <CommandCopy command={dockerSandboxAuthCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                  <CommandCopy command={SANDBOX_AGENTS[sandboxAgent]?.authCommand ?? "sbx secret set -g openai --oauth"} copiedCommand={copiedCommand} onCopy={copyCommand} />
                 </div>
               </DialogContent>
             </Dialog>

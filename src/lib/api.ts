@@ -169,7 +169,7 @@ export const api = {
       body: JSON.stringify(discovery),
     }),
   codexRuntimeRuns: (token: string) => request<RuntimeRun[]>("/runtime-adapters/codex-cli/runs", { headers: authHeaders(token) }),
-  createCodexRuntimeRun: (token: string, run: { workspace_id: string; prompt: string; mode: "read-only"; timeout_seconds: number }) =>
+  createCodexRuntimeRun: (token: string, run: { workspace_id: string; prompt: string; mode: "read-only"; timeout_seconds: number; agent?: string }) =>
     request<RuntimeRun>("/runtime-adapters/codex-cli/runs", {
       method: "POST",
       headers: authHeaders(token),

@@ -31,6 +31,32 @@ DOCKER_SANDBOX_CODEX_DOCS_URL = "https://docs.docker.com/ai/sandboxes/agents/cod
 DOCKER_SANDBOX_PRODUCT_URL = "https://www.docker.com/products/docker-sandboxes/"
 DOCKER_SANDBOX_TEMPLATE = "docker/sandbox-templates:codex"
 SANDBOX_POLICY_VALUES = {"allow-all", "balanced", "deny-all"}
+
+# Registry of supported sandbox agents.
+# Each entry describes how to launch the agent inside sbx.
+# run_cmd: the keyword passed to `sbx run <run_cmd>`
+# auth_provider: secret provider name for `sbx secret set -g <auth_provider>`
+# auth_flag: extra flag on the secret set command (e.g. --oauth), or None
+_SANDBOX_AGENTS: dict[str, dict[str, Any]] = {
+    "codex": {
+        "key": "codex",
+        "display_name": "Codex",
+        "template": "docker/sandbox-templates:codex",
+        "run_cmd": "codex",
+        "auth_provider": "openai",
+        "auth_flag": "--oauth",
+        "docs_url": "https://docs.docker.com/ai/sandboxes/agents/codex/",
+    },
+    "claude": {
+        "key": "claude",
+        "display_name": "Claude Code",
+        "template": "docker/sandbox-templates:claude-code",
+        "run_cmd": "claude",
+        "auth_provider": "anthropic",
+        "auth_flag": None,
+        "docs_url": "https://docs.docker.com/ai/sandboxes/agents/claude-code/",
+    },
+}
 LOG_LOCK = threading.Lock()
 RUNNER_LOGS: list[dict[str, Any]] = []
 MAX_LOGS = 200
@@ -344,6 +370,7 @@ def docker_sandbox_status() -> dict[str, Any]:
             "recommended_runtime": "codex-cli",
             "base_image": DOCKER_SANDBOX_TEMPLATE,
             "runner_mode": runner_mode_value,
+            "supported_agents": list(_SANDBOX_AGENTS.values()),
             "message": "Docker Sandboxes CLI is not installed. Install sbx to use isolated local agent execution.",
         }
 
@@ -371,6 +398,7 @@ def docker_sandbox_status() -> dict[str, Any]:
         "recommended_runtime": "docker-sandbox" if healthy else "codex-cli",
         "base_image": DOCKER_SANDBOX_TEMPLATE,
         "runner_mode": runner_mode_value,
+        "supported_agents": list(_SANDBOX_AGENTS.values()),
         "message": (
             "Docker Sandboxes is ready for isolated local execution."
             if healthy
@@ -724,13 +752,22 @@ def safe_sandbox_name(value: str) -> str:
 
 
 def run_sandbox_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
+    """Backward-compat shim — routes to the generic agent task runner."""
+    return run_sandbox_agent_task({**payload, "agent": "codex"})
+
+
+def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
     import time as _time
+    agent_key = str(payload.get("agent") or "codex").strip().lower()
     workspace_path = str(payload.get("workspace_path") or "").strip()
     prompt = str(payload.get("prompt") or "").strip()
     mode = str(payload.get("mode") or "read-only").strip()
     timeout_seconds = int(payload.get("timeout_seconds") or 180)
     job_token = str(payload.get("job_token") or "")
 
+    agent = _SANDBOX_AGENTS.get(agent_key)
+    if not agent:
+        return {"ok": False, "status": "rejected", "message": f"Unsupported sandbox agent: {agent_key!r}. Supported: {', '.join(_SANDBOX_AGENTS)}"}
     if mode != "read-only":
         return {"ok": False, "status": "rejected", "message": "Only read-only sandbox tasks are supported by this runner."}
     if not prompt:
@@ -753,18 +790,17 @@ def run_sandbox_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
         _job_create(job_token)
 
     sandbox_name = safe_sandbox_name(job_token or f"{workspace.name}-{int(_time.time())}")
-    create_command = ["sbx", "create", "--clone", "--name", sandbox_name, "codex", str(workspace)]
+    run_cmd = agent["run_cmd"]
+
+    # `sbx run --clone --name <name> <agent> <workspace> -- <prompt>`
+    # The prompt is passed as a bare argument which replaces the agent's default flags.
     exec_command = [
-        "sbx",
-        "exec",
-        sandbox_name,
-        "codex",
-        "exec",
-        "--sandbox",
-        "read-only",
-        "--json",
-        "--color",
-        "never",
+        "sbx", "run",
+        "--clone",
+        "--name", sandbox_name,
+        run_cmd,
+        str(workspace),
+        "--",
         prompt,
     ]
 
@@ -774,7 +810,7 @@ def run_sandbox_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
     proc: subprocess.Popen[str] | None = None
     deadline = _time.monotonic() + timeout_seconds
 
-    def run_streaming(command: list[str], label: str) -> int | None:
+    def stream_command(command: list[str], label: str) -> int | None:
         nonlocal proc, timed_out
         if job_token:
             _job_append(job_token, label)
@@ -813,24 +849,11 @@ def run_sandbox_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
         stderr_thread.join(timeout=2)
         return proc.returncode
 
-    log_event("info", "Starting Docker Sandbox read-only Codex task", workspace=str(workspace), sandbox=sandbox_name, timeout_seconds=timeout_seconds)
+    display_name = agent["display_name"]
+    log_event("info", f"Starting Docker Sandbox {display_name} task", workspace=str(workspace), sandbox=sandbox_name, agent=agent_key, timeout_seconds=timeout_seconds)
 
     try:
-        create_exit = run_streaming(create_command, "[sandbox] creating isolated clone")
-        if create_exit != 0:
-            stdout_text = "\n".join(all_stdout_lines)
-            return {
-                "ok": False,
-                "status": "failed",
-                "message": "Docker Sandbox creation failed.",
-                "exit_code": create_exit,
-                "stdout": stdout_text[-20000:],
-                "stderr": "\n".join(stderr_buf)[-12000:],
-                "final_message": "",
-                "metadata": {"workspace_path": str(workspace), "mode": mode, "sandbox_name": sandbox_name, "runtime_id": "docker-sandbox"},
-            }
-
-        exec_exit = run_streaming(exec_command, "[sandbox] running Codex in read-only mode")
+        exec_exit = stream_command(exec_command, f"[sandbox] running {display_name} in read-only mode")
     except Exception as exc:
         if job_token:
             _job_done(job_token)
@@ -845,16 +868,16 @@ def run_sandbox_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
     stdout_text = "\n".join(all_stdout_lines)
     stderr_text = "\n".join(stderr_buf)
     if timed_out:
-        log_event("error", "Docker Sandbox Codex task timed out", workspace=str(workspace), sandbox=sandbox_name, timeout_seconds=timeout_seconds)
+        log_event("error", f"Docker Sandbox {display_name} task timed out", workspace=str(workspace), sandbox=sandbox_name, timeout_seconds=timeout_seconds)
         return {
             "ok": False,
             "status": "timeout",
-            "message": "Docker Sandbox Codex task timed out.",
+            "message": f"Docker Sandbox {display_name} task timed out.",
             "exit_code": None,
             "stdout": stdout_text[-20000:],
             "stderr": stderr_text[-12000:],
             "final_message": extract_codex_final_message(stdout_text),
-            "metadata": {"workspace_path": str(workspace), "mode": mode, "timeout_seconds": timeout_seconds, "sandbox_name": sandbox_name, "runtime_id": "docker-sandbox"},
+            "metadata": {"workspace_path": str(workspace), "mode": mode, "timeout_seconds": timeout_seconds, "sandbox_name": sandbox_name, "runtime_id": "docker-sandbox", "agent": agent_key},
         }
 
     ok = exec_exit == 0
@@ -862,7 +885,7 @@ def run_sandbox_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
     error_message = extract_codex_error_message(stdout_text)
     log_event(
         "info" if ok else "error",
-        "Docker Sandbox Codex task completed" if ok else "Docker Sandbox Codex task failed",
+        f"Docker Sandbox {display_name} task {'completed' if ok else 'failed'}",
         workspace=str(workspace),
         sandbox=sandbox_name,
         exit_code=exec_exit,
@@ -870,7 +893,7 @@ def run_sandbox_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": ok,
         "status": "completed" if ok else "failed",
-        "message": "Docker Sandbox Codex task completed." if ok else error_message or "Docker Sandbox Codex task failed.",
+        "message": f"Docker Sandbox {display_name} task completed." if ok else error_message or f"Docker Sandbox {display_name} task failed.",
         "exit_code": exec_exit,
         "stdout": stdout_text[-20000:],
         "stderr": stderr_text[-12000:],
@@ -881,6 +904,7 @@ def run_sandbox_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
             "timeout_seconds": timeout_seconds,
             "sandbox_name": sandbox_name,
             "runtime_id": "docker-sandbox",
+            "agent": agent_key,
             "command": "sbx create --clone codex && sbx exec codex exec --sandbox read-only --json",
         },
     }
@@ -1286,6 +1310,9 @@ class HostRunnerHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/runtimes/docker-sandbox/codex/run":
             self.write_json(run_sandbox_codex_task(self.read_json()))
+            return
+        if self.path == "/runtimes/docker-sandbox/run":
+            self.write_json(run_sandbox_agent_task(self.read_json()))
             return
         if self.path == "/runtimes/docker-sandbox/policy":
             self.write_json(set_docker_sandbox_policy(self.read_json()))

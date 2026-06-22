@@ -253,6 +253,16 @@ export function AgentInspector({
         {isAgent && (
           <>
             <SectionHeader>Runtime</SectionHeader>
+            <Field label="Sandbox agent">
+              <SelectField
+                value={String(d.sandboxAgent ?? "codex")}
+                onChange={(v) => patch({ sandboxAgent: v })}
+                options={[
+                  { value: "codex",  label: "Codex" },
+                  { value: "claude", label: "Claude Code" },
+                ]}
+              />
+            </Field>
             <Field label="Model">
               <TextInput value={String(d.model ?? "codex-cli")} onChange={(v) => patch({ model: v })} placeholder="codex-cli" />
             </Field>

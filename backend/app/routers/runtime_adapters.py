@@ -47,6 +47,7 @@ class CodexRunRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     mode: str = "read-only"
     timeout_seconds: int = Field(default=180, ge=15, le=600)
+    agent: str = "codex"  # sandbox agent key: "codex" | "claude"
 
 
 def call_host_runner(
@@ -225,6 +226,7 @@ def create_codex_run(request: CodexRunRequest, user: dict = Depends(require_admi
         if not workspace:
             raise HTTPException(status_code=404, detail="Approved workspace not found.")
 
+    agent = request.agent if request.agent in ("codex", "claude") else "codex"
     run_id = str(uuid4())
     payload = {
         "workspace_path": workspace["path"],
@@ -232,6 +234,7 @@ def create_codex_run(request: CodexRunRequest, user: dict = Depends(require_admi
         "mode": request.mode,
         "timeout_seconds": request.timeout_seconds,
         "job_token": run_id,
+        "agent": agent,
     }
     with db_session() as db:
         db.execute(
@@ -242,12 +245,12 @@ def create_codex_run(request: CodexRunRequest, user: dict = Depends(require_admi
             (run_id, workspace["id"], workspace["path"], request.prompt, request.mode, user["id"]),
         )
 
-    result = call_host_runner("/runtimes/docker-sandbox/codex/run", method="POST", body=payload, timeout=request.timeout_seconds + 60)
+    result = call_host_runner("/runtimes/docker-sandbox/run", method="POST", body=payload, timeout=request.timeout_seconds + 60)
     status = "completed" if result.get("ok") else "failed"
     stdout = str(result.get("stdout") or "")
     stderr = str(result.get("stderr") or "")
     summary = str(result.get("final_message") or stdout[-4000:])
-    error = None if result.get("ok") else str(result.get("message") or result.get("error") or "Codex run failed.")
+    error = None if result.get("ok") else str(result.get("message") or result.get("error") or "Sandbox run failed.")
 
     with db_session() as db:
         db.execute(
