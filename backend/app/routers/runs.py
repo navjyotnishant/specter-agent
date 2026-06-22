@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.db.session import db_session
 from app.runtime.auth import require_admin, require_user
-from app.runtime.graph_runner import start_run_async
+from app.runtime.graph_runner import is_run_active, start_run_async
 
 router = APIRouter(prefix="/workflow-runs", tags=["workflow-runs"])
 
@@ -29,6 +29,7 @@ def _public_run(row) -> dict[str, Any]:
         "workflow_id": row["workflow_id"],
         "status": row["status"],
         "trigger_type": row["trigger_type"],
+        "workspace_path": row["workspace_path"] if "workspace_path" in row.keys() else None,
         "graph": json.loads(graph_json or "{}"),
         "created_at": row["created_at"],
         "completed_at": row["completed_at"],
@@ -125,6 +126,15 @@ def _ensure_pending_approval_open(run_id: str, approval_id: str):
     return row
 
 
+def _get_approval(run_id: str, approval_id: str):
+    _expire_pending_approvals(run_id)
+    with db_session() as db:
+        row = db.execute("SELECT * FROM approval_requests WHERE id = ? AND workflow_run_id = ?", (approval_id, run_id)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Approval request not found.")
+    return row
+
+
 def _normalize_workspace_path(path: str) -> str:
     return str(Path(path).expanduser().resolve())
 
@@ -160,8 +170,8 @@ def start_run(request: StartRunRequest, user: dict = Depends(require_admin)) -> 
 
     with db_session() as db:
         db.execute(
-            "INSERT INTO workflow_runs (id, workflow_id, status, trigger_type, graph_json) VALUES (?, ?, 'queued', 'manual', ?)",
-            (run_id, request.workflow_id, json.dumps(graph)),
+            "INSERT INTO workflow_runs (id, workflow_id, status, trigger_type, graph_json, workspace_path) VALUES (?, ?, 'queued', 'manual', ?, ?)",
+            (run_id, request.workflow_id, json.dumps(graph), workspace_path),
         )
 
     start_run_async(run_id, request.workflow_id, graph, workspace_path)
@@ -231,40 +241,113 @@ class ApprovalActionRequest(BaseModel):
     note: str = ""
 
 
+def _resume_payload(run_id: str) -> tuple[str, dict[str, Any], str]:
+    with db_session() as db:
+        row = db.execute(
+            "SELECT workflow_id, graph_json, workspace_path FROM workflow_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Run not found.")
+        workspace_path = row["workspace_path"]
+        if not workspace_path:
+            workspace = db.execute(
+                "SELECT path FROM runtime_workspaces WHERE is_active = 1 ORDER BY updated_at DESC, created_at DESC LIMIT 1"
+            ).fetchone()
+            if not workspace:
+                raise HTTPException(status_code=409, detail="Run cannot resume because no workspace path is stored or approved.")
+            workspace_path = workspace["path"]
+        return row["workflow_id"], json.loads(row["graph_json"] or "{}"), workspace_path
+
+
 @router.post("/{run_id}/approve/{approval_id}")
 def approve_run(run_id: str, approval_id: str, body: ApprovalActionRequest = ApprovalActionRequest(), _: dict = Depends(require_admin)) -> dict[str, Any]:
-    _ensure_pending_approval_open(run_id, approval_id)
+    approval = _get_approval(run_id, approval_id)
+    if approval["status"] not in ("pending", "approved"):
+        raise HTTPException(status_code=400, detail=f"Approval already resolved: {approval['status']}")
     with db_session() as db:
+        if approval["status"] == "pending":
+            db.execute(
+                "UPDATE approval_requests SET status = 'approved', resolved_at = CURRENT_TIMESTAMP, resolution_comment = ? WHERE id = ?",
+                (body.note or None, approval_id),
+            )
+        if approval["workflow_step_run_id"]:
+            db.execute(
+                "UPDATE workflow_step_runs SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (approval["workflow_step_run_id"],),
+            )
+            db.execute(
+                "UPDATE agent_runs SET status = 'completed', completed_at = CURRENT_TIMESTAMP, summary = ? WHERE id = ?",
+                ("Approved by human reviewer.", approval["workflow_step_run_id"]),
+            )
         db.execute(
-            "UPDATE approval_requests SET status = 'approved', resolved_at = CURRENT_TIMESTAMP, resolution_comment = ? WHERE id = ?",
-            (body.note or None, approval_id),
+            "UPDATE workflow_runs SET status = 'running', completed_at = NULL WHERE id = ? AND status = 'waiting_approval'",
+            (run_id,),
         )
-    return {"approved": True, "approval_id": approval_id}
+        db.execute(
+            "INSERT INTO run_logs (id, workflow_run_id, level, message, metadata_json) VALUES (?, ?, 'info', ?, ?)",
+            (str(uuid4()), run_id, "Approval granted by human reviewer.", json.dumps({"approval_id": approval_id, "approval_status": approval["status"]})),
+        )
+    resumed = False
+    if not is_run_active(run_id):
+        workflow_id, graph, workspace_path = _resume_payload(run_id)
+        resumed = start_run_async(run_id, workflow_id, graph, workspace_path)
+    return {"approved": True, "approval_id": approval_id, "resumed": resumed}
 
 
 @router.post("/{run_id}/reject/{approval_id}")
 def reject_run(run_id: str, approval_id: str, body: ApprovalActionRequest = ApprovalActionRequest(), _: dict = Depends(require_admin)) -> dict[str, Any]:
-    _ensure_pending_approval_open(run_id, approval_id)
+    approval = _ensure_pending_approval_open(run_id, approval_id)
     with db_session() as db:
         db.execute(
             "UPDATE approval_requests SET status = 'rejected', resolved_at = CURRENT_TIMESTAMP, resolution_comment = ? WHERE id = ?",
             (body.note or None, approval_id),
+        )
+        if approval["workflow_step_run_id"]:
+            db.execute(
+                "UPDATE workflow_step_runs SET status = 'failed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (approval["workflow_step_run_id"],),
+            )
+            db.execute(
+                "UPDATE agent_runs SET status = 'failed', completed_at = CURRENT_TIMESTAMP, error = ? WHERE id = ?",
+                ("Approval rejected.", approval["workflow_step_run_id"]),
+            )
+        db.execute(
+            "UPDATE workflow_runs SET status = 'failed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (run_id,),
+        )
+        db.execute(
+            "INSERT INTO run_logs (id, workflow_run_id, level, message, metadata_json) VALUES (?, ?, 'warn', ?, ?)",
+            (str(uuid4()), run_id, "Run stopped: approval rejected.", json.dumps({"approval_id": approval_id})),
         )
     return {"rejected": True, "approval_id": approval_id}
 
 
 @router.post("/{run_id}/request-revision/{approval_id}")
 def request_revision(run_id: str, approval_id: str, body: ApprovalActionRequest = ApprovalActionRequest(), _: dict = Depends(require_admin)) -> dict[str, Any]:
-    _ensure_pending_approval_open(run_id, approval_id)
+    approval = _ensure_pending_approval_open(run_id, approval_id)
     with db_session() as db:
         db.execute(
             "UPDATE approval_requests SET status = 'revision_requested', resolved_at = CURRENT_TIMESTAMP, resolution_comment = ? WHERE id = ?",
             (body.note or None, approval_id),
         )
+        if approval["workflow_step_run_id"]:
+            db.execute(
+                "UPDATE workflow_step_runs SET status = 'failed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (approval["workflow_step_run_id"],),
+            )
+            db.execute(
+                "UPDATE agent_runs SET status = 'failed', completed_at = CURRENT_TIMESTAMP, error = ? WHERE id = ?",
+                ("Approval returned for revision.", approval["workflow_step_run_id"]),
+            )
         # mark the run as failed so the graph stops
         db.execute(
             "UPDATE workflow_runs SET status = 'failed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
             (run_id,),
+        )
+        db.execute(
+            "INSERT INTO run_logs (id, workflow_run_id, level, message, metadata_json) VALUES (?, ?, 'warn', ?, ?)",
+            (str(uuid4()), run_id, "Run stopped: approval returned for revision.", json.dumps({"approval_id": approval_id})),
         )
     return {"revision_requested": True, "approval_id": approval_id}
 

@@ -58,7 +58,10 @@ const S = {
   queued:           { glow: "#94a3b8", ring: "#cbd5e1", badge: "#64748b", bg: "#f8fafc", text: "#64748b", label: "Queued",   border: "#e2e8f0" },
   running:          { glow: "#3b82f6", ring: "#93c5fd", badge: "#2563eb", bg: "#eff6ff", text: "#1d4ed8", label: "Running",  border: "#bfdbfe" },
   completed:        { glow: "#10b981", ring: "#6ee7b7", badge: "#059669", bg: "#ecfdf5", text: "#065f46", label: "Done",     border: "#a7f3d0" },
+  approved:         { glow: "#10b981", ring: "#6ee7b7", badge: "#047857", bg: "#ecfdf5", text: "#065f46", label: "Approved", border: "#a7f3d0" },
   failed:           { glow: "#ef4444", ring: "#fca5a5", badge: "#dc2626", bg: "#fef2f2", text: "#991b1b", label: "Failed",   border: "#fecaca" },
+  rejected:         { glow: "#ef4444", ring: "#fca5a5", badge: "#dc2626", bg: "#fef2f2", text: "#991b1b", label: "Rejected", border: "#fecaca" },
+  revision_requested:{ glow: "#f59e0b", ring: "#fcd34d", badge: "#b45309", bg: "#fffbeb", text: "#92400e", label: "Revision", border: "#fde68a" },
   waiting_approval: { glow: "#f59e0b", ring: "#fcd34d", badge: "#d97706", bg: "#fffbeb", text: "#92400e", label: "Approval", border: "#fde68a" },
   cancelled:        { glow: "#94a3b8", ring: "#e2e8f0", badge: "#6b7280", bg: "#f9fafb", text: "#6b7280", label: "Cancelled",border: "#e5e7eb" },
 } as const;
@@ -327,7 +330,8 @@ function LogDrawer({ step, token, runId, onClose, approval, gateConfig, onApprov
     queryFn: () => api.getStepMessages(token, runId, step.id),
     refetchInterval: step.status === "running" ? 2000 : false,
   });
-  const s = sc(step.status);
+  const displayStatus = approval?.status && approval.status !== "pending" ? approval.status : step.status;
+  const s = sc(displayStatus);
   const logEndRef = useRef<HTMLDivElement>(null);
   const { Icon } = nodeVisual(step.node_type, "");
   const [note, setNote] = useState("");
@@ -421,6 +425,14 @@ function LogDrawer({ step, token, runId, onClose, approval, gateConfig, onApprov
         <div style={{ padding:"14px 18px",borderBottom:"1px solid #fecaca",background:"#fef2f2",flexShrink:0 }}>
           <p style={{ fontSize:12,color:"#991b1b",margin:0,fontWeight:700,lineHeight:1.6 }}>
             Approval expired without a response. The workflow was cancelled and will not continue.
+          </p>
+        </div>
+      )}
+
+      {approval?.status === "approved" && (
+        <div style={{ padding:"14px 18px",borderBottom:"1px solid #bbf7d0",background:"#ecfdf5",flexShrink:0 }}>
+          <p style={{ fontSize:12,color:"#065f46",margin:0,fontWeight:700,lineHeight:1.6 }}>
+            Approved. The workflow is cleared to continue.
           </p>
         </div>
       )}

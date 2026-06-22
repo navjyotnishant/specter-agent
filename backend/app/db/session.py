@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   trigger_type TEXT NOT NULL DEFAULT 'manual',
   final_report TEXT,
   graph_json TEXT NOT NULL DEFAULT '{}',
+  workspace_path TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at TEXT,
   FOREIGN KEY(workflow_id) REFERENCES workflows(id)
@@ -252,6 +253,7 @@ def initialize_database() -> None:
         _add_column_if_missing(db, "users", "updated_at", "TEXT")
         _add_column_if_missing(db, "runtime_workspaces", "updated_at", "TEXT")
         _add_column_if_missing(db, "workflow_runs", "graph_json", "TEXT NOT NULL DEFAULT '{}'")
+        _add_column_if_missing(db, "workflow_runs", "workspace_path", "TEXT")
         _add_column_if_missing(db, "approval_requests", "expires_at", "TEXT")
         db.execute("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL")
         db.execute("UPDATE runtime_workspaces SET updated_at = created_at WHERE updated_at IS NULL")

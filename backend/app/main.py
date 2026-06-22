@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import get_settings
 from app.db.session import initialize_database
 from app.routers import agents, approvals, auth, connectors, health, memory, model_providers, runs, runtime_adapters, skills, workflows
+from app.runtime.graph_runner import recover_approved_waiting_runs
 from app.runtime.workflows import seed_security_review_workflow
 
 settings = get_settings()
@@ -26,6 +27,7 @@ app.add_middleware(
 def on_startup() -> None:
     initialize_database()
     seed_security_review_workflow()
+    recover_approved_waiting_runs()
 
 
 app.include_router(health.router, prefix=settings.api_prefix)

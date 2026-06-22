@@ -18,6 +18,8 @@ from app.runtime import linear_logger
 DEFAULT_APPROVAL_TIMEOUT_HOURS = 24
 MIN_APPROVAL_TIMEOUT_HOURS = 1
 MAX_APPROVAL_TIMEOUT_HOURS = 24 * 30
+_ACTIVE_RUNS: dict[str, threading.Thread] = {}
+_ACTIVE_RUNS_LOCK = threading.Lock()
 
 
 # ── topology ──────────────────────────────────────────────────────────────────
@@ -142,6 +144,29 @@ def _write_log(run_id: str, level: str, message: str, metadata: dict | None = No
             "INSERT INTO run_logs (id, workflow_run_id, level, message, metadata_json) VALUES (?, ?, ?, ?, ?)",
             (str(uuid4()), run_id, level, message, json.dumps(metadata or {})),
         )
+
+
+def _latest_step_for_node(run_id: str, node_id: str):
+    with db_session() as db:
+        return db.execute(
+            """
+            SELECT ws.*, ar.summary, ar.error
+            FROM workflow_step_runs ws
+            LEFT JOIN agent_runs ar ON ar.id = ws.id
+            WHERE ws.workflow_run_id = ? AND ws.node_id = ?
+            ORDER BY ws.started_at DESC
+            LIMIT 1
+            """,
+            (run_id, node_id),
+        ).fetchone()
+
+
+def _approval_for_step(step_id: str):
+    with db_session() as db:
+        return db.execute(
+            "SELECT * FROM approval_requests WHERE workflow_step_run_id = ? ORDER BY created_at DESC LIMIT 1",
+            (step_id,),
+        ).fetchone()
 
 
 def _write_approval_request(run_id: str, step_id: str, node: dict) -> str:
@@ -384,18 +409,31 @@ def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str
         node_type = node.get("type", "unknown")
         data = node.get("data") or {}
         label = str(data.get("label") or node_id)
+        existing_step = _latest_step_for_node(run_id, node_id)
+
+        if existing_step and existing_step["status"] == "completed":
+            if existing_step["summary"]:
+                accumulated_context += f"\n\n[{label}]\n{existing_step['summary']}"
+            continue
 
         _write_log(run_id, "info", f"Starting node: {label}", {"node_id": node_id, "node_type": node_type})
 
-        # write step as running
-        step_id = _write_step(run_id, node, "running")
-
         if node_type == "humanApproval":
-            # pause — write approval request and wait
-            _update_step(step_id, "waiting_approval", summary=str(data.get("reason") or "Awaiting approval."))
-            _update_run_status(run_id, "waiting_approval")
-            approval_id = _write_approval_request(run_id, step_id, node)
-            _write_log(run_id, "info", f"Paused at approval gate: {label}", {"approval_id": approval_id})
+            if existing_step and existing_step["status"] == "waiting_approval":
+                step_id = existing_step["id"]
+                approval = _approval_for_step(step_id)
+                approval_id = approval["id"] if approval else _write_approval_request(run_id, step_id, node)
+                if approval and approval["status"] == "approved":
+                    _update_step(step_id, "completed", summary="Approved by human reviewer.")
+                    _update_run_status(run_id, "running")
+                    _write_log(run_id, "info", f"Approval already granted, continuing: {label}", {"approval_id": approval_id})
+                    continue
+            else:
+                step_id = _write_step(run_id, node, "running")
+                _update_step(step_id, "waiting_approval", summary=str(data.get("reason") or "Awaiting approval."))
+                _update_run_status(run_id, "waiting_approval")
+                approval_id = _write_approval_request(run_id, step_id, node)
+                _write_log(run_id, "info", f"Paused at approval gate: {label}", {"approval_id": approval_id})
 
             approval_result = _wait_for_approval(approval_id)
             if approval_result != "approved":
@@ -415,6 +453,9 @@ def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str
             _update_run_status(run_id, "running")
             _write_log(run_id, "info", f"Approval granted, continuing: {label}")
             continue
+
+        # write step as running
+        step_id = _write_step(run_id, node, "running")
 
         # execute node
         status, stdout, summary = _execute_node(node, workspace_path, accumulated_context, run_id)
@@ -469,10 +510,59 @@ def _parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def start_run_async(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> None:
-    t = threading.Thread(
-        target=run_workflow,
-        args=(run_id, workflow_id, graph, workspace_path),
-        daemon=True,
-    )
-    t.start()
+def _run_workflow_tracked(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> None:
+    try:
+        run_workflow(run_id, workflow_id, graph, workspace_path)
+    finally:
+        with _ACTIVE_RUNS_LOCK:
+            _ACTIVE_RUNS.pop(run_id, None)
+
+
+def is_run_active(run_id: str) -> bool:
+    with _ACTIVE_RUNS_LOCK:
+        thread = _ACTIVE_RUNS.get(run_id)
+        if thread and thread.is_alive():
+            return True
+        _ACTIVE_RUNS.pop(run_id, None)
+        return False
+
+
+def start_run_async(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> bool:
+    with _ACTIVE_RUNS_LOCK:
+        thread = _ACTIVE_RUNS.get(run_id)
+        if thread and thread.is_alive():
+            return False
+        t = threading.Thread(
+            target=_run_workflow_tracked,
+            args=(run_id, workflow_id, graph, workspace_path),
+            daemon=True,
+        )
+        _ACTIVE_RUNS[run_id] = t
+        t.start()
+        return True
+
+
+def recover_approved_waiting_runs() -> int:
+    with db_session() as db:
+        rows = db.execute(
+            """
+            SELECT DISTINCT wr.id, wr.workflow_id, wr.graph_json, wr.workspace_path
+            FROM workflow_runs wr
+            JOIN approval_requests ar ON ar.workflow_run_id = wr.id
+            WHERE wr.status = 'waiting_approval'
+              AND ar.status = 'approved'
+              AND wr.workspace_path IS NOT NULL
+              AND wr.workspace_path != ''
+            """
+        ).fetchall()
+
+    recovered = 0
+    for row in rows:
+        try:
+            graph = json.loads(row["graph_json"] or "{}")
+            if start_run_async(row["id"], row["workflow_id"], graph, row["workspace_path"]):
+                _write_log(row["id"], "info", "Recovered approved approval gate after app restart.")
+                recovered += 1
+        except Exception as exc:
+            _write_log(row["id"], "error", f"Unable to recover approved approval gate: {exc}")
+    return recovered
