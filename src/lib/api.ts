@@ -137,6 +137,7 @@ export const api = {
     request<{ deleted: boolean; provider_id: string }>(`/model-providers/${id}`, { method: "DELETE", headers: authHeaders(token) }),
   codexRuntimeStatus: (token: string) => request<RuntimeAdapterStatus>("/runtime-adapters/codex-cli/status", { headers: authHeaders(token) }),
   dockerSandboxRuntimeStatus: (token: string) => request<RuntimeAdapterStatus>("/runtime-adapters/docker-sandbox/status", { headers: authHeaders(token) }),
+  directCliStatus: (token: string) => request<RuntimeAdapterStatus>("/runtime-adapters/direct-cli/status", { headers: authHeaders(token) }),
   startDockerSandboxDaemon: (token: string) =>
     request<{ ok: boolean; message: string }>("/runtime-adapters/docker-sandbox/daemon/start", { method: "POST", headers: authHeaders(token) }),
   dockerSandboxPolicy: (token: string) => request<DockerSandboxPolicy>("/runtime-adapters/docker-sandbox/policy", { headers: authHeaders(token) }),
@@ -174,7 +175,7 @@ export const api = {
       body: JSON.stringify(discovery),
     }),
   codexRuntimeRuns: (token: string) => request<RuntimeRun[]>("/runtime-adapters/codex-cli/runs", { headers: authHeaders(token) }),
-  createCodexRuntimeRun: (token: string, run: { workspace_id: string; prompt: string; mode: "read-only"; timeout_seconds: number; agent?: string }) =>
+  createCodexRuntimeRun: (token: string, run: { workspace_id: string; prompt: string; mode: "read-only"; timeout_seconds: number; agent?: string; runtime?: "sandbox" | "direct" }) =>
     request<RuntimeRun>("/runtime-adapters/codex-cli/runs", {
       method: "POST",
       headers: authHeaders(token),

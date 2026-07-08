@@ -332,7 +332,8 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
     # agent nodes → dispatch to host runner (codex, claude, or cursor)
     job_token = str(uuid4())
     prompt = _build_prompt(node, context)
-    agent = str(data.get("agent") or "codex").strip().lower()
+    agent = str(data.get("sandboxAgent") or data.get("agent") or "codex").strip().lower()
+    runtime = str(data.get("runtime") or "sandbox").strip().lower()
 
     stop_event = threading.Event()
     poll_thread = threading.Thread(
@@ -342,7 +343,18 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
     )
     poll_thread.start()
 
-    if agent == "claude":
+    if runtime == "direct":
+        # Direct CLI — fast, no sandbox overhead, runs on host
+        host_path = "/runtimes/codex/run"
+        host_payload = {
+            "workspace_path": workspace_path,
+            "prompt": prompt,
+            "mode": "read-only",
+            "timeout_seconds": 480,
+            "job_token": job_token,
+        }
+        agent_label = "Codex (Direct)"
+    elif agent == "claude":
         host_path = "/runtimes/docker-sandbox/run"
         host_payload = {
             "agent": "claude",
@@ -365,8 +377,9 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
         }
         agent_label = "Cursor"
     else:
-        host_path = "/runtimes/codex/run"
+        host_path = "/runtimes/docker-sandbox/run"
         host_payload = {
+            "agent": "codex",
             "workspace_path": workspace_path,
             "prompt": prompt,
             "mode": "read-only",

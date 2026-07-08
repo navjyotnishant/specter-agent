@@ -1204,6 +1204,303 @@ def extract_codex_error_message(stdout: str) -> str:
     return error_message
 
 
+# ── Direct CLI agent registry ────────────────────────────────────────────────
+# Each entry describes how to run the agent directly on the host (no sandbox).
+# cmd_fn: returns the subprocess command given (executable, workspace_str, prompt)
+# check_auth_fn: returns (authenticated: bool, note: str) for health reporting
+# install_check: callable that returns path or None
+
+def _claude_path() -> str | None:
+    return shutil.which("claude")
+
+def _cursor_agent_path() -> str | None:
+    return shutil.which("cursor-agent") or shutil.which("cursor")
+
+def _check_claude_auth() -> tuple[bool, str]:
+    exe = _claude_path()
+    if not exe:
+        return False, "claude not found on PATH"
+    try:
+        result = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=5, check=False)
+        # Try a no-op to detect auth state
+        auth_result = subprocess.run(
+            [exe, "--dangerously-skip-permissions", "-p", "ping"],
+            capture_output=True, text=True, timeout=10, check=False,
+            cwd=str(Path.home()),
+        )
+        combined = auth_result.stdout + auth_result.stderr
+        if "Not logged in" in combined or "Login required" in combined or "authenticate" in combined.lower():
+            return False, "Not logged in — run: claude /login"
+        return True, "Logged in"
+    except Exception as exc:
+        return False, str(exc)
+
+def _check_cursor_auth() -> tuple[bool, str]:
+    exe = _cursor_agent_path()
+    if not exe:
+        return False, "cursor-agent not found on PATH"
+    try:
+        auth_result = subprocess.run(
+            [exe, "--trust", "--print", "ping"],
+            capture_output=True, text=True, timeout=10, check=False,
+            cwd=str(Path.home()),
+        )
+        combined = auth_result.stdout + auth_result.stderr
+        if "Authentication required" in combined or "not logged in" in combined.lower() or "sign in" in combined.lower():
+            return False, "Not logged in — open Cursor and sign in"
+        return True, "Logged in"
+    except Exception as exc:
+        return False, str(exc)
+
+_DIRECT_CLI_AGENTS: dict[str, dict[str, Any]] = {
+    "codex": {
+        "key": "codex",
+        "display_name": "Codex",
+        "binary": "codex",
+        "find_exe": lambda: shutil.which("codex") or str(next((p for p in [
+            Path.home() / ".local/bin/codex",
+            Path("/opt/homebrew/bin/codex"),
+            Path("/usr/local/bin/codex"),
+        ] if p.exists()), Path("codex"))),
+        "cmd_fn": lambda exe, ws, p: [exe, "exec", "--cd", ws, "--sandbox", "read-only", "--json", "--color", "never", p],
+        "check_auth": lambda: (bool(shutil.which("codex") or any(
+            Path(p).exists() for p in [str(Path.home() / ".local/bin/codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex"]
+        )), "Sign in via: codex"),
+        "auth_note": "Run `codex` once and sign in with your OpenAI account.",
+        "docs_url": "https://github.com/openai/codex",
+    },
+    "claude": {
+        "key": "claude",
+        "display_name": "Claude Code",
+        "binary": "claude",
+        "find_exe": _claude_path,
+        "cmd_fn": lambda exe, ws, p: [exe, "--dangerously-skip-permissions", "-p", p],
+        "check_auth": _check_claude_auth,
+        "auth_note": "Run `claude /login` in your terminal to authenticate.",
+        "docs_url": "https://docs.anthropic.com/claude-code",
+    },
+    "cursor": {
+        "key": "cursor",
+        "display_name": "Cursor",
+        "binary": "cursor-agent",
+        "find_exe": _cursor_agent_path,
+        "cmd_fn": lambda exe, ws, p: [exe, "--trust", "--print", p],
+        "check_auth": _check_cursor_auth,
+        "auth_note": "Open Cursor and sign in to your account.",
+        "docs_url": "https://docs.cursor.com",
+    },
+}
+
+
+def direct_cli_agent_status() -> list[dict[str, Any]]:
+    result = []
+    for key, agent in _DIRECT_CLI_AGENTS.items():
+        exe = agent["find_exe"]()
+        installed = bool(exe and (Path(exe).exists() if exe != agent["binary"] else shutil.which(exe)))
+        if installed:
+            authenticated, auth_note = agent["check_auth"]()
+        else:
+            authenticated = False
+            auth_note = f"{agent['binary']} not found on PATH. {agent['auth_note']}"
+        version = None
+        if installed and exe:
+            try:
+                vr = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=5, check=False)
+                version = (vr.stdout or vr.stderr).strip().splitlines()[0] if (vr.stdout or vr.stderr).strip() else None
+            except Exception:
+                pass
+        result.append({
+            "key": key,
+            "display_name": agent["display_name"],
+            "installed": installed,
+            "authenticated": authenticated,
+            "version": version,
+            "executable_path": str(exe) if exe else None,
+            "auth_note": auth_note,
+            "docs_url": agent["docs_url"],
+        })
+    return result
+
+
+_DIRECT_CLI_STATUS_CACHE: dict[str, Any] = {}
+_DIRECT_CLI_STATUS_CACHE_TS: float = 0.0
+_DIRECT_CLI_STATUS_CACHE_TTL: float = 60.0
+
+
+def direct_cli_status() -> dict[str, Any]:
+    import time as _t
+    global _DIRECT_CLI_STATUS_CACHE, _DIRECT_CLI_STATUS_CACHE_TS
+    if _DIRECT_CLI_STATUS_CACHE and (_t.monotonic() - _DIRECT_CLI_STATUS_CACHE_TS) < _DIRECT_CLI_STATUS_CACHE_TTL:
+        return _DIRECT_CLI_STATUS_CACHE
+    agent_statuses = direct_cli_agent_status()
+    any_ready = any(a["installed"] and a["authenticated"] for a in agent_statuses)
+    all_missing = all(not a["installed"] for a in agent_statuses)
+    result = {
+        "runtime_id": "direct-cli",
+        "display_name": "Direct CLI Runtime",
+        "status": "ready" if any_ready else ("missing" if all_missing else "setup_required"),
+        "available": any_ready,
+        "installed": not all_missing,
+        "agent_status": agent_statuses,
+        "runner_mode": "maintenance" if maintenance_mode() else "safe",
+        "message": (
+            "Direct CLI is ready. Agents run directly on your host machine without sandbox isolation."
+            if any_ready else
+            "No Direct CLI agents are installed and authenticated. Install at least one agent to use Direct CLI."
+        ),
+    }
+    _DIRECT_CLI_STATUS_CACHE = result
+    _DIRECT_CLI_STATUS_CACHE_TS = _t.monotonic()
+    return result
+
+
+def run_direct_cli_task(payload: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+    agent_key = str(payload.get("agent") or "codex").strip().lower()
+    workspace_path = str(payload.get("workspace_path") or "").strip()
+    prompt = str(payload.get("prompt") or "").strip()
+    timeout_seconds = int(payload.get("timeout_seconds") or 120)
+    job_token = str(payload.get("job_token") or "")
+
+    agent = _DIRECT_CLI_AGENTS.get(agent_key)
+    if not agent:
+        return {"ok": False, "status": "rejected", "message": f"Unsupported direct CLI agent: {agent_key!r}. Supported: {', '.join(_DIRECT_CLI_AGENTS)}"}
+    if not prompt:
+        return {"ok": False, "status": "rejected", "message": "Prompt is required."}
+
+    workspace = Path(workspace_path).expanduser().resolve()
+    if not workspace.exists() or not workspace.is_dir():
+        return {"ok": False, "status": "rejected", "message": "Workspace path does not exist or is not a directory."}
+
+    exe = agent["find_exe"]()
+    if not exe or not (Path(exe).exists() if "/" in str(exe) else shutil.which(exe)):
+        return {"ok": False, "status": "missing", "message": f"{agent['display_name']} is not installed. {agent['auth_note']}"}
+
+    if job_token:
+        _job_create(job_token)
+
+    command = agent["cmd_fn"](exe, str(workspace), prompt)
+    display_name = agent["display_name"]
+    log_event("info", f"Starting Direct CLI {display_name} task", workspace=str(workspace), timeout_seconds=timeout_seconds)
+
+    all_stdout_lines: list[str] = []
+    stderr_buf: list[str] = []
+    timed_out = False
+
+    try:
+        proc = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            cwd=str(workspace),
+        )
+        if job_token:
+            _job_set_proc(job_token, proc)
+
+        def _read_stderr() -> None:
+            for line in proc.stderr:  # type: ignore[union-attr]
+                stripped = line.rstrip()
+                stderr_buf.append(stripped)
+                if job_token and stripped:
+                    _job_append(job_token, stripped[:2000])
+
+        stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+        stderr_thread.start()
+
+        deadline = _time.monotonic() + timeout_seconds
+        for line in proc.stdout:  # type: ignore[union-attr]
+            line = line.rstrip()
+            all_stdout_lines.append(line)
+            if job_token:
+                if agent_key == "codex":
+                    append_codex_progress(job_token, line)
+                elif line.strip():
+                    _job_append(job_token, line.strip()[:2000])
+            if _time.monotonic() > deadline:
+                proc.kill()
+                timed_out = True
+                break
+
+        proc.wait()
+        stderr_thread.join(timeout=2)
+
+    except Exception as exc:
+        if job_token:
+            _job_done(job_token)
+        return {"ok": False, "status": "error", "message": str(exc), "stdout": "", "stderr": "", "final_message": ""}
+
+    if job_token:
+        _job_done(job_token)
+
+    stdout_text = "\n".join(all_stdout_lines)
+    stderr_text = "\n".join(stderr_buf)
+
+    if timed_out:
+        log_event("error", f"Direct CLI {display_name} task timed out", workspace=str(workspace), timeout_seconds=timeout_seconds)
+        return {
+            "ok": False,
+            "status": "timeout",
+            "message": f"{display_name} task timed out after {timeout_seconds}s.",
+            "exit_code": None,
+            "stdout": stdout_text[-20000:],
+            "stderr": stderr_text[-12000:],
+            "final_message": extract_codex_final_message(stdout_text) if agent_key == "codex" else stdout_text[-4000:],
+            "metadata": {"workspace_path": str(workspace), "timeout_seconds": timeout_seconds, "agent": agent_key, "runtime": "direct"},
+        }
+
+    # Auth error detection
+    combined = stdout_text + stderr_text
+    ok = proc.returncode == 0
+    if not ok and ("Not logged in" in combined or "Login required" in combined):
+        return {
+            "ok": False,
+            "status": "auth_required",
+            "message": f"{display_name} is not logged in. {agent['auth_note']}",
+            "exit_code": proc.returncode,
+            "stdout": stdout_text[-20000:],
+            "stderr": stderr_text[-12000:],
+            "final_message": f"{display_name} requires authentication. {agent['auth_note']}",
+            "metadata": {"workspace_path": str(workspace), "agent": agent_key, "runtime": "direct"},
+        }
+    if not ok and ("Authentication required" in combined or "sign in" in combined.lower()):
+        return {
+            "ok": False,
+            "status": "auth_required",
+            "message": f"{display_name} requires authentication. {agent['auth_note']}",
+            "exit_code": proc.returncode,
+            "stdout": stdout_text[-20000:],
+            "stderr": stderr_text[-12000:],
+            "final_message": f"{display_name} requires authentication. {agent['auth_note']}",
+            "metadata": {"workspace_path": str(workspace), "agent": agent_key, "runtime": "direct"},
+        }
+
+    if agent_key == "codex":
+        final_message = extract_codex_final_message(stdout_text) or extract_codex_error_message(stdout_text)
+    else:
+        clean = [l for l in stdout_text.splitlines() if l.strip() and not l.strip().startswith("{")]
+        final_message = "\n".join(clean[-80:]).strip() or stdout_text[-4000:]
+
+    log_event(
+        "info" if ok else "error",
+        f"Direct CLI {display_name} task {'completed' if ok else 'failed'}",
+        workspace=str(workspace),
+        exit_code=proc.returncode,
+    )
+    return {
+        "ok": ok,
+        "status": "completed" if ok else "failed",
+        "message": f"Direct CLI {display_name} task {'completed' if ok else 'failed'}.",
+        "exit_code": proc.returncode,
+        "stdout": stdout_text[-20000:],
+        "stderr": stderr_text[-12000:],
+        "final_message": final_message,
+        "metadata": {"workspace_path": str(workspace), "timeout_seconds": timeout_seconds, "agent": agent_key, "runtime": "direct"},
+    }
+
+
 # ── MCP catalog ──────────────────────────────────────────────────────────────
 # Each entry has an optional "clients" list — if present, only those adapters
 # show the entry. Absent means shown to all clients.
@@ -1771,6 +2068,9 @@ class HostRunnerHandler(BaseHTTPRequestHandler):
         if self.path == "/runtimes/docker-sandbox/status":
             self.write_json(docker_sandbox_status())
             return
+        if self.path == "/runtimes/direct-cli/status":
+            self.write_json(direct_cli_status())
+            return
         if self.path == "/runtimes/docker-sandbox/policy":
             self.write_json(docker_sandbox_policy_status())
             return
@@ -1822,6 +2122,9 @@ class HostRunnerHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/runtimes/docker-sandbox/codex/run":
             self.write_json(run_sandbox_codex_task(self.read_json()))
+            return
+        if self.path == "/runtimes/direct-cli/run":
+            self.write_json(run_direct_cli_task(self.read_json()))
             return
         if self.path == "/runtimes/docker-sandbox/run":
             self.write_json(run_sandbox_agent_task(self.read_json()))

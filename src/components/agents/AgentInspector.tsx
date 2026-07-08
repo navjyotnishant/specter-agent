@@ -253,16 +253,34 @@ export function AgentInspector({
         {isAgent && (
           <>
             <SectionHeader>Runtime</SectionHeader>
-            <Field label="Sandbox agent">
+            <Field label="Execution mode">
               <SelectField
-                value={String(d.sandboxAgent ?? "codex")}
-                onChange={(v) => patch({ sandboxAgent: v })}
+                value={String(d.runtime ?? "sandbox")}
+                onChange={(v) => patch({ runtime: v })}
                 options={[
-                  { value: "codex",  label: "Codex" },
-                  { value: "claude", label: "Claude Code" },
+                  { value: "sandbox", label: "Docker Sandbox (isolated microVM)" },
+                  { value: "direct",  label: "Direct CLI (fast, runs on host)" },
                 ]}
               />
+              {(d.runtime ?? "sandbox") === "direct" && (
+                <p className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[9px] font-semibold text-amber-700" style={MONO}>
+                  No isolation — runs as host user. Safe for read-only tasks.
+                </p>
+              )}
             </Field>
+            {(d.runtime ?? "sandbox") === "sandbox" && (
+              <Field label="Sandbox agent">
+                <SelectField
+                  value={String(d.sandboxAgent ?? "codex")}
+                  onChange={(v) => patch({ sandboxAgent: v })}
+                  options={[
+                    { value: "codex",  label: "Codex" },
+                    { value: "claude", label: "Claude Code" },
+                    { value: "cursor", label: "Cursor" },
+                  ]}
+                />
+              </Field>
+            )}
             <Field label="Model">
               <TextInput value={String(d.model ?? "codex-cli")} onChange={(v) => patch({ model: v })} placeholder="codex-cli" />
             </Field>

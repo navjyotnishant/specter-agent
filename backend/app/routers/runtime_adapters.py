@@ -47,7 +47,8 @@ class CodexRunRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     mode: str = "read-only"
     timeout_seconds: int = Field(default=180, ge=15, le=600)
-    agent: str = "codex"  # sandbox agent key: "codex" | "claude"
+    agent: str = "codex"  # sandbox agent key: "codex" | "claude" | "cursor"
+    runtime: str = "sandbox"  # "sandbox" = Docker Sandbox, "direct" = Codex CLI on host
 
 
 def call_host_runner(
@@ -126,6 +127,16 @@ def normalize_workspace_path(path: str) -> str:
 @router.get("/codex-cli/status")
 def codex_cli_status(_: dict = Depends(require_user)) -> dict[str, Any]:
     return call_host_runner("/runtimes/codex/status")
+
+
+@router.get("/direct-cli/status")
+def direct_cli_status(_: dict = Depends(require_user)) -> dict[str, Any]:
+    return call_host_runner(
+        "/runtimes/direct-cli/status",
+        fallback_runtime_id="direct-cli",
+        fallback_display_name="Direct CLI Runtime",
+        timeout=15.0,
+    )
 
 
 @router.get("/docker-sandbox/status")
@@ -233,31 +244,47 @@ def create_codex_run(request: CodexRunRequest, user: dict = Depends(require_admi
 
     _supported = {"codex", "claude", "cursor"}
     agent = request.agent if request.agent in _supported else "codex"
+    use_direct = request.runtime == "direct"
     run_id = str(uuid4())
-    payload = {
-        "workspace_path": workspace["path"],
-        "prompt": request.prompt,
-        "mode": request.mode,
-        "timeout_seconds": request.timeout_seconds,
-        "job_token": run_id,
-        "agent": agent,
-    }
+    runtime_id = "codex-cli" if use_direct else "docker-sandbox"
+
+    if use_direct:
+        host_path = "/runtimes/direct-cli/run"
+        payload = {
+            "workspace_path": workspace["path"],
+            "prompt": request.prompt,
+            "mode": request.mode,
+            "timeout_seconds": request.timeout_seconds,
+            "job_token": run_id,
+            "agent": agent,
+        }
+    else:
+        host_path = "/runtimes/docker-sandbox/run"
+        payload = {
+            "workspace_path": workspace["path"],
+            "prompt": request.prompt,
+            "mode": request.mode,
+            "timeout_seconds": request.timeout_seconds,
+            "job_token": run_id,
+            "agent": agent,
+        }
+
     with db_session() as db:
         db.execute(
             """
             INSERT INTO runtime_runs (id, runtime_id, workspace_id, workspace_path, prompt, mode, status, requested_by)
-            VALUES (?, 'docker-sandbox', ?, ?, ?, ?, 'running', ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'running', ?)
             """,
-            (run_id, workspace["id"], workspace["path"], request.prompt, request.mode, user["id"]),
+            (run_id, runtime_id, workspace["id"], workspace["path"], request.prompt, request.mode, user["id"]),
         )
 
-    result = call_host_runner("/runtimes/docker-sandbox/run", method="POST", body=payload, timeout=request.timeout_seconds + 60)
+    result = call_host_runner(host_path, method="POST", body=payload, timeout=request.timeout_seconds + 60)
     _result_status = result.get("status", "")
     status = "completed" if result.get("ok") else (_result_status if _result_status in ("auth_required", "timeout") else "failed")
     stdout = str(result.get("stdout") or "")
     stderr = str(result.get("stderr") or "")
     summary = str(result.get("final_message") or stdout[-4000:])
-    error = None if result.get("ok") else str(result.get("message") or result.get("error") or "Sandbox run failed.")
+    error = None if result.get("ok") else str(result.get("message") or result.get("error") or "Run failed.")
 
     with db_session() as db:
         db.execute(

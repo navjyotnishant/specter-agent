@@ -92,6 +92,16 @@ export type RuntimeAdapterStatus = {
   host_runner_url?: string;
   message: string;
   diagnostic?: string;
+  agent_status?: Array<{
+    key: string;
+    display_name: string;
+    installed: boolean;
+    authenticated: boolean;
+    version?: string | null;
+    executable_path?: string | null;
+    auth_note: string;
+    docs_url?: string;
+  }>;
 };
 
 export type HostRunnerMode = {
@@ -310,6 +320,8 @@ export type AgentNodeConfig = {
   outputSchema: string;
   delegationStrategy?: "sequential_delegation" | "parallel_delegation_later" | "review_and_revise_later";
   aggregationStrategy?: string;
+  runtime?: "sandbox" | "direct";
+  agent?: string;
 };
 
 export type ApprovalRequest = {

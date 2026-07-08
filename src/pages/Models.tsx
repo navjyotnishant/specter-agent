@@ -100,10 +100,20 @@ export default function Models() {
   const [directoryScanOpen, setDirectoryScanOpen] = useState(false);
   const [approvedOpen, setApprovedOpen] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
+  const [testRuntime, setTestRuntime] = useState<"sandbox" | "direct">("sandbox");
   const [outputExpanded, setOutputExpanded] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const liveOutputRef = useRef<HTMLPreElement>(null);
   const md = useMemo(() => new MarkdownIt({ linkify: true, breaks: true }), []);
+
+  // Direct CLI state
+  const [cliAgent, setCliAgent] = useState<string>(() => {
+    try { return localStorage.getItem("specter_cli_agent") ?? "codex"; } catch { return "codex"; }
+  });
+  const [cliActiveRunStartedAt, setCliActiveRunStartedAt] = useState<string | null>(null);
+  const [cliOutputExpanded, setCliOutputExpanded] = useState(false);
+  const [cliShowRaw, setCliShowRaw] = useState(false);
+  const cliLiveOutputRef = useRef<HTMLPreElement>(null);
 
   const canUseBackend = Boolean(token && token !== "preview-mode");
   const { data: codexRuntime, isLoading: runtimeLoading } = useQuery({
@@ -117,6 +127,13 @@ export default function Models() {
     queryFn: () => api.dockerSandboxRuntimeStatus(token ?? ""),
     enabled: canUseBackend,
     retry: false,
+  });
+  const { data: directCliRuntime, isLoading: directCliLoading } = useQuery({
+    queryKey: ["runtime-adapter", "direct-cli"],
+    queryFn: () => api.directCliStatus(token ?? ""),
+    enabled: canUseBackend,
+    retry: false,
+    refetchInterval: 30000,
   });
   const { data: runnerMode } = useQuery({
     queryKey: ["host-runner", "mode"],
@@ -277,6 +294,36 @@ export default function Models() {
     },
   });
 
+  const createCliRuntimeRun = useMutation({
+    mutationFn: () =>
+      api.createCodexRuntimeRun(token ?? "", {
+        workspace_id: selectedWorkspaceId,
+        prompt: runtimePrompt,
+        mode: "read-only",
+        timeout_seconds: 180,
+        agent: cliAgent,
+        runtime: "direct",
+      }),
+    onMutate: () => {
+      setCliActiveRunStartedAt(new Date().toLocaleTimeString());
+      setTestOpen(true);
+      setCliOutputExpanded(true);
+      queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
+    },
+    onSuccess: () => {
+      setCliActiveRunStartedAt(null);
+      setCliOutputExpanded(false);
+      queryClient.invalidateQueries({ queryKey: ["runtime-runs", "codex-cli"] });
+      queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
+    },
+    onError: (err) => {
+      setCliActiveRunStartedAt(null);
+      setCliOutputExpanded(false);
+      queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
+      setError(err instanceof Error ? err.message : "Unable to run Direct CLI test");
+    },
+  });
+
   const copyCommand = async (value: string) => {
     await navigator.clipboard.writeText(value);
     setCopiedCommand(value);
@@ -340,6 +387,18 @@ export default function Models() {
     }
   }, [liveProgressLines.length]);
 
+  const cliRunInProgress = Boolean(cliActiveRunStartedAt) || createCliRuntimeRun.isPending;
+  const cliLiveProgressLines = cliRunInProgress
+    ? recentRunnerLogs.filter((l) => l.level !== "debug").slice(-20).map((l) => l.message)
+    : [];
+  const latestCliRun = createCliRuntimeRun.data ?? null;
+
+  useEffect(() => {
+    if (cliLiveOutputRef.current) {
+      cliLiveOutputRef.current.scrollTop = cliLiveOutputRef.current.scrollHeight;
+    }
+  }, [cliLiveProgressLines.length]);
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -347,7 +406,7 @@ export default function Models() {
           <Badge className="mb-2 rounded-full bg-slate-900 text-white hover:bg-slate-900">Local execution</Badge>
           <h2 className="text-3xl font-black text-slate-950">Models</h2>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
           {/* Host runner status */}
           <div className={`rounded-2xl border px-4 py-3 text-center shadow-sm ${hostRunnerOffline ? "border-slate-200 bg-slate-100 text-slate-800" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
             <p className="text-xl font-black">{hostRunnerOffline ? "Offline" : "Online"}</p>
@@ -356,7 +415,12 @@ export default function Models() {
           {/* Docker Sandbox status */}
           <div className={`rounded-2xl border px-4 py-3 text-center shadow-sm ${sandboxReady ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
             <p className="text-xl font-black">{sandboxReady ? "Ready" : "Setup"}</p>
-            <p className={`text-xs font-bold uppercase ${sandboxReady ? "text-emerald-700" : "text-amber-700"}`}>Docker Sandbox</p>
+            <p className={`text-xs font-bold uppercase ${sandboxReady ? "text-emerald-700" : "text-amber-700"}`}>Sandbox</p>
+          </div>
+          {/* Direct CLI status */}
+          <div className={`rounded-2xl border px-4 py-3 text-center shadow-sm ${directCliRuntime?.available ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+            <p className="text-xl font-black">{directCliRuntime?.available ? "Ready" : "Setup"}</p>
+            <p className={`text-xs font-bold uppercase ${directCliRuntime?.available ? "text-emerald-700" : "text-amber-700"}`}>Direct CLI</p>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-center shadow-sm text-slate-950">
             <p className="text-xl font-black">{activeRuntimeWorkspaces.length}</p>
@@ -389,8 +453,11 @@ export default function Models() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="infrastructure" className="mt-4">
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <TabsContent value="infrastructure" className="mt-4 space-y-4">
+
+      {/* ── Row 1: Docker Sandbox + Direct CLI ── */}
+      <div className="grid gap-4 xl:grid-cols-2">
+
         {/* ── Docker Sandbox ── */}
         <Card className="rounded-[1.5rem] border-emerald-100 bg-white/90 shadow-sm">
           <CardContent className="p-5">
@@ -571,29 +638,141 @@ export default function Models() {
           </CardContent>
         </Card>
 
+        {/* ── Direct CLI ── */}
+        <Card className="rounded-[1.5rem] border-amber-100 bg-white/90 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-800">
+                  <TerminalSquare className="h-6 w-6" />
+                </span>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-black text-slate-950">Direct CLI</h3>
+                    <Badge className="rounded-full bg-amber-100 text-amber-800 hover:bg-amber-100">No isolation</Badge>
+                    <Badge className={`rounded-full ${directCliRuntime?.available ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"} hover:bg-current/0`}>
+                      {directCliLoading && canUseBackend ? "Checking…" : directCliRuntime?.available ? "Ready" : "Setup needed"}
+                    </Badge>
+                  </div>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-500">Runs agents directly on your host · no microVM overhead · fast path</p>
+                </div>
+              </div>
+              <Button
+                type="button" size="sm" variant="outline" className="rounded-xl bg-white shrink-0"
+                disabled={!canUseBackend || directCliLoading}
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "direct-cli"] })}
+              >
+                {directCliLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+
+            {/* Agent status table */}
+            <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 overflow-hidden">
+              {(directCliRuntime?.agent_status ?? []).length === 0 && (
+                <p className="px-3 py-3 text-sm font-semibold text-slate-500">Start the host runner to see agent status.</p>
+              )}
+              {(directCliRuntime?.agent_status ?? []).map((ag, idx) => {
+                const isSelected = cliAgent === ag.key;
+                return (
+                  <button
+                    key={ag.key}
+                    type="button"
+                    onClick={() => { setCliAgent(ag.key); try { localStorage.setItem("specter_cli_agent", ag.key); } catch {} }}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-white/60 ${idx !== 0 ? "border-t border-slate-100" : ""} ${isSelected ? "bg-white" : ""}`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className={`text-xs font-black ${ag.authenticated ? "text-emerald-500" : ag.installed ? "text-amber-400" : "text-red-400"}`}>
+                        {ag.authenticated ? "✓" : ag.installed ? "○" : "✕"}
+                      </span>
+                      <span className={`text-sm font-bold ${isSelected ? "text-slate-950" : "text-slate-600"}`}>{ag.display_name}</span>
+                      {isSelected && <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-black text-white">selected</span>}
+                      {ag.version && <span className="text-[10px] text-slate-400 font-mono">{ag.version.split(" ")[0]}</span>}
+                    </div>
+                    <span className={`text-[10px] font-semibold ${ag.authenticated ? "text-emerald-600" : ag.installed ? "text-amber-500" : "text-red-500"}`}>
+                      {ag.authenticated ? "Ready" : ag.installed ? "Login needed" : "Not installed"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button type="button" variant="outline" className="rounded-2xl bg-white">Setup</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl rounded-3xl">
+                  <DialogHeader>
+                    <DialogTitle>Direct CLI Setup</DialogTitle>
+                    <DialogDescription>Install each agent CLI and authenticate once. Agents run directly on your host machine.</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    {(directCliRuntime?.agent_status ?? []).map((ag) => {
+                      const authInstructions: Record<string, { install: string; login: string }> = {
+                        codex: { install: "curl -fsSL https://chatgpt.com/codex/install.sh | sh", login: "codex  # sign in when prompted" },
+                        claude: { install: "npm install -g @anthropic-ai/claude-code", login: "claude /login" },
+                        cursor: { install: "# Install Cursor from cursor.com, then enable cursor-agent in PATH", login: "# Sign in to Cursor via the app" },
+                      };
+                      const instr = authInstructions[ag.key];
+                      return (
+                        <div key={ag.key} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm ${ag.authenticated ? "text-emerald-500" : ag.installed ? "text-amber-400" : "text-red-400"}`}>
+                              {ag.authenticated ? "✓" : ag.installed ? "○" : "✕"}
+                            </span>
+                            <p className="text-sm font-black text-slate-900">{ag.display_name}</p>
+                            {ag.authenticated && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-700">Ready</span>}
+                            {ag.version && <span className="ml-auto text-[10px] text-slate-400 font-mono">{ag.version}</span>}
+                          </div>
+                          {!ag.installed && instr && (
+                            <>
+                              <p className="text-xs text-slate-500 pl-5">Install:</p>
+                              <CommandCopy command={instr.install} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                            </>
+                          )}
+                          {ag.installed && !ag.authenticated && instr && (
+                            <>
+                              <p className="text-xs text-slate-500 pl-5">{ag.auth_note}</p>
+                              <CommandCopy command={instr.login} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Row 2: Host Runner + Directory Scan + Approved ── */}
+      <div className="grid gap-4 xl:grid-cols-3">
+
         {/* ── Host Runner ── */}
         <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-900">
-                  <TerminalSquare className="h-6 w-6" />
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-900">
+                  <TerminalSquare className="h-5 w-5" />
                 </span>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-xl font-black text-slate-950">Host Runner</h3>
+                    <h3 className="text-base font-black text-slate-950">Host Runner</h3>
                     <Badge className={`rounded-full ${hostRunnerOffline ? "bg-slate-100 text-slate-600" : "bg-emerald-100 text-emerald-800"} hover:bg-current/0`}>
                       {hostRunnerOffline ? "Offline" : "Online"}
                     </Badge>
                   </div>
-                  <p className="mt-1 text-sm font-semibold text-slate-500">
-                    {hostRunnerOffline ? "Not reachable on localhost:8765" : `Bridges Docker container → host sbx · ${hostRunnerVersion?.version ? `v${hostRunnerVersion.version}` : ""}`}
+                  <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                    {hostRunnerOffline ? "Not reachable on localhost:8765" : `localhost:8765 · ${hostRunnerVersion?.version ? `v${hostRunnerVersion.version}` : ""}`}
                   </p>
                 </div>
               </div>
               <Dialog>
                 <DialogTrigger asChild>
-                  <Button type="button" size="sm" variant="outline" className="rounded-xl bg-white">Start</Button>
+                  <Button type="button" size="sm" variant="outline" className="rounded-xl bg-white text-xs">Start</Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-lg rounded-3xl">
                   <DialogHeader>
@@ -605,22 +784,18 @@ export default function Models() {
                 </DialogContent>
               </Dialog>
             </div>
-
-            {/* Auto-start service */}
-            <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+            <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
                   <div className={`h-2 w-2 rounded-full ${launchdSvc?.running ? "bg-emerald-500" : "bg-slate-300"}`} />
                   <div>
-                    <p className="text-sm font-black text-slate-950">Auto-start service</p>
-                    <p className="text-xs font-semibold text-slate-500">
-                      {launchdSvc?.installed
-                        ? launchdSvc.running ? "Running via launchd · restarts automatically" : "Installed · not running"
-                        : "Not installed · starts manually only"}
+                    <p className="text-xs font-black text-slate-950">Auto-start</p>
+                    <p className="text-[10px] font-semibold text-slate-500">
+                      {launchdSvc?.installed ? (launchdSvc.running ? "Running via launchd" : "Installed · not running") : "Not installed"}
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-1.5">
                   {!launchdSvc?.installed ? (
                     <Dialog>
                       <DialogTrigger asChild>
@@ -629,55 +804,40 @@ export default function Models() {
                       <DialogContent className="max-w-lg rounded-3xl">
                         <DialogHeader>
                           <DialogTitle>Install auto-start service</DialogTitle>
-                          <DialogDescription>
-                            Run once in your terminal. The host runner starts immediately and restarts automatically on every login or crash.
-                          </DialogDescription>
+                          <DialogDescription>Starts automatically on login and restarts on crash.</DialogDescription>
                         </DialogHeader>
                         <CommandCopy command="python3 scripts/specter_host_runner.py --install-service" copiedCommand={copiedCommand} onCopy={copyCommand} />
-                        <p className="text-xs text-slate-400">Future updates only need <code>git pull</code> — no reinstall required.</p>
                       </DialogContent>
                     </Dialog>
                   ) : (
                     <>
-                      <Button
-                        type="button" size="sm" variant="outline" className="rounded-xl bg-white text-xs"
-                        disabled={!canUseBackend || restartLaunchd.isPending}
-                        onClick={() => restartLaunchd.mutate()}
-                      >
-                        {restartLaunchd.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1.5 h-3 w-3" />}
-                        Restart
+                      <Button type="button" size="sm" variant="outline" className="rounded-xl bg-white text-xs"
+                        disabled={!canUseBackend || restartLaunchd.isPending} onClick={() => restartLaunchd.mutate()}>
+                        {restartLaunchd.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
                       </Button>
-                      <Button
-                        type="button" size="sm" variant="outline" className="rounded-xl bg-white text-xs text-red-600 hover:text-red-700"
-                        disabled={!canUseBackend || uninstallLaunchd.isPending}
-                        onClick={() => uninstallLaunchd.mutate()}
-                      >
-                        {uninstallLaunchd.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
-                        Uninstall
+                      <Button type="button" size="sm" variant="outline" className="rounded-xl bg-white text-xs text-red-600"
+                        disabled={!canUseBackend || uninstallLaunchd.isPending} onClick={() => uninstallLaunchd.mutate()}>
+                        Remove
                       </Button>
                     </>
                   )}
                 </div>
               </div>
-              {(installLaunchd.data || uninstallLaunchd.data || restartLaunchd.data) && (
-                <p className="mt-2 text-xs text-slate-500">
-                  {(installLaunchd.data ?? uninstallLaunchd.data ?? restartLaunchd.data)?.message}
-                </p>
-              )}
             </div>
           </CardContent>
         </Card>
 
+        {/* ── Directory Scan ── */}
         <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
           <CardContent className="p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-800">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-800">
                   <FolderSearch className="h-5 w-5" />
                 </span>
                 <div>
-                  <h3 className="text-xl font-black text-slate-950">Directory scan</h3>
-                  <p className="text-sm font-semibold text-slate-500">Choose a parent directory</p>
+                  <h3 className="text-base font-black text-slate-950">Directory scan</h3>
+                  <p className="text-xs font-semibold text-slate-500">Discover repositories</p>
                 </div>
               </div>
               <Button type="button" variant="outline" className="w-fit rounded-2xl bg-white" onClick={() => setDirectoryScanOpen((open) => !open)}>
@@ -685,67 +845,43 @@ export default function Models() {
                 {directoryScanOpen ? "Hide" : "Show"}
               </Button>
             </div>
-
             {directoryScanOpen && (
               <>
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <Input className="rounded-2xl bg-white" value={discoveryRoot} onChange={(event) => setDiscoveryRoot(event.target.value)} />
-                  <Button
-                    type="button"
-                    disabled={!canUseBackend || discoverRepositories.isPending || hostRunnerOffline}
-                    onClick={() => discoverRepositories.mutate()}
-                    className="rounded-2xl bg-cyan-800 hover:bg-cyan-900"
-                  >
+                  <Button type="button" disabled={!canUseBackend || discoverRepositories.isPending || hostRunnerOffline} onClick={() => discoverRepositories.mutate()} className="rounded-2xl bg-cyan-800 hover:bg-cyan-900">
                     {discoverRepositories.isPending && <Loader2 className="mr-2 h-4 w-4" />}
                     {discoverRepositories.isPending ? "Scanning" : "Scan"}
                   </Button>
                 </div>
-
                 {discoverRepositories.data && (
                   <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-black text-slate-950">{discoveredRepositories.length} found</p>
                       <div className="flex flex-wrap gap-2">
-                        <Button size="sm" disabled={!selectableDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths(selectableDiscoveredPaths)} variant="outline" className="rounded-xl bg-white">
-                          Select all
-                        </Button>
-                        <Button size="sm" disabled={!selectedDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths([])} variant="outline" className="rounded-xl bg-white">
-                          Deselect
-                        </Button>
-                        <Button size="sm" disabled={!selectedDiscoveredPaths.length || approveSelectedRepositories.isPending} onClick={() => approveSelectedRepositories.mutate()} className="rounded-xl bg-slate-900 hover:bg-slate-800">
-                          Add
-                        </Button>
+                        <Button size="sm" disabled={!selectableDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths(selectableDiscoveredPaths)} variant="outline" className="rounded-xl bg-white">Select all</Button>
+                        <Button size="sm" disabled={!selectedDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths([])} variant="outline" className="rounded-xl bg-white">Deselect</Button>
+                        <Button size="sm" disabled={!selectedDiscoveredPaths.length || approveSelectedRepositories.isPending} onClick={() => approveSelectedRepositories.mutate()} className="rounded-xl bg-slate-900 hover:bg-slate-800">Add</Button>
                       </div>
                     </div>
                     <div className="mt-3 max-h-56 space-y-2 overflow-auto pr-1">
-                      {discoveredRepositories.length ? (
-                        discoveredRepositories.map((repo) => {
-                          const approved = approvedWorkspacePaths.has(repo.path);
-                          const checked = selectedDiscoveredPaths.includes(repo.path);
-                          return (
-                            <label key={repo.path} className="flex cursor-pointer gap-3 rounded-2xl bg-white p-3">
-                              <Checkbox
-                                checked={approved || checked}
-                                disabled={approved}
-                                onCheckedChange={(value) => {
-                                  setSelectedDiscoveredPaths((paths) =>
-                                    value ? [...new Set([...paths, repo.path])] : paths.filter((path) => path !== repo.path),
-                                  );
-                                }}
-                              />
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="font-black text-slate-950">{repo.name}</p>
-                                  {approved && <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Approved</Badge>}
-                                </div>
-                                <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{repo.path}</p>
+                      {discoveredRepositories.length ? discoveredRepositories.map((repo) => {
+                        const approved = approvedWorkspacePaths.has(repo.path);
+                        const checked = selectedDiscoveredPaths.includes(repo.path);
+                        return (
+                          <label key={repo.path} className="flex cursor-pointer gap-3 rounded-2xl bg-white p-3">
+                            <Checkbox checked={approved || checked} disabled={approved}
+                              onCheckedChange={(value) => setSelectedDiscoveredPaths((paths) => value ? [...new Set([...paths, repo.path])] : paths.filter((path) => path !== repo.path))} />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-black text-slate-950">{repo.name}</p>
+                                {approved && <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Approved</Badge>}
                               </div>
-                            </label>
-                          );
-                        })
-                      ) : (
-                        <p className="text-sm font-semibold text-slate-500">No repositories found.</p>
-                      )}
+                              <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{repo.path}</p>
+                            </div>
+                          </label>
+                        );
+                      }) : <p className="text-sm font-semibold text-slate-500">No repositories found.</p>}
                     </div>
                   </div>
                 )}
@@ -753,15 +889,19 @@ export default function Models() {
             )}
           </CardContent>
         </Card>
-      </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+        {/* ── Approved ── */}
         <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-xl font-black text-slate-950">Approved</h3>
-                <p className="text-sm font-semibold text-slate-500">{activeRuntimeWorkspaces.length} repositories</p>
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-900">
+                  <ShieldCheck className="h-5 w-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-black text-slate-950">Approved</h3>
+                  <p className="text-xs font-semibold text-slate-500">{activeRuntimeWorkspaces.length} repositories</p>
+                </div>
               </div>
               <Button type="button" variant="outline" className="rounded-2xl bg-white" onClick={() => setApprovedOpen((open) => !open)}>
                 {approvedOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
@@ -770,170 +910,214 @@ export default function Models() {
             </div>
             {approvedOpen && (
               <div className="mt-4 max-h-72 space-y-2 overflow-auto pr-1">
-                {activeRuntimeWorkspaces.length ? (
-                  activeRuntimeWorkspaces.map((workspace) => (
-                    <div key={workspace.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-black text-slate-950">{workspace.name}</p>
-                          <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{workspace.path}</p>
-                        </div>
-                        <Button type="button" size="sm" variant="outline" disabled={deleteWorkspace.isPending} onClick={() => deleteWorkspace.mutate(workspace.id)} className="rounded-xl bg-white">
-                          Remove
-                        </Button>
+                {activeRuntimeWorkspaces.length ? activeRuntimeWorkspaces.map((workspace) => (
+                  <div key={workspace.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-black text-slate-950">{workspace.name}</p>
+                        <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{workspace.path}</p>
                       </div>
+                      <Button type="button" size="sm" variant="outline" disabled={deleteWorkspace.isPending} onClick={() => deleteWorkspace.mutate(workspace.id)} className="rounded-xl bg-white">Remove</Button>
                     </div>
-                  ))
-                ) : (
-                  <p className="rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">No approved repositories.</p>
-                )}
+                  </div>
+                )) : <p className="rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">No approved repositories.</p>}
               </div>
             )}
           </CardContent>
         </Card>
 
-        </div>
+      </div>
 
-      {/* ── Sandbox Test (full width) ── */}
-      <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-xl font-black text-slate-950">Sandbox test</h3>
-                <p className="text-sm font-semibold text-slate-500">
-                  {runtimeRunInProgress ? "Running" : latestRuntimeRun?.status ?? "Idle"}
-                  {" · "}{SANDBOX_AGENTS[sandboxAgent]?.label ?? sandboxAgent}
-                </p>
-              </div>
-              <Button type="button" variant="outline" className="w-fit rounded-2xl bg-white" onClick={() => setTestOpen((open) => !open)}>
-                {testOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
-                {testOpen ? "Hide" : "Show"}
-              </Button>
-            </div>
-            {testOpen && (
-              <>
-                <div className="mt-4 grid gap-3">
-                  <div className="space-y-2">
-                    <Label>Workspace</Label>
-                    <Select value={selectedWorkspaceId} onValueChange={setSelectedWorkspaceId}>
-                      <SelectTrigger className="rounded-2xl">
-                        <SelectValue placeholder="Select repository" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {activeRuntimeWorkspaces.map((workspace) => (
-                          <SelectItem key={workspace.id} value={workspace.id}>
-                            {workspace.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Prompt</Label>
-                    <Textarea className="min-h-24 rounded-2xl" value={runtimePrompt} onChange={(event) => setRuntimePrompt(event.target.value)} />
-                  </div>
-                  <Button
-                    type="button"
-                    disabled={!selectedWorkspaceId || !runtimePrompt.trim() || !canUseBackend || !sandboxReady || createRuntimeRun.isPending}
-                    onClick={() => createRuntimeRun.mutate()}
-                    className="rounded-2xl bg-emerald-700 hover:bg-emerald-800"
-                  >
-                    {createRuntimeRun.isPending && <Loader2 className="mr-2 h-4 w-4" />}
-                    {createRuntimeRun.isPending ? "Running" : `Run with ${SANDBOX_AGENTS[sandboxAgent]?.label ?? sandboxAgent}`}
-                  </Button>
+      {/* ── Unified Test Card ── */}
+      {(() => {
+        const isSandbox = testRuntime === "sandbox";
+        const isRunning = isSandbox ? runtimeRunInProgress : cliRunInProgress;
+        const latestRun = isSandbox ? latestRuntimeRun : latestCliRun;
+        const isExpanded = isSandbox ? outputExpanded : cliOutputExpanded;
+        const setExpanded = isSandbox ? setOutputExpanded : setCliOutputExpanded;
+        const liveLines = isSandbox ? liveProgressLines : cliLiveProgressLines;
+        const liveRef = isSandbox ? liveOutputRef : cliLiveOutputRef;
+        const startedAt = isSandbox ? activeRunStartedAt : cliActiveRunStartedAt;
+        const rawMode = isSandbox ? showRaw : cliShowRaw;
+        const setRawMode = isSandbox ? setShowRaw : setCliShowRaw;
+        const agentLabel = isSandbox
+          ? (SANDBOX_AGENTS[sandboxAgent]?.label ?? sandboxAgent)
+          : ((directCliRuntime?.agent_status ?? []).find(a => a.key === cliAgent)?.display_name ?? cliAgent);
+        const canRun = isSandbox
+          ? Boolean(selectedWorkspaceId && runtimePrompt.trim() && canUseBackend && sandboxReady && !createRuntimeRun.isPending)
+          : Boolean(selectedWorkspaceId && runtimePrompt.trim() && canUseBackend && directCliRuntime?.available && !createCliRuntimeRun.isPending);
+
+        return (
+          <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
+            <CardContent className="p-5">
+              {/* Header */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-xl font-black text-slate-950">Test run</h3>
+                  <p className="text-sm font-semibold text-slate-500">
+                    {isRunning ? "Running" : latestRun?.status ?? "Idle"}
+                    {" · "}{agentLabel}
+                  </p>
                 </div>
-                {/* Output panel — fullscreen overlay when expanded, inline otherwise */}
-                <div
-                  className={
-                    outputExpanded
-                      ? "fixed inset-0 z-50 flex flex-col bg-slate-950 text-white transition-all duration-500 ease-out"
-                      : "mt-4 rounded-2xl border border-slate-100 bg-slate-950 p-4 text-white transition-all duration-500 ease-out"
-                  }
-                >
-                  <div className={`flex flex-wrap items-center justify-between gap-2 ${outputExpanded ? "px-5 pt-5 pb-3 border-b border-white/10" : "mb-2"}`}>
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs font-black uppercase text-slate-300">
-                        {runtimeRunInProgress ? SANDBOX_AGENTS[sandboxAgent]?.label ?? sandboxAgent : "Latest run"}
-                      </p>
-                      {runtimeRunInProgress ? (
-                        <Badge className="rounded-full bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/20">
-                          <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />Running
-                        </Badge>
-                      ) : latestRuntimeRun ? (
-                        <Badge className="rounded-full bg-white/10 text-white hover:bg-white/10">{latestRuntimeRun.status}</Badge>
-                      ) : null}
-                    </div>
-                    <button
-                      onClick={() => setOutputExpanded((e) => !e)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
-                      title={outputExpanded ? "Minimize" : "Expand"}
-                    >
-                      {outputExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  <div className={outputExpanded ? "flex-1 overflow-auto px-5 py-4" : ""}>
-                    {runtimeRunInProgress ? (
-                      <div className={outputExpanded ? "h-full" : "rounded-2xl bg-emerald-500/10 p-3 space-y-2"}>
-                        {!outputExpanded && (
-                          <div className="flex items-center gap-2 mb-2">
-                            <p className="text-xs font-black text-emerald-200">Running since {activeRunStartedAt ?? "now"}</p>
-                          </div>
-                        )}
-                        {outputExpanded && (
-                          <p className="text-xs font-semibold text-emerald-400 mb-3">Started {activeRunStartedAt ?? "now"}</p>
-                        )}
-                        <pre
-                          ref={liveOutputRef}
-                          className={
-                            outputExpanded
-                              ? "h-full overflow-auto whitespace-pre-wrap text-sm leading-6 text-emerald-100/90 font-mono"
-                              : "max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-5 text-emerald-100/80 font-mono"
-                          }
+                <Button type="button" variant="outline" className="w-fit rounded-2xl bg-white" onClick={() => setTestOpen((o) => !o)}>
+                  {testOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
+                  {testOpen ? "Hide" : "Show"}
+                </Button>
+              </div>
+
+              {testOpen && (
+                <>
+                  <div className="mt-4 grid gap-3">
+                    {/* Runtime + agent selector row */}
+                    <div className="flex gap-2">
+                      {/* Runtime toggle */}
+                      <div className="flex rounded-2xl border border-slate-200 bg-slate-50 p-0.5 gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setTestRuntime("sandbox")}
+                          className={`rounded-xl px-3 py-1.5 text-xs font-black transition-colors ${isSandbox ? "bg-white shadow-sm text-slate-950" : "text-slate-500 hover:text-slate-700"}`}
                         >
-                          {liveProgressLines.join("\n") || "Starting…"}
-                        </pre>
+                          Sandbox
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTestRuntime("direct")}
+                          className={`rounded-xl px-3 py-1.5 text-xs font-black transition-colors ${!isSandbox ? "bg-white shadow-sm text-slate-950" : "text-slate-500 hover:text-slate-700"}`}
+                        >
+                          Direct CLI
+                        </button>
                       </div>
-                    ) : latestRuntimeRun ? (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-semibold text-slate-400">{latestRuntimeRun.workspace_path}</p>
-                          {latestRuntimeRun.summary && (
-                            <button
-                              onClick={() => setShowRaw((r) => !r)}
-                              className="shrink-0 text-[10px] font-semibold text-slate-500 hover:text-slate-300 transition-colors"
-                            >
-                              {showRaw ? "Rendered" : "Raw"}
-                            </button>
+                      {/* Agent selector */}
+                      {isSandbox ? (
+                        <Select value={sandboxAgent} onValueChange={setSandboxAgent}>
+                          <SelectTrigger className="rounded-2xl h-9 text-xs flex-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Object.entries(SANDBOX_AGENTS).map(([k, v]) => (
+                              <SelectItem key={k} value={k}>{v.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Select value={cliAgent} onValueChange={(v) => { setCliAgent(v); try { localStorage.setItem("specter_cli_agent", v); } catch {} }}>
+                          <SelectTrigger className="rounded-2xl h-9 text-xs flex-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(directCliRuntime?.agent_status ?? []).map((ag) => (
+                              <SelectItem key={ag.key} value={ag.key} disabled={!ag.authenticated}>
+                                {ag.display_name}{!ag.authenticated ? " (not ready)" : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+
+                    {/* Workspace */}
+                    <div className="space-y-2">
+                      <Label>Workspace</Label>
+                      <Select value={selectedWorkspaceId} onValueChange={setSelectedWorkspaceId}>
+                        <SelectTrigger className="rounded-2xl">
+                          <SelectValue placeholder="Select repository" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activeRuntimeWorkspaces.map((workspace) => (
+                            <SelectItem key={workspace.id} value={workspace.id}>{workspace.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Prompt */}
+                    <div className="space-y-2">
+                      <Label>Prompt</Label>
+                      <Textarea className="min-h-24 rounded-2xl" value={runtimePrompt} onChange={(e) => setRuntimePrompt(e.target.value)} />
+                    </div>
+
+                    {/* Run button */}
+                    <Button
+                      type="button"
+                      disabled={!canRun}
+                      onClick={() => isSandbox ? createRuntimeRun.mutate() : createCliRuntimeRun.mutate()}
+                      className={`rounded-2xl ${isSandbox ? "bg-emerald-700 hover:bg-emerald-800" : "bg-amber-700 hover:bg-amber-800"}`}
+                    >
+                      {(isSandbox ? createRuntimeRun.isPending : createCliRuntimeRun.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {(isSandbox ? createRuntimeRun.isPending : createCliRuntimeRun.isPending) ? "Running…" : `Run with ${agentLabel}`}
+                    </Button>
+                  </div>
+
+                  {/* Output panel */}
+                  <div className={isExpanded ? "fixed inset-0 z-50 flex flex-col bg-slate-950 text-white" : "mt-4 rounded-2xl border border-slate-100 bg-slate-950 p-4 text-white"}>
+                    <div className={`flex flex-wrap items-center justify-between gap-2 ${isExpanded ? "px-5 pt-5 pb-3 border-b border-white/10" : "mb-2"}`}>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-black uppercase text-slate-300">
+                          {isRunning ? agentLabel : "Latest run"}
+                        </p>
+                        {isRunning ? (
+                          <Badge className="rounded-full bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/20">
+                            <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />Running
+                          </Badge>
+                        ) : latestRun ? (
+                          <Badge className="rounded-full bg-white/10 text-white hover:bg-white/10">{latestRun.status}</Badge>
+                        ) : null}
+                      </div>
+                      <button
+                        onClick={() => setExpanded((e) => !e)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                        title={isExpanded ? "Minimize" : "Expand"}
+                      >
+                        {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <div className={isExpanded ? "flex-1 overflow-auto px-5 py-4" : ""}>
+                      {isRunning ? (
+                        <div className={isExpanded ? "h-full" : "rounded-2xl bg-emerald-500/10 p-3"}>
+                          {isExpanded && <p className="text-xs font-semibold text-emerald-400 mb-3">Started {startedAt ?? "now"}</p>}
+                          <pre ref={liveRef} className={isExpanded ? "h-full overflow-auto whitespace-pre-wrap text-sm leading-6 text-emerald-100/90 font-mono" : "max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-5 text-emerald-100/80 font-mono"}>
+                            {liveLines.join("\n") || "Starting…"}
+                          </pre>
+                        </div>
+                      ) : latestRun ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-slate-400">{latestRun.workspace_path}</p>
+                            {latestRun.summary && (
+                              <button onClick={() => setRawMode((r) => !r)} className="shrink-0 text-[10px] font-semibold text-slate-500 hover:text-slate-300 transition-colors">
+                                {rawMode ? "Rendered" : "Raw"}
+                              </button>
+                            )}
+                          </div>
+                          {rawMode || !latestRun.summary ? (
+                            <pre className={`overflow-auto whitespace-pre-wrap rounded-2xl bg-white/5 p-3 text-xs leading-5 text-slate-300 font-mono ${isExpanded ? "h-full" : "max-h-60"}`}>
+                              {latestRun.summary || latestRun.stderr || latestRun.error || "No output captured."}
+                            </pre>
+                          ) : (
+                            <div
+                              className={`overflow-auto rounded-2xl bg-white/5 p-4 prose prose-invert prose-sm max-w-none
+                                prose-headings:text-slate-100 prose-headings:font-black
+                                prose-p:text-slate-300 prose-p:leading-6
+                                prose-code:text-emerald-300 prose-code:bg-white/10 prose-code:rounded prose-code:px-1 prose-code:text-xs
+                                prose-pre:bg-white/10 prose-pre:text-slate-200 prose-pre:text-xs
+                                prose-strong:text-slate-100 prose-li:text-slate-300
+                                prose-a:text-sky-400 hover:prose-a:text-sky-300
+                                ${isExpanded ? "h-full" : "max-h-96"}`}
+                              dangerouslySetInnerHTML={{ __html: md.render(latestRun.summary) }}
+                            />
                           )}
                         </div>
-                        {showRaw || !latestRuntimeRun.summary ? (
-                          <pre className={`overflow-auto whitespace-pre-wrap rounded-2xl bg-white/5 p-3 text-xs leading-5 text-slate-300 font-mono ${outputExpanded ? "h-full" : "max-h-60"}`}>
-                            {latestRuntimeRun.summary || latestRuntimeRun.stderr || latestRuntimeRun.error || "No output captured."}
-                          </pre>
-                        ) : (
-                          <div
-                            className={`overflow-auto rounded-2xl bg-white/5 p-4 prose prose-invert prose-sm max-w-none
-                              prose-headings:text-slate-100 prose-headings:font-black
-                              prose-p:text-slate-300 prose-p:leading-6
-                              prose-code:text-emerald-300 prose-code:bg-white/10 prose-code:rounded prose-code:px-1 prose-code:text-xs
-                              prose-pre:bg-white/10 prose-pre:text-slate-200 prose-pre:text-xs
-                              prose-strong:text-slate-100
-                              prose-li:text-slate-300
-                              prose-a:text-sky-400 hover:prose-a:text-sky-300
-                              ${outputExpanded ? "h-full" : "max-h-96"}`}
-                            dangerouslySetInnerHTML={{ __html: md.render(latestRuntimeRun.summary) }}
-                          />
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-sm font-semibold text-slate-400">No runs yet.</p>
-                    )}
+                      ) : (
+                        <p className="text-sm font-semibold text-slate-400">No runs yet.</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
         </TabsContent>
 
         <TabsContent value="logs" className="mt-4">
