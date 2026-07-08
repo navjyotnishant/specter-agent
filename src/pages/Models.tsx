@@ -394,6 +394,7 @@ export default function Models() {
         {/* ── Docker Sandbox ── */}
         <Card className="rounded-[1.5rem] border-emerald-100 bg-white/90 shadow-sm">
           <CardContent className="p-5">
+            {/* Header */}
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-800">
@@ -407,70 +408,62 @@ export default function Models() {
                       {sandboxRuntimeLoading && canUseBackend ? "Checking…" : dockerSandboxBadge.label}
                     </Badge>
                   </div>
-                  <p className="mt-1 text-sm font-semibold text-slate-500">{sandboxStatusLine(dockerSandboxRuntime)}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-500">{sandboxStatusLine(dockerSandboxRuntime)}</p>
                   {dockerSandboxRuntime?.executable_path && (
                     <p className="mt-0.5 break-all text-xs text-slate-400">{shortPath(dockerSandboxRuntime.executable_path)}</p>
                   )}
                 </div>
               </div>
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm" variant="outline" className="rounded-xl bg-white shrink-0"
                 disabled={!canUseBackend || sandboxRuntimeLoading}
                 onClick={() => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "docker-sandbox"] })}
-                variant="outline"
-                className="rounded-xl bg-white"
               >
                 {sandboxRuntimeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               </Button>
             </div>
 
-            {/* Action needed banner */}
+            {/* Daemon unavailable banner */}
             {dockerSandboxRuntime?.sandbox_health_status === "daemon_unavailable" && (
               <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5">
                 <p className="text-xs font-semibold text-amber-800">
                   {startSandboxDaemon.data?.message ?? "sbx daemon is not running."}
                 </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="rounded-xl bg-white text-xs"
+                <Button size="sm" variant="outline" className="rounded-xl bg-white text-xs shrink-0"
                   disabled={!canUseBackend || hostRunnerOffline || startSandboxDaemon.isPending}
                   onClick={() => startSandboxDaemon.mutate()}
                 >
-                  {startSandboxDaemon.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
+                  {startSandboxDaemon.isPending && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
                   {startSandboxDaemon.isPending ? "Starting…" : "Start daemon"}
                 </Button>
               </div>
             )}
 
-            {/* Agent selector */}
+            {/* Agent status table */}
             {(() => {
-              const unauthenticated: string[] = (dockerSandboxRuntime as any)?.unauthenticated_agents ?? [];
+              const agentAuth: { key: string; authenticated: boolean }[] = (dockerSandboxRuntime as any)?.agent_auth ?? [];
               return (
-                <div className="mt-4 flex gap-1 rounded-2xl border border-slate-100 bg-slate-50 p-1">
-                  {Object.entries(SANDBOX_AGENTS).map(([key, ag]) => {
-                    const needsAuth = unauthenticated.includes(key);
+                <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 overflow-hidden">
+                  {Object.entries(SANDBOX_AGENTS).map(([key, ag], idx) => {
+                    const auth = agentAuth.find(a => a.key === key);
+                    const authenticated = auth?.authenticated ?? false;
                     const isSelected = sandboxAgent === key;
                     return (
                       <button
                         key={key}
                         type="button"
-                        onClick={() => {
-                          setSandboxAgent(key);
-                          try { localStorage.setItem("specter_sandbox_agent", key); } catch {}
-                        }}
-                        style={{
-                          flex: 1, padding: "6px 10px", borderRadius: 12, fontSize: 12, fontWeight: 700,
-                          border: "none", cursor: "pointer", transition: "all 0.15s",
-                          background: isSelected ? "white" : "transparent",
-                          color: isSelected ? "#0f172a" : "#64748b",
-                          boxShadow: isSelected ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                        }}
+                        onClick={() => { setSandboxAgent(key); try { localStorage.setItem("specter_sandbox_agent", key); } catch {} }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-white/60 ${idx !== 0 ? "border-t border-slate-100" : ""} ${isSelected ? "bg-white" : ""}`}
                       >
-                        <span className="flex items-center justify-center gap-1.5">
-                          {ag.label}
-                          {needsAuth && <span title="Credentials not configured" style={{ color: "#f59e0b", fontSize: 10 }}>⚠</span>}
+                        <div className="flex items-center gap-2.5">
+                          <span className={`text-xs font-black ${authenticated ? "text-emerald-500" : "text-amber-400"}`}>
+                            {authenticated ? "✓" : "○"}
+                          </span>
+                          <span className={`text-sm font-bold ${isSelected ? "text-slate-950" : "text-slate-600"}`}>{ag.label}</span>
+                          {isSelected && <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-black text-white">selected</span>}
+                        </div>
+                        <span className={`text-[10px] font-semibold ${authenticated ? "text-emerald-600" : "text-amber-500"}`}>
+                          {authenticated ? "Ready" : "Setup needed"}
                         </span>
                       </button>
                     );
@@ -479,57 +472,28 @@ export default function Models() {
               );
             })()}
 
-            {(() => {
-              const agentAuth: { key: string; authenticated: boolean; auth_command: string }[] = (dockerSandboxRuntime as any)?.agent_auth ?? [];
-              const current = agentAuth.find(a => a.key === sandboxAgent);
-              // claude can authenticate via /login inside the sandbox — don't warn
-              if (!current || current.authenticated || sandboxAgent === "claude") return null;
-              return (
-                <div className="mt-2 flex items-start gap-2 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5">
-                  <span className="mt-0.5 text-amber-500">⚠</span>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-amber-800">
-                      {SANDBOX_AGENTS[sandboxAgent]?.label} credentials not configured. See Setup to authenticate.
-                    </p>
-                  </div>
-                </div>
-              );
-            })()}
-
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Badge className="rounded-full bg-emerald-50 text-emerald-800 hover:bg-emerald-50">microVM isolation</Badge>
-              <Badge className="rounded-full bg-slate-100 text-slate-700 hover:bg-slate-100">
-                {SANDBOX_AGENTS[sandboxAgent]?.template ?? dockerSandboxRuntime?.base_image ?? "docker/sandbox-templates:codex"}
-              </Badge>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-slate-100 bg-white p-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-black text-slate-950">Network policy</p>
-                    {setSandboxPolicy.isPending && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
-                    {setSandboxPolicy.isSuccess && <span className="text-xs font-semibold text-emerald-600">Saved</span>}
-                  </div>
-                  <p className="text-xs font-semibold leading-5 text-slate-500">
-                    {sandboxPolicyDescriptions[sandboxPolicy?.current_policy ?? ""] ?? sandboxPolicy?.message ?? "Current policy unavailable."}
-                  </p>
-                </div>
-                <Select
-                  value={["balanced", "deny-all", "allow-all"].includes(sandboxPolicy?.current_policy ?? "") ? sandboxPolicy!.current_policy : undefined}
-                  onValueChange={(value) => setSandboxPolicy.mutate(value as "allow-all" | "balanced" | "deny-all")}
-                  disabled={!canUseBackend || !sandboxReady || setSandboxPolicy.isPending}
-                >
-                  <SelectTrigger className="w-full rounded-2xl bg-white sm:w-44">
-                    <SelectValue placeholder="Select…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="balanced">Balanced</SelectItem>
-                    <SelectItem value="deny-all">Deny all</SelectItem>
-                    <SelectItem value="allow-all">Allow all</SelectItem>
-                  </SelectContent>
-                </Select>
+            {/* Network policy + template row */}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-1.5">
+                <Badge className="rounded-full bg-emerald-50 text-emerald-800 hover:bg-emerald-50">microVM isolation</Badge>
+                <Badge className="rounded-full bg-slate-100 text-slate-600 hover:bg-slate-100 font-mono text-[10px]">
+                  {SANDBOX_AGENTS[sandboxAgent]?.template ?? dockerSandboxRuntime?.base_image ?? "docker/sandbox-templates:codex"}
+                </Badge>
               </div>
+              <Select
+                value={["balanced", "deny-all", "allow-all"].includes(sandboxPolicy?.current_policy ?? "") ? sandboxPolicy!.current_policy : undefined}
+                onValueChange={(value) => setSandboxPolicy.mutate(value as "allow-all" | "balanced" | "deny-all")}
+                disabled={!canUseBackend || !sandboxReady || setSandboxPolicy.isPending}
+              >
+                <SelectTrigger className="h-7 w-36 rounded-xl bg-white text-xs">
+                  <SelectValue placeholder="Network policy" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="balanced">Balanced</SelectItem>
+                  <SelectItem value="deny-all">Deny all</SelectItem>
+                  <SelectItem value="allow-all">Allow all</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
@@ -541,13 +505,65 @@ export default function Models() {
                   <DialogHeader>
                     <DialogTitle>Docker Sandbox Setup</DialogTitle>
                     <DialogDescription>
-                      Install sbx once on the host, then authenticate {SANDBOX_AGENTS[sandboxAgent]?.label ?? "the agent"} for sandboxed runs.
+                      Install sbx once, then complete a one-time login for each agent you want to use.
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-3">
-                    <CommandCopy command={dockerSandboxRuntime?.install_guidance?.macos ?? dockerSandboxMacInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
-                    <CommandCopy command={dockerSandboxRuntime?.install_guidance?.windows ?? dockerSandboxWindowsInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
-                    <CommandCopy command={SANDBOX_AGENTS[sandboxAgent]?.authCommand ?? "sbx secret set -g openai --oauth"} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                  <div className="space-y-5">
+                    {/* Installation */}
+                    <div>
+                      <p className="mb-2 text-xs font-black uppercase text-slate-500">1 · Install sbx</p>
+                      <div className="space-y-2">
+                        <CommandCopy command={dockerSandboxRuntime?.install_guidance?.macos ?? dockerSandboxMacInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                        <CommandCopy command={dockerSandboxRuntime?.install_guidance?.windows ?? dockerSandboxWindowsInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                      </div>
+                    </div>
+                    {/* Per-agent auth */}
+                    <div>
+                      <p className="mb-2 text-xs font-black uppercase text-slate-500">2 · Authenticate agents</p>
+                      <div className="space-y-3">
+                        {(() => {
+                          const agentAuth: { key: string; display_name: string; authenticated: boolean }[] = (dockerSandboxRuntime as any)?.agent_auth ?? [];
+                          const agentInstructions: Record<string, { note: string; command: string }> = {
+                            codex: {
+                              note: "OAuth via OpenAI — runs in your browser.",
+                              command: "sbx secret set -g openai --oauth",
+                            },
+                            claude: {
+                              note: "One-time interactive login inside a sandbox. Type /login when prompted.",
+                              command: "sbx run --name claude-login claude ~/Desktop",
+                            },
+                            cursor: {
+                              note: "One-time interactive login inside a sandbox. Sign in via browser when prompted.",
+                              command: "sbx run --name cursor-login cursor ~/Desktop",
+                            },
+                          };
+                          return Object.entries(SANDBOX_AGENTS).map(([key, ag]) => {
+                            const auth = agentAuth.find(a => a.key === key);
+                            const instructions = agentInstructions[key];
+                            const authenticated = auth?.authenticated ?? false;
+                            return (
+                              <div key={key} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-sm ${authenticated ? "text-emerald-500" : "text-amber-400"}`}>
+                                    {authenticated ? "✓" : "○"}
+                                  </span>
+                                  <p className="text-sm font-black text-slate-900">{ag.label}</p>
+                                  {authenticated && (
+                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-700">Ready</span>
+                                  )}
+                                </div>
+                                {!authenticated && instructions && (
+                                  <>
+                                    <p className="text-xs text-slate-500 pl-5">{instructions.note}</p>
+                                    <CommandCopy command={instructions.command} copiedCommand={copiedCommand} onCopy={copyCommand} />
+                                  </>
+                                )}
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </div>
                   </div>
                 </DialogContent>
               </Dialog>
@@ -739,7 +755,7 @@ export default function Models() {
         </Card>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+      <div className="grid gap-4 xl:grid-cols-2">
         <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-center justify-between gap-3">
@@ -776,7 +792,10 @@ export default function Models() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
+        </div>
+
+      {/* ── Sandbox Test (full width) ── */}
+      <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
           <CardContent className="p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -915,7 +934,6 @@ export default function Models() {
             )}
           </CardContent>
         </Card>
-        </div>
         </TabsContent>
 
         <TabsContent value="logs" className="mt-4">
