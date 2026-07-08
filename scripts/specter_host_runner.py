@@ -49,6 +49,8 @@ _SANDBOX_AGENTS: dict[str, dict[str, Any]] = {
         "run_cmd": "codex",
         "auth_provider": "openai",
         "auth_flag": "--oauth",
+        # exec_args: command run inside sandbox via `sbx exec <name> <exec_args> -- <prompt_args>`
+        "exec_args": lambda p: ["codex", "exec", "--sandbox", "read-only", "--json", p],
         "docs_url": "https://docs.docker.com/ai/sandboxes/agents/codex/",
     },
     "claude": {
@@ -58,7 +60,18 @@ _SANDBOX_AGENTS: dict[str, dict[str, Any]] = {
         "run_cmd": "claude",
         "auth_provider": "anthropic",
         "auth_flag": None,
+        "exec_args": lambda p: ["claude", "--dangerously-skip-permissions", "-p", p],
         "docs_url": "https://docs.docker.com/ai/sandboxes/agents/claude-code/",
+    },
+    "cursor": {
+        "key": "cursor",
+        "display_name": "Cursor",
+        "template": "docker/sandbox-templates:cursor",
+        "run_cmd": "cursor",
+        "auth_provider": "cursor",
+        "auth_flag": None,
+        "exec_args": lambda p: ["cursor-agent", "--print", p],
+        "docs_url": "https://docs.docker.com/ai/sandboxes/agents/cursor/",
     },
 }
 LOG_LOCK = threading.Lock()
@@ -193,6 +206,8 @@ def _job_append(token: str, line: str) -> None:
     with _JOB_LOCK:
         if token in _JOBS:
             _JOBS[token]["lines"].append(line)
+    if line.strip():
+        log_event("info", line.strip(), job_token=token)
 
 
 def _job_done(token: str) -> None:
@@ -467,6 +482,59 @@ def best_sbx_candidate() -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     return best, candidates
 
 
+def sbx_configured_secrets(exe: str) -> set[str]:
+    """Return the set of provider names that have a secret configured in sbx."""
+    try:
+        result = subprocess.run(
+            [exe, "secret", "ls"],
+            capture_output=True, text=True, timeout=8, check=False,
+        )
+        output = result.stdout + result.stderr
+        configured: set[str] = set()
+        for line in output.splitlines():
+            parts = line.split()
+            # output format: SCOPE  TYPE  NAME  SECRET
+            # e.g.: (global)  service  openai  (oauth configured)
+            if len(parts) >= 3:
+                name = parts[2].lower()
+                secret_val = " ".join(parts[3:]).lower()
+                if name and "configured" in secret_val:
+                    configured.add(name)
+        return configured
+    except Exception:
+        return set()
+
+
+def agent_auth_status(exe: str) -> list[dict[str, Any]]:
+    """Return auth status for each configured sandbox agent."""
+    configured = sbx_configured_secrets(exe)
+    result = []
+    for key, agent in _SANDBOX_AGENTS.items():
+        provider = agent.get("auth_provider")
+        auth_flag = agent.get("auth_flag")
+        if provider is None:
+            # OAuth managed automatically by sbx proxy — no secret required
+            result.append({
+                "key": key,
+                "display_name": agent["display_name"],
+                "auth_provider": None,
+                "authenticated": True,
+                "auth_command": None,
+                "auth_note": "OAuth managed automatically by sbx proxy on first run.",
+            })
+        else:
+            has_secret = provider in configured
+            auth_cmd = f"sbx secret set -g {provider}" + (f" {auth_flag}" if auth_flag else "")
+            result.append({
+                "key": key,
+                "display_name": agent["display_name"],
+                "auth_provider": provider,
+                "authenticated": has_secret,
+                "auth_command": auth_cmd,
+            })
+    return result
+
+
 def docker_sandbox_status() -> dict[str, Any]:
     best, candidates = best_sbx_candidate()
     install_guidance = {
@@ -498,7 +566,7 @@ def docker_sandbox_status() -> dict[str, Any]:
             "recommended_runtime": "codex-cli",
             "base_image": DOCKER_SANDBOX_TEMPLATE,
             "runner_mode": runner_mode_value,
-            "supported_agents": list(_SANDBOX_AGENTS.values()),
+            "supported_agents": [{k: v for k, v in a.items() if k != "exec_args"} for a in _SANDBOX_AGENTS.values()],
             "message": "Docker Sandboxes CLI is not installed. Install sbx to use isolated local agent execution.",
         }
 
@@ -506,6 +574,8 @@ def docker_sandbox_status() -> dict[str, Any]:
     daemon_available = bool(best.get("daemon_available"))
     healthy = best.get("status") == "ok" and daemon_available
     health_status = "cli_available" if healthy else "daemon_unavailable"
+    agent_auth = agent_auth_status(best["path"]) if healthy else []
+    unauthenticated = [a for a in agent_auth if not a["authenticated"]]
     return {
         "runtime_id": "docker-sandbox",
         "display_name": "Docker Sandbox Runtime",
@@ -522,11 +592,13 @@ def docker_sandbox_status() -> dict[str, Any]:
         "sandbox_health_status": health_status,
         "codex_sandbox_ready": healthy,
         "auth_required": None,
+        "agent_auth": agent_auth,
+        "unauthenticated_agents": [a["key"] for a in unauthenticated],
         "install_guidance": install_guidance,
         "recommended_runtime": "docker-sandbox" if healthy else "codex-cli",
         "base_image": DOCKER_SANDBOX_TEMPLATE,
         "runner_mode": runner_mode_value,
-        "supported_agents": list(_SANDBOX_AGENTS.values()),
+        "supported_agents": [{k: v for k, v in a.items() if k != "exec_args"} for a in _SANDBOX_AGENTS.values()],
         "message": (
             "Docker Sandboxes is ready for isolated local execution."
             if healthy
@@ -941,17 +1013,10 @@ def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
     sandbox_name = safe_sandbox_name(job_token or f"{workspace.name}-{int(_time.time())}")
     run_cmd = agent["run_cmd"]
 
-    # `sbx run --clone --name <name> <agent> <workspace> -- <prompt>`
-    # The prompt is passed as a bare argument which replaces the agent's default flags.
-    exec_command = [
-        SBX, "run",
-        "--clone",
-        "--name", sandbox_name,
-        run_cmd,
-        str(workspace),
-        "--",
-        prompt,
-    ]
+    # sbx run is interactive/TTY-only and doesn't stream output when piped.
+    # Use sbx create + sbx exec: create sets up the microVM, exec runs non-interactively and streams JSON.
+    create_command = [SBX, "create", "--clone", "--name", sandbox_name, run_cmd, str(workspace)]
+    exec_command = [SBX, "exec", sandbox_name, *agent["exec_args"](prompt)]
 
     all_stdout_lines: list[str] = []
     stderr_buf: list[str] = []
@@ -1002,7 +1067,10 @@ def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
     log_event("info", f"Starting Docker Sandbox {display_name} task", workspace=str(workspace), sandbox=sandbox_name, agent=agent_key, timeout_seconds=timeout_seconds)
 
     try:
-        exec_exit = stream_command(exec_command, f"[sandbox] running {display_name} in read-only mode")
+        create_exit = stream_command(create_command, f"[sandbox] creating {display_name} sandbox")
+        if create_exit != 0 or timed_out:
+            raise RuntimeError(f"Sandbox creation failed (exit {create_exit})")
+        exec_exit = stream_command(exec_command, f"[sandbox] running {display_name}")
     except Exception as exc:
         if job_token:
             _job_done(job_token)
@@ -1030,6 +1098,28 @@ def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
         }
 
     ok = exec_exit == 0
+
+    # Detect Claude Code "not logged in" error before generic failure handling
+    not_logged_in = not ok and "Not logged in" in (stdout_text + stderr_text)
+    if not_logged_in:
+        login_message = (
+            "Claude Code sandbox requires a one-time login. "
+            "Open a terminal and run:  sbx run --name <any-name> claude  "
+            "then type /login inside the sandbox. "
+            "After logging in once, credentials persist across all future runs."
+        )
+        log_event("error", f"Docker Sandbox {display_name} task failed — not logged in", workspace=str(workspace), sandbox=sandbox_name)
+        return {
+            "ok": False,
+            "status": "auth_required",
+            "message": login_message,
+            "exit_code": exec_exit,
+            "stdout": stdout_text[-20000:],
+            "stderr": stderr_text[-12000:],
+            "final_message": login_message,
+            "metadata": {"workspace_path": str(workspace), "mode": mode, "timeout_seconds": timeout_seconds, "sandbox_name": sandbox_name, "runtime_id": "docker-sandbox", "agent": agent_key},
+        }
+
     final_message = extract_codex_final_message(stdout_text)
     error_message = extract_codex_error_message(stdout_text)
     log_event(
@@ -1054,7 +1144,7 @@ def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
             "sandbox_name": sandbox_name,
             "runtime_id": "docker-sandbox",
             "agent": agent_key,
-            "command": "sbx create --clone codex && sbx exec codex exec --sandbox read-only --json",
+            "command": f"sbx create --clone --name {sandbox_name} {run_cmd} && sbx exec {sandbox_name}",
         },
     }
 

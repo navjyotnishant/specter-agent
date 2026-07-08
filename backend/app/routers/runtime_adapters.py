@@ -231,7 +231,8 @@ def create_codex_run(request: CodexRunRequest, user: dict = Depends(require_admi
         if not workspace:
             raise HTTPException(status_code=404, detail="Approved workspace not found.")
 
-    agent = request.agent if request.agent in ("codex", "claude") else "codex"
+    _supported = {"codex", "claude", "cursor"}
+    agent = request.agent if request.agent in _supported else "codex"
     run_id = str(uuid4())
     payload = {
         "workspace_path": workspace["path"],
@@ -251,7 +252,8 @@ def create_codex_run(request: CodexRunRequest, user: dict = Depends(require_admi
         )
 
     result = call_host_runner("/runtimes/docker-sandbox/run", method="POST", body=payload, timeout=request.timeout_seconds + 60)
-    status = "completed" if result.get("ok") else "failed"
+    _result_status = result.get("status", "")
+    status = "completed" if result.get("ok") else (_result_status if _result_status in ("auth_required", "timeout") else "failed")
     stdout = str(result.get("stdout") or "")
     stderr = str(result.get("stderr") or "")
     summary = str(result.get("final_message") or stdout[-4000:])

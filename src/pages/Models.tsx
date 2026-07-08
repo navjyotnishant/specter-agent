@@ -37,6 +37,7 @@ const runnerSafeCommand = "python3 scripts/specter_host_runner.py";
 const SANDBOX_AGENTS: Record<string, { label: string; authCommand: string; template: string }> = {
   codex:  { label: "Codex",       authCommand: "sbx secret set -g openai --oauth", template: "docker/sandbox-templates:codex" },
   claude: { label: "Claude Code", authCommand: "sbx secret set -g anthropic",      template: "docker/sandbox-templates:claude-code" },
+  cursor: { label: "Cursor",      authCommand: "sbx run cursor",                   template: "docker/sandbox-templates:cursor-agent-docker" },
 };
 const runnerMaintenanceCommand = "SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 python3 scripts/specter_host_runner.py";
 const defaultRuntimePrompt = "Summarize this repository structure and identify the main application entry points. Do not modify files.";
@@ -282,6 +283,12 @@ export default function Models() {
   const activeRuntimeWorkspaces = runtimeWorkspaces.filter((workspace) => workspace.is_active);
   const latestRuntimeRun = runtimeRuns[0];
   const runtimeRunInProgress = Boolean(activeRunStartedAt) || createRuntimeRun.isPending;
+  const liveProgressLines = runtimeRunInProgress
+    ? recentRunnerLogs
+        .filter((l) => l.level !== "debug")
+        .slice(-20)
+        .map((l) => l.message)
+    : [];
   const approvedWorkspacePaths = new Set(activeRuntimeWorkspaces.map((workspace) => workspace.path));
   const discoveredRepositories = discoverRepositories.data?.repositories ?? [];
   const selectableDiscoveredPaths = discoveredRepositories.filter((repo) => !approvedWorkspacePaths.has(repo.path)).map((repo) => repo.path);
@@ -420,27 +427,56 @@ export default function Models() {
             )}
 
             {/* Agent selector */}
-            <div className="mt-4 flex gap-1 rounded-2xl border border-slate-100 bg-slate-50 p-1">
-              {Object.entries(SANDBOX_AGENTS).map(([key, ag]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => {
-                    setSandboxAgent(key);
-                    try { localStorage.setItem("specter_sandbox_agent", key); } catch {}
-                  }}
-                  style={{
-                    flex: 1, padding: "6px 10px", borderRadius: 12, fontSize: 12, fontWeight: 700,
-                    border: "none", cursor: "pointer", transition: "all 0.15s",
-                    background: sandboxAgent === key ? "white" : "transparent",
-                    color: sandboxAgent === key ? "#0f172a" : "#64748b",
-                    boxShadow: sandboxAgent === key ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                  }}
-                >
-                  {ag.label}
-                </button>
-              ))}
-            </div>
+            {(() => {
+              const unauthenticated: string[] = (dockerSandboxRuntime as any)?.unauthenticated_agents ?? [];
+              return (
+                <div className="mt-4 flex gap-1 rounded-2xl border border-slate-100 bg-slate-50 p-1">
+                  {Object.entries(SANDBOX_AGENTS).map(([key, ag]) => {
+                    const needsAuth = unauthenticated.includes(key);
+                    const isSelected = sandboxAgent === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => {
+                          setSandboxAgent(key);
+                          try { localStorage.setItem("specter_sandbox_agent", key); } catch {}
+                        }}
+                        style={{
+                          flex: 1, padding: "6px 10px", borderRadius: 12, fontSize: 12, fontWeight: 700,
+                          border: "none", cursor: "pointer", transition: "all 0.15s",
+                          background: isSelected ? "white" : "transparent",
+                          color: isSelected ? "#0f172a" : "#64748b",
+                          boxShadow: isSelected ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                        }}
+                      >
+                        <span className="flex items-center justify-center gap-1.5">
+                          {ag.label}
+                          {needsAuth && <span title="Credentials not configured" style={{ color: "#f59e0b", fontSize: 10 }}>⚠</span>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {(() => {
+              const agentAuth: { key: string; authenticated: boolean; auth_command: string }[] = (dockerSandboxRuntime as any)?.agent_auth ?? [];
+              const current = agentAuth.find(a => a.key === sandboxAgent);
+              // claude can authenticate via /login inside the sandbox — don't warn
+              if (!current || current.authenticated || sandboxAgent === "claude") return null;
+              return (
+                <div className="mt-2 flex items-start gap-2 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5">
+                  <span className="mt-0.5 text-amber-500">⚠</span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-amber-800">
+                      {SANDBOX_AGENTS[sandboxAgent]?.label} credentials not configured. See Setup to authenticate.
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Badge className="rounded-full bg-emerald-50 text-emerald-800 hover:bg-emerald-50">microVM isolation</Badge>
@@ -727,7 +763,10 @@ export default function Models() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-xl font-black text-slate-950">Sandbox test</h3>
-                <p className="text-sm font-semibold text-slate-500">{runtimeRunInProgress ? "Running" : latestRuntimeRun?.status ?? "Idle"}</p>
+                <p className="text-sm font-semibold text-slate-500">
+                  {runtimeRunInProgress ? "Running" : latestRuntimeRun?.status ?? "Idle"}
+                  {" · "}{SANDBOX_AGENTS[sandboxAgent]?.label ?? sandboxAgent}
+                </p>
               </div>
               <Button type="button" variant="outline" className="w-fit rounded-2xl bg-white" onClick={() => setTestOpen((open) => !open)}>
                 {testOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
@@ -763,7 +802,7 @@ export default function Models() {
                     className="rounded-2xl bg-emerald-700 hover:bg-emerald-800"
                   >
                     {createRuntimeRun.isPending && <Loader2 className="mr-2 h-4 w-4" />}
-                    {createRuntimeRun.isPending ? "Running" : "Run sandbox test"}
+                    {createRuntimeRun.isPending ? "Running" : `Run with ${SANDBOX_AGENTS[sandboxAgent]?.label ?? sandboxAgent}`}
                   </Button>
                 </div>
                 <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-950 p-4 text-white">
@@ -776,9 +815,16 @@ export default function Models() {
                     ) : null}
                   </div>
                   {runtimeRunInProgress ? (
-                    <div className="flex items-center gap-3 rounded-2xl bg-emerald-500/10 p-3">
-                      <Loader2 className="h-4 w-4 text-emerald-200" />
-                      <p className="text-sm font-black text-emerald-100">Running since {activeRunStartedAt ?? "now"}</p>
+                    <div className="rounded-2xl bg-emerald-500/10 p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-3.5 w-3.5 text-emerald-300 animate-spin" />
+                        <p className="text-xs font-black text-emerald-200">Running since {activeRunStartedAt ?? "now"}</p>
+                      </div>
+                      {liveProgressLines.length > 0 && (
+                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-5 text-emerald-100/80 font-mono">
+                          {liveProgressLines.join("\n")}
+                        </pre>
+                      )}
                     </div>
                   ) : latestRuntimeRun ? (
                     <div className="space-y-3">

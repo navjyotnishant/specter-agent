@@ -19,6 +19,7 @@ import type {
   RunMessage,
   RunStep,
   Skill,
+  SystemHealth,
   Workflow,
   WorkflowGraph,
   WorkflowRun,
@@ -69,6 +70,7 @@ function formatErrorMessage(message: string): string {
 
 export const api = {
   health: () => request<RuntimeHealth>("/health"),
+  systemHealth: () => request<SystemHealth>("/health/system"),
   authStatus: () => request<{ needs_setup: boolean }>("/auth/status"),
   bootstrap: (email: string, password: string) =>
     request<{ user: AuthUser }>("/auth/bootstrap", {

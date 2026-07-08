@@ -7,6 +7,38 @@ export type RuntimeHealth = {
   runtime: string;
 };
 
+export type SystemMetricStatus = "healthy" | "warning" | "critical" | "unavailable" | string;
+
+export type SystemHealth = {
+  sampled_at: string;
+  load: {
+    status: SystemMetricStatus;
+    load_1: number | null;
+    load_5: number | null;
+    load_15: number | null;
+    cpu_count: number | null;
+    pressure_percent: number | null;
+    message: string;
+  };
+  memory: {
+    status: SystemMetricStatus;
+    total_bytes: number | null;
+    used_bytes: number | null;
+    available_bytes: number | null;
+    used_percent: number | null;
+    message: string;
+  };
+  disk: {
+    status: SystemMetricStatus;
+    path: string;
+    total_bytes: number | null;
+    used_bytes: number | null;
+    free_bytes: number | null;
+    used_percent: number | null;
+    message: string;
+  };
+};
+
 export type AuthUser = {
   id: string;
   email: string;
@@ -289,6 +321,7 @@ export type ApprovalRequest = {
   context_summary: string;
   requested_by_agent?: string;
   created_at: string;
+  expires_at?: string | null;
 };
 
 export type MemoryEntry = {

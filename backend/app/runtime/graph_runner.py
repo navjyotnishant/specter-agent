@@ -329,9 +329,10 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
     if node_type == "humanApproval":
         return "waiting_approval", "", str(data.get("reason") or "Awaiting human approval.")
 
-    # agent nodes → codex exec with live progress polling
+    # agent nodes → dispatch to host runner (codex, claude, or cursor)
     job_token = str(uuid4())
     prompt = _build_prompt(node, context)
+    agent = str(data.get("agent") or "codex").strip().lower()
 
     stop_event = threading.Event()
     poll_thread = threading.Thread(
@@ -341,18 +342,45 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
     )
     poll_thread.start()
 
-    result = _call_host_runner("/runtimes/codex/run", {
-        "workspace_path": workspace_path,
-        "prompt": prompt,
-        "mode": "read-only",
-        "timeout_seconds": 480,
-        "job_token": job_token,
-    })
+    if agent == "claude":
+        host_path = "/runtimes/docker-sandbox/run"
+        host_payload = {
+            "agent": "claude",
+            "workspace_path": workspace_path,
+            "prompt": prompt,
+            "mode": "read-only",
+            "timeout_seconds": 480,
+            "job_token": job_token,
+        }
+        agent_label = "Claude Code"
+    elif agent == "cursor":
+        host_path = "/runtimes/docker-sandbox/run"
+        host_payload = {
+            "agent": "cursor",
+            "workspace_path": workspace_path,
+            "prompt": prompt,
+            "mode": "read-only",
+            "timeout_seconds": 480,
+            "job_token": job_token,
+        }
+        agent_label = "Cursor"
+    else:
+        host_path = "/runtimes/codex/run"
+        host_payload = {
+            "workspace_path": workspace_path,
+            "prompt": prompt,
+            "mode": "read-only",
+            "timeout_seconds": 480,
+            "job_token": job_token,
+        }
+        agent_label = "Codex"
+
+    result = _call_host_runner(host_path, host_payload)
 
     stop_event.set()
     poll_thread.join(timeout=5)
 
-    # if cancelled while Codex was running, return cancelled status
+    # if cancelled while agent was running, return cancelled status
     if _is_cancelled(run_id):
         return "cancelled", "", "Run cancelled."
 
@@ -365,12 +393,12 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
         final_message = "\n".join(clean_lines[-60:]).strip() or stdout[-2000:]
 
     if result.get("status") == "timeout":
-        _write_log(run_id, "warn", f"[{label}] Codex timed out after 480s", {"node_id": node["id"]})
+        _write_log(run_id, "warn", f"[{label}] {agent_label} timed out after 480s", {"node_id": node["id"]})
 
     if ok:
         return "completed", final_message, final_message
     else:
-        err = str(result.get("message") or result.get("stderr") or "Codex run failed.")
+        err = str(result.get("message") or result.get("stderr") or f"{agent_label} run failed.")
         return "failed", final_message or err, err
 
 

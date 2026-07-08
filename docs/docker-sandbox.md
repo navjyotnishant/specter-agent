@@ -4,17 +4,23 @@ Specter Agent supports Docker Sandboxes as a preferred execution runtime over
 raw Codex CLI. When `sbx` is installed and healthy, Specter routes agent tasks
 through isolated microVM sandboxes instead of running Codex directly on the host.
 
+> **Privacy guarantee**: your source code and data never leave your machine.
+> All sandboxes run locally in a microVM on your host. No code is uploaded to
+> Docker, Anthropic, OpenAI, or any Specter server as part of execution.
+
 Official references:
 - Product: https://www.docker.com/products/docker-sandboxes/
 - Codex agent docs: https://docs.docker.com/ai/sandboxes/agents/codex/
 - Claude Code agent docs: https://docs.docker.com/ai/sandboxes/agents/claude-code/
+- Cursor agent docs: https://docs.docker.com/ai/sandboxes/agents/cursor/
 
 ---
 
 ## What Docker Sandboxes Is
 
-Docker Sandboxes runs coding agents (Codex, Claude Code, Gemini CLI, Copilot CLI,
-Kiro, and others) inside **disposable microVM environments**. Each sandbox:
+Docker Sandboxes runs coding agents (Codex, Claude Code, Cursor, Gemini CLI,
+Copilot CLI, Kiro, and others) inside **disposable microVM environments**. Each
+sandbox:
 
 - Has a hard hypervisor-level boundary from the host
 - Mounts only the project workspace — nothing else from the host filesystem
@@ -27,7 +33,7 @@ mode without risk to the host machine.
 
 **Docker Desktop is not required.** The `sbx` CLI is a standalone install.
 
-**Linux is not yet supported** (macOS and Windows only as of mid-2025).
+**Linux is not yet supported** (macOS and Windows only as of mid-2026).
 
 ---
 
@@ -41,31 +47,65 @@ brew install docker/tap/sbx
 winget install Docker.sbx
 ```
 
-Authenticate Codex credentials inside sandboxes:
+### Authentication
+
+`sbx` requires a Docker account (free tier works). You must sign in once — the
+session persists until it expires, after which you re-run `sbx login`.
 
 ```bash
-sbx secret set -g openai --oauth
+# Sign in to Docker (opens browser)
+sbx login
 ```
+
+Then authenticate each agent's credentials inside sandboxes:
+
+```bash
+# Codex (OpenAI)
+sbx secret set -g openai --oauth
+
+# Claude Code (Anthropic)
+sbx secret set -g anthropic
+
+# Cursor
+sbx secret set -g cursor
+```
+
+You only need to authenticate the agents you intend to use.
+
+> **Session expiry**: if the Specter Models page shows `daemon_unavailable` or
+> the sandbox status turns red unexpectedly, run `sbx diagnose` in your terminal.
+> If it reports "not signed in", run `sbx login` — the daemon is still running,
+> only your Docker auth token has expired.
 
 ---
 
 ## Sandbox Lifecycle in Specter Agent
 
-Specter's host runner manages the full lifecycle via `run_sandbox_codex_task()`:
+Specter's host runner manages the full lifecycle via `run_sandbox_agent_task()`:
 
 ```
-sbx create --clone --name <sandbox-name> codex <workspace-path>
+sbx run --clone --name <sandbox-name> <agent> <workspace-path> -- <prompt>
   ↓
-sbx exec <sandbox-name> codex exec --sandbox read-only --json <prompt>
+(agent runs inside microVM, stdout streamed back)
   ↓
 sbx rm --force <sandbox-name>   ← always runs, even on error/timeout
 ```
 
 - Sandbox name is derived from the job token or `<workspace>-<timestamp>`,
   sanitized to alphanumeric + hyphens by `safe_sandbox_name()`.
-- Base image: `docker/sandbox-templates:codex`
-- Only `read-only` sandbox mode is currently supported. Write-capable tasks
-  require explicit approval gates and are intentionally out of scope.
+- The agent key (`codex`, `claude`, `cursor`) selects the base image and run command
+  from `_SANDBOX_AGENTS` in the host runner.
+- Only `read-only` sandbox mode is currently supported.
+
+---
+
+## Shared Daemon
+
+`sbx` runs a **single shared daemon** regardless of how many agents are configured.
+There is no per-agent daemon — Codex, Claude Code, and Cursor all run through the
+same daemon, each in their own isolated microVM using different base images. The
+daemon status card on the Models page reflects the shared daemon health; the agent
+selector (Codex / Claude Code / Cursor) only affects which template is used.
 
 ---
 
@@ -94,9 +134,8 @@ The Models page computes `preferredRuntime`:
 2. Else if Codex CLI status is `ready` → **Codex**
 3. Else → host runner offline / neither available
 
-When Docker Sandbox is preferred, `POST /api/workflow-runs` routes execution
-through `call_host_runner("/runtimes/docker-sandbox/codex/run")` instead of
-the raw Codex CLI path.
+When Docker Sandbox is preferred, workflow execution routes through
+`/runtimes/docker-sandbox/run` on the host runner.
 
 ---
 
@@ -109,7 +148,34 @@ The host runner's `docker_sandbox_status()` probes `sbx` and returns:
 | `missing` | `sbx` not found on PATH | "Install Docker Sandboxes CLI." |
 | `daemon_unavailable` | `sbx` installed but daemon not running | "Start Docker Sandboxes daemon." |
 | `cli_available` | Installed and daemon healthy | `sbx <version>` |
-| `ready` | Full status, Codex sandbox runnable | Ready for agent tasks |
+| `ready` | Full status, sandbox runnable | Ready for agent tasks |
+
+Common causes of `daemon_unavailable`:
+- `sbx` session expired → run `sbx login`
+- Daemon stopped → run `sbx daemon start`
+- Run `sbx diagnose` for a full breakdown
+
+---
+
+## Data Privacy — Your Code Never Leaves Your Machine
+
+**All execution is local.** Your source code, files, and workspace data are
+processed entirely on your own machine inside a microVM. Nothing is uploaded to
+Docker, Anthropic, OpenAI, or any third-party service as part of running a task.
+
+Specifically:
+- The sandbox mounts your local workspace directory directly — no copy is made to
+  any remote server
+- Agent output (stdout, logs, results) is written to local SQLite only
+- The Specter backend runs in Docker on your machine; there is no cloud backend
+- The host runner (`specter_host_runner.py`) is a local HTTP server on
+  `localhost:8765` — it is not exposed to the network
+
+The only external network calls made during a run are by the agent itself (e.g.
+to call an LLM API with your prompt). Those calls go from inside the sandbox
+directly to the API provider — your code is not included unless your prompt
+explicitly references it. With `deny-all` network policy, even those calls are
+blocked.
 
 ---
 
@@ -118,15 +184,16 @@ The host runner's `docker_sandbox_status()` probes `sbx` and returns:
 | Property | Detail |
 |---|---|
 | Isolation | MicroVM hypervisor boundary (not OS-level containers) |
-| Filesystem | Only project workspace mounted — no host home dir or secrets |
-| Docker | Isolated Docker daemon inside sandbox; no host daemon access |
-| Credentials | `sbx secret` stores credentials outside the sandbox via proxy |
-| Network | Configurable via `sbx policy`; deny-all blocks all outbound |
-| Recovery | Delete and recreate in seconds; no host cleanup required |
+| Filesystem | Only the approved project workspace is mounted — no host home dir, secrets, or other files |
+| Docker | Isolated Docker daemon inside sandbox; no access to the host Docker daemon |
+| Credentials | `sbx secret` stores API keys outside the sandbox via a local proxy — never sent to Specter |
+| Network | Configurable via `sbx policy`; `deny-all` blocks all outbound traffic from the sandbox |
+| Recovery | Sandbox deleted after every run; no persistent state left on the host |
+| Code & data | Never transmitted to any Specter or Docker server — stays on your machine |
 
 Specter Agent adds its own layer on top:
-- Workspace must be in the approved workspaces list before any sandbox run
-- All runs are recorded in SQLite with status, output, and workspace path
+- Workspace must be explicitly approved before any sandbox run
+- All runs are recorded in local SQLite with status, output, and workspace path
 - Approval gates in the workflow graph are enforced before task dispatch
 
 ---
@@ -135,23 +202,27 @@ Specter Agent adds its own layer on top:
 
 | File | Role |
 |---|---|
-| `scripts/specter_host_runner.py` | `docker_sandbox_status()`, `run_sandbox_codex_task()`, `set_docker_sandbox_policy()`, `safe_sandbox_name()` |
+| `scripts/specter_host_runner.py` | `_SANDBOX_AGENTS`, `docker_sandbox_status()`, `run_sandbox_agent_task()`, `set_docker_sandbox_policy()`, `safe_sandbox_name()` |
 | `backend/app/routers/runtime_adapters.py` | `/docker-sandbox/status` and `/docker-sandbox/policy` routes |
-| `src/pages/Models.tsx` | Status card, install dialog (`dockerSandboxMacInstallCommand`), policy selector |
+| `src/pages/Models.tsx` | Status card, agent selector, install dialog, policy selector |
 | `src/lib/api.ts` | `dockerSandboxRuntimeStatus()`, `dockerSandboxPolicy()`, `setDockerSandboxPolicy()` |
 
 ---
 
 ## Supported Agents
 
-Specter Agent supports two sandbox agents, selectable per run:
+Specter Agent supports three sandbox agents, selectable per workflow node or test run:
 
-| Agent | Template | Exec command | Auth |
-|---|---|---|---|
-| `codex` | `docker/sandbox-templates:codex` | `codex exec --sandbox read-only --json` | `sbx secret set -g openai --oauth` |
-| `claude` | `docker/sandbox-templates:claude-code` | `sbx run claude --dangerously-skip-permissions` | `sbx secret set -g anthropic` |
+| Agent key | Template | Auth command |
+|---|---|---|
+| `codex` | `docker/sandbox-templates:codex` | `sbx secret set -g openai --oauth` |
+| `claude` | `docker/sandbox-templates:claude-code` | `sbx secret set -g anthropic` |
+| `cursor` | `docker/sandbox-templates:cursor` | `sbx secret set -g cursor` |
 
-The agent is passed as `"agent": "codex" | "claude"` in the run payload. The
-host runner selects the correct template and exec command. The Models page
-exposes an agent selector ("Codex" / "Claude Code") that is persisted to
-`localStorage` and sent with each run request.
+The agent is set via `"agent": "codex" | "claude" | "cursor"` on each workflow
+node (`data.agent` field in the graph JSON). The host runner selects the correct
+template and run command from `_SANDBOX_AGENTS`. The Models page exposes an agent
+selector that persists to `localStorage` and is sent with each test run.
+
+To use a specific agent in a workflow, set the `agent` field on any
+`specialistAgent` node in the workflow builder.
