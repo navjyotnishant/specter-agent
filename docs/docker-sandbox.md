@@ -63,12 +63,32 @@ Then authenticate each agent's credentials inside sandboxes:
 # Codex (OpenAI)
 sbx secret set -g openai --oauth
 
-# Claude Code (Anthropic)
-sbx secret set -g anthropic
-
 # Cursor
 sbx secret set -g cursor
 ```
+
+### Claude Code — one-time interactive login
+
+Claude Code uses a subscription OAuth token that cannot be extracted as a static API key.
+Instead, you need to log in once interactively inside an sbx sandbox:
+
+```bash
+# Open an interactive Claude Code sandbox
+sbx run --name claude-login claude /path/to/any-project
+
+# Inside the sandbox, run:
+/login
+```
+
+Follow the browser OAuth flow. Once complete, exit the sandbox — credentials are stored
+in the sbx secret store and persist across all future Specter runs. You will not need to
+repeat this unless you reset your sbx secrets.
+
+If a Specter sandbox test returns **"Claude Code sandbox requires a one-time login"**, this
+is the step you need to complete.
+
+> **Alternative**: if you have an Anthropic API key (not subscription), you can use:
+> `sbx secret set -g anthropic` and enter the key — no interactive login needed.
 
 You only need to authenticate the agents you intend to use.
 
