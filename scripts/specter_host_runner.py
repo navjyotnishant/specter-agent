@@ -68,7 +68,7 @@ _SANDBOX_AGENTS: dict[str, dict[str, Any]] = {
         "display_name": "Cursor",
         "template": "docker/sandbox-templates:cursor",
         "run_cmd": "cursor",
-        "auth_provider": "cursor",
+        "auth_provider": None,  # OAuth proxy-managed; first run prompts browser login via sbx run cursor
         "auth_flag": None,
         "exec_args": lambda p: ["cursor-agent", "--print", p],
         "docs_url": "https://docs.docker.com/ai/sandboxes/agents/cursor/",
@@ -1099,16 +1099,36 @@ def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
 
     ok = exec_exit == 0
 
-    # Detect Claude Code "not logged in" error before generic failure handling
-    not_logged_in = not ok and "Not logged in" in (stdout_text + stderr_text)
-    if not_logged_in:
+    # Detect auth errors before generic failure handling and surface actionable messages
+    combined_output = stdout_text + stderr_text
+    if not ok and "Not logged in" in combined_output:
         login_message = (
-            "Claude Code sandbox requires a one-time login. "
-            "Open a terminal and run:  sbx run --name <any-name> claude  "
-            "then type /login inside the sandbox. "
-            "After logging in once, credentials persist across all future runs."
+            f"Claude Code sandbox requires a one-time login. "
+            f"Open a terminal and run:\n\n"
+            f"  sbx run --name claude-login claude {workspace}\n\n"
+            f"Then type /login inside the sandbox. "
+            f"After logging in once, credentials persist across all future runs."
         )
-        log_event("error", f"Docker Sandbox {display_name} task failed — not logged in", workspace=str(workspace), sandbox=sandbox_name)
+        log_event("error", f"Docker Sandbox {display_name} — not logged in", workspace=str(workspace), sandbox=sandbox_name)
+        return {
+            "ok": False,
+            "status": "auth_required",
+            "message": login_message,
+            "exit_code": exec_exit,
+            "stdout": stdout_text[-20000:],
+            "stderr": stderr_text[-12000:],
+            "final_message": login_message,
+            "metadata": {"workspace_path": str(workspace), "mode": mode, "timeout_seconds": timeout_seconds, "sandbox_name": sandbox_name, "runtime_id": "docker-sandbox", "agent": agent_key},
+        }
+    if not ok and "Authentication required" in combined_output:
+        login_message = (
+            f"Cursor sandbox requires a one-time login. "
+            f"Open a terminal and run:\n\n"
+            f"  sbx run --name cursor-login cursor {workspace}\n\n"
+            f"Sign in via the browser when prompted. "
+            f"After logging in once, credentials persist across all future runs."
+        )
+        log_event("error", f"Docker Sandbox {display_name} — not logged in", workspace=str(workspace), sandbox=sandbox_name)
         return {
             "ok": False,
             "status": "auth_required",

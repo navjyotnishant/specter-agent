@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import MarkdownIt from "markdown-it";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -9,6 +10,8 @@ import {
   FolderSearch,
   KeyRound,
   Loader2,
+  Maximize2,
+  Minimize2,
   RefreshCw,
   ShieldCheck,
   TerminalSquare,
@@ -97,6 +100,10 @@ export default function Models() {
   const [directoryScanOpen, setDirectoryScanOpen] = useState(false);
   const [approvedOpen, setApprovedOpen] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
+  const [outputExpanded, setOutputExpanded] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
+  const liveOutputRef = useRef<HTMLPreElement>(null);
+  const md = useMemo(() => new MarkdownIt({ linkify: true, breaks: true }), []);
 
   const canUseBackend = Boolean(token && token !== "preview-mode");
   const { data: codexRuntime, isLoading: runtimeLoading } = useQuery({
@@ -252,15 +259,19 @@ export default function Models() {
       }),
     onMutate: () => {
       setActiveRunStartedAt(new Date().toLocaleTimeString());
+      setTestOpen(true);
+      setOutputExpanded(true);
       queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
     },
     onSuccess: () => {
       setActiveRunStartedAt(null);
+      setOutputExpanded(false);
       queryClient.invalidateQueries({ queryKey: ["runtime-runs", "codex-cli"] });
       queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
     },
     onError: (err) => {
       setActiveRunStartedAt(null);
+      setOutputExpanded(false);
       queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
       setError(err instanceof Error ? err.message : "Unable to run Codex runtime test");
     },
@@ -321,6 +332,13 @@ export default function Models() {
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [recentRunnerLogs.length]);
+
+  // Auto-scroll live output to bottom as new lines arrive
+  useEffect(() => {
+    if (liveOutputRef.current) {
+      liveOutputRef.current.scrollTop = liveOutputRef.current.scrollHeight;
+    }
+  }, [liveProgressLines.length]);
 
   return (
     <div className="space-y-5">
@@ -805,37 +823,93 @@ export default function Models() {
                     {createRuntimeRun.isPending ? "Running" : `Run with ${SANDBOX_AGENTS[sandboxAgent]?.label ?? sandboxAgent}`}
                   </Button>
                 </div>
-                <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-950 p-4 text-white">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-black uppercase text-slate-300">Latest run</p>
-                    {runtimeRunInProgress ? (
-                      <Badge className="rounded-full bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/20">Running</Badge>
-                    ) : latestRuntimeRun ? (
-                      <Badge className="rounded-full bg-white/10 text-white hover:bg-white/10">{latestRuntimeRun.status}</Badge>
-                    ) : null}
+                {/* Output panel — fullscreen overlay when expanded, inline otherwise */}
+                <div
+                  className={
+                    outputExpanded
+                      ? "fixed inset-0 z-50 flex flex-col bg-slate-950 text-white transition-all duration-500 ease-out"
+                      : "mt-4 rounded-2xl border border-slate-100 bg-slate-950 p-4 text-white transition-all duration-500 ease-out"
+                  }
+                >
+                  <div className={`flex flex-wrap items-center justify-between gap-2 ${outputExpanded ? "px-5 pt-5 pb-3 border-b border-white/10" : "mb-2"}`}>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-black uppercase text-slate-300">
+                        {runtimeRunInProgress ? SANDBOX_AGENTS[sandboxAgent]?.label ?? sandboxAgent : "Latest run"}
+                      </p>
+                      {runtimeRunInProgress ? (
+                        <Badge className="rounded-full bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/20">
+                          <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />Running
+                        </Badge>
+                      ) : latestRuntimeRun ? (
+                        <Badge className="rounded-full bg-white/10 text-white hover:bg-white/10">{latestRuntimeRun.status}</Badge>
+                      ) : null}
+                    </div>
+                    <button
+                      onClick={() => setOutputExpanded((e) => !e)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                      title={outputExpanded ? "Minimize" : "Expand"}
+                    >
+                      {outputExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                    </button>
                   </div>
-                  {runtimeRunInProgress ? (
-                    <div className="rounded-2xl bg-emerald-500/10 p-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="h-3.5 w-3.5 text-emerald-300 animate-spin" />
-                        <p className="text-xs font-black text-emerald-200">Running since {activeRunStartedAt ?? "now"}</p>
-                      </div>
-                      {liveProgressLines.length > 0 && (
-                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-5 text-emerald-100/80 font-mono">
-                          {liveProgressLines.join("\n")}
+                  <div className={outputExpanded ? "flex-1 overflow-auto px-5 py-4" : ""}>
+                    {runtimeRunInProgress ? (
+                      <div className={outputExpanded ? "h-full" : "rounded-2xl bg-emerald-500/10 p-3 space-y-2"}>
+                        {!outputExpanded && (
+                          <div className="flex items-center gap-2 mb-2">
+                            <p className="text-xs font-black text-emerald-200">Running since {activeRunStartedAt ?? "now"}</p>
+                          </div>
+                        )}
+                        {outputExpanded && (
+                          <p className="text-xs font-semibold text-emerald-400 mb-3">Started {activeRunStartedAt ?? "now"}</p>
+                        )}
+                        <pre
+                          ref={liveOutputRef}
+                          className={
+                            outputExpanded
+                              ? "h-full overflow-auto whitespace-pre-wrap text-sm leading-6 text-emerald-100/90 font-mono"
+                              : "max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-5 text-emerald-100/80 font-mono"
+                          }
+                        >
+                          {liveProgressLines.join("\n") || "Starting…"}
                         </pre>
-                      )}
-                    </div>
-                  ) : latestRuntimeRun ? (
-                    <div className="space-y-3">
-                      <p className="text-xs font-semibold leading-5 text-slate-300">{latestRuntimeRun.workspace_path}</p>
-                      <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-2xl bg-white/5 p-3 text-xs leading-5 text-slate-100">
-                        {latestRuntimeRun.summary || latestRuntimeRun.stderr || latestRuntimeRun.error || "No output captured."}
-                      </pre>
-                    </div>
-                  ) : (
-                    <p className="text-sm font-semibold text-slate-400">No runs yet.</p>
-                  )}
+                      </div>
+                    ) : latestRuntimeRun ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-slate-400">{latestRuntimeRun.workspace_path}</p>
+                          {latestRuntimeRun.summary && (
+                            <button
+                              onClick={() => setShowRaw((r) => !r)}
+                              className="shrink-0 text-[10px] font-semibold text-slate-500 hover:text-slate-300 transition-colors"
+                            >
+                              {showRaw ? "Rendered" : "Raw"}
+                            </button>
+                          )}
+                        </div>
+                        {showRaw || !latestRuntimeRun.summary ? (
+                          <pre className={`overflow-auto whitespace-pre-wrap rounded-2xl bg-white/5 p-3 text-xs leading-5 text-slate-300 font-mono ${outputExpanded ? "h-full" : "max-h-60"}`}>
+                            {latestRuntimeRun.summary || latestRuntimeRun.stderr || latestRuntimeRun.error || "No output captured."}
+                          </pre>
+                        ) : (
+                          <div
+                            className={`overflow-auto rounded-2xl bg-white/5 p-4 prose prose-invert prose-sm max-w-none
+                              prose-headings:text-slate-100 prose-headings:font-black
+                              prose-p:text-slate-300 prose-p:leading-6
+                              prose-code:text-emerald-300 prose-code:bg-white/10 prose-code:rounded prose-code:px-1 prose-code:text-xs
+                              prose-pre:bg-white/10 prose-pre:text-slate-200 prose-pre:text-xs
+                              prose-strong:text-slate-100
+                              prose-li:text-slate-300
+                              prose-a:text-sky-400 hover:prose-a:text-sky-300
+                              ${outputExpanded ? "h-full" : "max-h-96"}`}
+                            dangerouslySetInnerHTML={{ __html: md.render(latestRuntimeRun.summary) }}
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm font-semibold text-slate-400">No runs yet.</p>
+                    )}
+                  </div>
                 </div>
               </>
             )}
