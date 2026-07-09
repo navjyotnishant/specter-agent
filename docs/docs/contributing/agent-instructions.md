@@ -1,3 +1,9 @@
+---
+id: agent-instructions
+title: Agent Instructions
+sidebar_position: 1
+---
+
 # Specter Agent — Agent Instructions
 
 This file governs all AI agents working in this repository (Codex, Gemini, GPT-4, etc.).

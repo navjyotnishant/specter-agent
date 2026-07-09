@@ -1,3 +1,9 @@
+---
+id: workflow-execution
+title: Workflow Execution
+sidebar_position: 1
+---
+
 # Workflow Execution — Architecture and UI Reference
 
 This document covers the workflow execution model, the run execution view, the
@@ -361,8 +367,44 @@ scripts/specter-agent security-review-team --workspace . --json
 Proceed only if the command exits 0.
 ```
 
+**Caveat for coding-assistant-driven gates**: `scripts/specter-agent` is a
+single long-blocking process (the workflow run itself can take minutes). A
+human running it from a terminal, or a CI job step, blocks on it naturally and
+that's fine. But when a coding assistant's own tool-use loop invokes it as a
+shell command, some harnesses schedule long-running commands in the
+background instead of blocking — so the assistant may not reliably wait for
+the result before proceeding (e.g. committing). For an **assistant-facing**
+gate (as opposed to a plain git hook or CI step), use the
+[pre-commit gate skill](#pre-commit-gate-for-coding-assistants) below instead
+(same page — Docusaurus generates this heading anchor automatically), which
+polls over short HTTP calls rather than one long CLI call.
+
 The backend start-run API also checks that the requested workspace path is
 inside an active approved workspace before launching execution.
+
+---
+
+## Pre-commit Gate for Coding Assistants
+
+`scripts/precommit-gate/` is a distributable scaffold for gating commits on a
+Specter workflow — in **other** repositories, driven either by a real git hook
+or by a coding assistant.
+
+| File | Purpose |
+|---|---|
+| `scripts/precommit-gate/SKILL.md` | Copy into a target repo's `.claude/skills/` (or the user's global `~/.claude/skills/`) so a coding assistant runs the gate via short, synchronous HTTP calls instead of one long CLI call. |
+| `scripts/precommit-gate/pre-commit` | Copy into a target repo's `.git/hooks/pre-commit` (`chmod +x`) as the real enforcement layer — calls `scripts/specter-agent` directly, since a git hook is run by git itself and blocks natively regardless of the CLI call's length. |
+
+Both paths call the same backend (`POST /workflow-runs`, `GET
+/workflow-runs/{run_id}`) and require the same setup: the target repo's path
+registered as an approved Specter workspace, plus `SPECTER_TOKEN` /
+`SPECTER_API_BASE_URL` / `SPECTER_WORKFLOW_ID` set in the environment. See
+`scripts/precommit-gate/SKILL.md` for the full setup and step-by-step protocol
+the assistant follows (start run → poll status → report pass/fail).
+
+The `pre-commit` hook script skips (exit 0) with a warning if
+`SPECTER_WORKFLOW_ID` is unset, so copying the file speculatively doesn't
+break commits before setup is finished.
 
 ---
 

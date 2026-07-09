@@ -1,3 +1,9 @@
+---
+id: codex-cli-host-runner
+title: Codex CLI Host Runner
+sidebar_position: 3
+---
+
 # Local Agent Runtime Architecture
 
 Specter Agent uses local execution runtimes for software delivery agents.

@@ -38,9 +38,10 @@ Read `AGENTS.md` before making any non-trivial change. It covers:
 | Node config inspector | `src/components/agents/AgentInspector.tsx` |
 | Built-in templates | `backend/app/templates/` |
 | Codex host runner | `scripts/specter_host_runner.py` |
-| Host runner docs | `docs/codex-cli-host-runner.md` |
-| Docker Sandbox docs | `docs/docker-sandbox.md` |
-| Workflow execution docs | `docs/workflow-execution.md` |
+| Host runner docs | `docs/docs/guides/codex-cli-host-runner.md` |
+| Docker Sandbox docs | `docs/docs/guides/docker-sandbox.md` |
+| Workflow execution docs | `docs/docs/guides/workflow-execution.md` |
+| Docs site (Docusaurus project) | `docs/` (built via `cd docs && npm run build`, deployed to GitHub Pages) |
 
 ## Development
 

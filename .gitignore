@@ -13,6 +13,11 @@ dist
 dist-ssr
 *.local
 
+# Docusaurus (docs/)
+docs/build
+docs/.docusaurus
+docs/.cache-loader
+
 # Local runtime state
 data/*
 artifacts/*

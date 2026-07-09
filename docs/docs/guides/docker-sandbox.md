@@ -1,3 +1,9 @@
+---
+id: docker-sandbox
+title: Docker Sandboxes
+sidebar_position: 2
+---
+
 # Docker Sandboxes — Integration Reference
 
 Specter Agent supports Docker Sandboxes as a preferred execution runtime over
