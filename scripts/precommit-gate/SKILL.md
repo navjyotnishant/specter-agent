@@ -49,15 +49,69 @@ synchronous, which only works if each HTTP call is issued and awaited individual
      failure for the user, along with the run URL if `SPECTER_WEB_BASE_URL` is
      known (`{SPECTER_WEB_BASE_URL}/workflows/{workflow_id}/run/{run_id}`).
 
-## Example (illustrative — issue these as separate calls, not one script)
+## Worked example (real captured output)
+
+Issue each of these as its own tool call, not one script.
+
+**1. Start the run** — `POST {SPECTER_API_BASE_URL}/workflow-runs`
+
+```json
+// request body
+{"workflow_id": "security-review-team", "workspace_path": "/path/to/repo"}
+```
+```json
+// response
+{
+  "run_id": "42284fac-76a1-447c-8256-d505caf47fa2",
+  "status": "queued",
+  "workflow_id": "security-review-team",
+  "workspace_path": "/path/to/repo"
+}
+```
+
+**2. Poll** — `GET {SPECTER_API_BASE_URL}/workflow-runs/42284fac-76a1-447c-8256-d505caf47fa2`
+
+A few seconds later, while the workflow's agents are executing:
+
+```json
+{
+  "id": "42284fac-76a1-447c-8256-d505caf47fa2",
+  "status": "running",
+  "workflow_id": "security-review-team",
+  ...
+}
+```
+
+**3. Terminal state** — poll again until `status` stops being `queued`/`running`/`waiting_approval`:
+
+```json
+{
+  "id": "42284fac-76a1-447c-8256-d505caf47fa2",
+  "status": "completed",
+  "completed_at": "2026-07-09T22:27:44Z",
+  ...
+}
+```
+→ gate passed, proceed with the commit.
+
+```json
+{
+  "id": "42284fac-76a1-447c-8256-d505caf47fa2",
+  "status": "failed",
+  "completed_at": "2026-07-09T22:27:44Z",
+  ...
+}
+```
+→ gate failed, do not commit. `GET .../workflow-runs/{run_id}/logs` for the real
+run above returned:
 
 ```
-POST {SPECTER_API_BASE_URL}/workflow-runs
-  Authorization: Bearer sk_live_...
-  {"workflow_id": "security-review-team", "workspace_path": "/Users/me/projects/my-app"}
-  → {"run_id": "abc123", "status": "queued", ...}
-
-GET {SPECTER_API_BASE_URL}/workflow-runs/abc123
-  → {"status": "running", ...}          (poll again in ~3s)
-  → {"status": "completed", ...}        (done — safe to commit)
+info  | Starting sequential run: 6 nodes across 4 levels.
+info  | Starting node: Security Supervisor Agent
+info  | [Security Supervisor Agent] [sandbox] creating Codex sandbox · ...
+error | Node Security Supervisor Agent: failed
+error | Run failed at node: Security Supervisor Agent
 ```
+
+Summarize a failure like this for the user (which node failed and why) rather
+than just reporting a bare "failed" status.

@@ -406,6 +406,50 @@ The `pre-commit` hook script skips (exit 0) with a warning if
 `SPECTER_WORKFLOW_ID` is unset, so copying the file speculatively doesn't
 break commits before setup is finished.
 
+### Worked example (real captured output)
+
+Starting a run — `POST /api/workflow-runs`:
+
+```json
+// request
+{"workflow_id": "security-review-team", "workspace_path": "/path/to/repo"}
+
+// response
+{
+  "run_id": "42284fac-76a1-447c-8256-d505caf47fa2",
+  "status": "queued",
+  "workflow_id": "security-review-team",
+  "workspace_path": "/path/to/repo"
+}
+```
+
+Polling — `GET /api/workflow-runs/{run_id}` — a few seconds later, mid-run:
+
+```json
+{ "id": "42284fac-76a1-447c-8256-d505caf47fa2", "status": "running", ... }
+```
+
+Terminal states look like:
+
+```json
+{ "status": "completed", "completed_at": "2026-07-09T22:27:44Z", ... }   // gate passed
+{ "status": "failed",    "completed_at": "2026-07-09T22:27:44Z", ... }   // gate failed
+```
+
+On failure, `GET /api/workflow-runs/{run_id}/logs` gives the reason. Real
+output from the run above (a Codex sandbox agent hit its usage limit):
+
+```
+info  | Starting sequential run: 6 nodes across 4 levels.
+info  | Starting node: Security Supervisor Agent
+info  | [Security Supervisor Agent] [sandbox] creating Codex sandbox · ...
+error | Node Security Supervisor Agent: failed
+error | Run failed at node: Security Supervisor Agent
+```
+
+The assistant (or hook) should surface which node failed and why, not just
+report a bare "failed" status.
+
 ---
 
 ## Removed Pages
