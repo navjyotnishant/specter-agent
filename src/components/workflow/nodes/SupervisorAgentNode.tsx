@@ -1,10 +1,11 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Crown, GitMerge } from "lucide-react";
+import { Crown, GitMerge, Loader2 } from "lucide-react";
 import { useState, useRef } from "react";
 
 export function SupervisorAgentNode({ data, selected }: NodeProps) {
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isPlanning = Boolean(data.isPlanning);
 
   const commitLabel = () => {
     setEditing(false);
@@ -13,7 +14,7 @@ export function SupervisorAgentNode({ data, selected }: NodeProps) {
   return (
     <div
       className={`w-[220px] border bg-[#0f1117] text-white ${
-        selected ? "border-[#4f8ef7]" : "border-[#2a2d36]"
+        isPlanning ? "specter-supervisor-planning border-[#4f8ef7]" : selected ? "border-[#4f8ef7]" : "border-[#2a2d36]"
       }`}
       style={{ fontFamily: "ui-monospace, 'Cascadia Code', monospace" }}
     >
@@ -22,6 +23,12 @@ export function SupervisorAgentNode({ data, selected }: NodeProps) {
       <div className="flex items-center gap-2 border-b border-[#2a2d36] px-3 py-2">
         <Crown className="h-3.5 w-3.5 shrink-0 text-[#4f8ef7]" />
         <span className="text-[10px] font-semibold uppercase tracking-widest text-[#4f8ef7]">Supervisor</span>
+        {isPlanning && (
+          <span className="ml-auto flex items-center gap-1 text-[9px] font-semibold uppercase tracking-widest text-[#4f8ef7]">
+            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            planning
+          </span>
+        )}
       </div>
 
       <div className="px-3 py-2.5">

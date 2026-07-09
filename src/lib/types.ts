@@ -306,22 +306,18 @@ export type Workflow = {
 
 export type AgentNodeConfig = {
   id: string;
-  name: string;
+  label: string;
   role: string;
   objective: string;
   systemInstructions: string;
-  provider: string;
   model: string;
-  skills: string[];
-  tools: string[];
+  selectedSkills: string[];
+  selectedTools: string[];
   memoryScope: "workflow" | "team" | "agent_private";
   maxIterations: number;
-  requiresApproval: boolean;
-  outputSchema: string;
-  delegationStrategy?: "sequential_delegation" | "parallel_delegation_later" | "review_and_revise_later";
-  aggregationStrategy?: string;
+  delegationStrategy?: "sequential_delegation" | "parallel_delegation" | "review_and_revise_later";
   runtime?: "sandbox" | "direct";
-  agent?: string;
+  sandboxAgent?: string;
 };
 
 export type ApprovalRequest = {

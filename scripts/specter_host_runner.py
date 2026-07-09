@@ -50,7 +50,8 @@ _SANDBOX_AGENTS: dict[str, dict[str, Any]] = {
         "auth_provider": "openai",
         "auth_flag": "--oauth",
         # exec_args: command run inside sandbox via `sbx exec <name> <exec_args> -- <prompt_args>`
-        "exec_args": lambda p: ["codex", "exec", "--sandbox", "read-only", "--json", p],
+        # model: optional model name, forwarded via each CLI's own model flag (empty = CLI default)
+        "exec_args": lambda p, model="": ["codex", "exec", "--sandbox", "read-only", "--json", *(["-m", model] if model else []), p],
         "docs_url": "https://docs.docker.com/ai/sandboxes/agents/codex/",
     },
     "claude": {
@@ -60,7 +61,7 @@ _SANDBOX_AGENTS: dict[str, dict[str, Any]] = {
         "run_cmd": "claude",
         "auth_provider": "anthropic",
         "auth_flag": None,
-        "exec_args": lambda p: ["claude", "--dangerously-skip-permissions", "-p", p],
+        "exec_args": lambda p, model="": ["claude", "--dangerously-skip-permissions", *(["--model", model] if model else []), "-p", p],
         "docs_url": "https://docs.docker.com/ai/sandboxes/agents/claude-code/",
     },
     "cursor": {
@@ -70,7 +71,7 @@ _SANDBOX_AGENTS: dict[str, dict[str, Any]] = {
         "run_cmd": "cursor",
         "auth_provider": None,  # OAuth proxy-managed; first run prompts browser login via sbx run cursor
         "auth_flag": None,
-        "exec_args": lambda p: ["cursor-agent", "--print", p],
+        "exec_args": lambda p, model="": ["cursor-agent", "--print", *(["--model", model] if model else []), p],
         "docs_url": "https://docs.docker.com/ai/sandboxes/agents/cursor/",
     },
 }
@@ -985,6 +986,7 @@ def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
     mode = str(payload.get("mode") or "read-only").strip()
     timeout_seconds = int(payload.get("timeout_seconds") or 180)
     job_token = str(payload.get("job_token") or "")
+    model = str(payload.get("model") or "").strip()
 
     agent = _SANDBOX_AGENTS.get(agent_key)
     if not agent:
@@ -1016,7 +1018,7 @@ def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
     # sbx run is interactive/TTY-only and doesn't stream output when piped.
     # Use sbx create + sbx exec: create sets up the microVM, exec runs non-interactively and streams JSON.
     create_command = [SBX, "create", "--clone", "--name", sandbox_name, run_cmd, str(workspace)]
-    exec_command = [SBX, "exec", sandbox_name, *agent["exec_args"](prompt)]
+    exec_command = [SBX, "exec", sandbox_name, *agent["exec_args"](prompt, model)]
 
     all_stdout_lines: list[str] = []
     stderr_buf: list[str] = []
@@ -1262,7 +1264,7 @@ _DIRECT_CLI_AGENTS: dict[str, dict[str, Any]] = {
             Path("/opt/homebrew/bin/codex"),
             Path("/usr/local/bin/codex"),
         ] if p.exists()), Path("codex"))),
-        "cmd_fn": lambda exe, ws, p: [exe, "exec", "--cd", ws, "--sandbox", "read-only", "--json", "--color", "never", p],
+        "cmd_fn": lambda exe, ws, p, model="": [exe, "exec", "--cd", ws, "--sandbox", "read-only", "--json", "--color", "never", *(["-m", model] if model else []), p],
         "check_auth": lambda: (bool(shutil.which("codex") or any(
             Path(p).exists() for p in [str(Path.home() / ".local/bin/codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex"]
         )), "Sign in via: codex"),
@@ -1274,7 +1276,7 @@ _DIRECT_CLI_AGENTS: dict[str, dict[str, Any]] = {
         "display_name": "Claude Code",
         "binary": "claude",
         "find_exe": _claude_path,
-        "cmd_fn": lambda exe, ws, p: [exe, "--dangerously-skip-permissions", "-p", p],
+        "cmd_fn": lambda exe, ws, p, model="": [exe, "--dangerously-skip-permissions", *(["--model", model] if model else []), "-p", p],
         "check_auth": _check_claude_auth,
         "auth_note": "Run `claude /login` in your terminal to authenticate.",
         "docs_url": "https://docs.anthropic.com/claude-code",
@@ -1284,7 +1286,7 @@ _DIRECT_CLI_AGENTS: dict[str, dict[str, Any]] = {
         "display_name": "Cursor",
         "binary": "cursor-agent",
         "find_exe": _cursor_agent_path,
-        "cmd_fn": lambda exe, ws, p: [exe, "--trust", "--print", p],
+        "cmd_fn": lambda exe, ws, p, model="": [exe, "--trust", "--print", *(["--model", model] if model else []), p],
         "check_auth": _check_cursor_auth,
         "auth_note": "Open Cursor and sign in to your account.",
         "docs_url": "https://docs.cursor.com",
@@ -1361,6 +1363,7 @@ def run_direct_cli_task(payload: dict[str, Any]) -> dict[str, Any]:
     prompt = str(payload.get("prompt") or "").strip()
     timeout_seconds = int(payload.get("timeout_seconds") or 120)
     job_token = str(payload.get("job_token") or "")
+    model = str(payload.get("model") or "").strip()
 
     agent = _DIRECT_CLI_AGENTS.get(agent_key)
     if not agent:
@@ -1379,7 +1382,7 @@ def run_direct_cli_task(payload: dict[str, Any]) -> dict[str, Any]:
     if job_token:
         _job_create(job_token)
 
-    command = agent["cmd_fn"](exe, str(workspace), prompt)
+    command = agent["cmd_fn"](exe, str(workspace), prompt, model)
     display_name = agent["display_name"]
     log_event("info", f"Starting Direct CLI {display_name} task", workspace=str(workspace), timeout_seconds=timeout_seconds)
 

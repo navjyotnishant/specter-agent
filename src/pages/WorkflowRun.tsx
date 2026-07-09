@@ -39,10 +39,14 @@ import {
   ShieldCheck,
   UserCheck,
   Terminal,
+  SkipForward,
+  GitBranch,
+  Webhook as WebhookIcon,
 } from "lucide-react";
 import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { topoLayout } from "@/lib/graph-layout";
+import { MemoryPanel } from "@/components/memory/MemoryPanel";
 import type { RunStep, RunLog, RunApproval } from "@/lib/types";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -65,6 +69,7 @@ const S = {
   revision_requested:{ glow: "#f59e0b", ring: "#fcd34d", badge: "#b45309", bg: "#fffbeb", text: "#92400e", label: "Revision", border: "#fde68a" },
   waiting_approval: { glow: "#f59e0b", ring: "#fcd34d", badge: "#d97706", bg: "#fffbeb", text: "#92400e", label: "Approval", border: "#fde68a" },
   cancelled:        { glow: "#94a3b8", ring: "#e2e8f0", badge: "#6b7280", bg: "#f9fafb", text: "#6b7280", label: "Cancelled",border: "#e5e7eb" },
+  skipped:          { glow: "#a78bfa", ring: "#ddd6fe", badge: "#7c3aed", bg: "#f5f3ff", text: "#6d28d9", label: "Skipped",  border: "#ddd6fe" },
 } as const;
 type StatusKey = keyof typeof S;
 function sc(status: string) { return S[status as StatusKey] ?? S.queued; }
@@ -89,6 +94,8 @@ function nodeVisual(nodeType: string, role = "") {
   if (nodeType === "supervisorAgent") return { Icon: ShieldCheck, label: "SUPERVISOR" };
   if (nodeType === "memory")          return { Icon: Brain,       label: "MEMORY" };
   if (nodeType === "humanApproval")   return { Icon: UserCheck,   label: "APPROVAL GATE" };
+  if (nodeType === "conditional")     return { Icon: GitBranch,   label: "CONDITIONAL" };
+  if (nodeType === "webhook")         return { Icon: WebhookIcon, label: "WEBHOOK" };
   if (r.includes("code") || r.includes("review")) return { Icon: Code2,        label: "SPECIALIST" };
   if (r.includes("dep")  || r.includes("audit"))  return { Icon: PackageSearch, label: "SPECIALIST" };
   if (r.includes("secret")|| r.includes("config")) return { Icon: KeyRound,    label: "SPECIALIST" };
@@ -101,16 +108,21 @@ function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const status = String((data as Record<string,unknown>)?.edgeStatus ?? "queued");
   const color = String((data as Record<string,unknown>)?.edgeColor ?? "#cbd5e1");
-  const isActive = status === "running";
-  const isDone   = status === "completed";
-  const strokeColor = isDone ? color : isActive ? color : "#e2e8f0";
+  const isActive  = status === "running";
+  const isDone    = status === "completed";
+  const isSkipped = status === "skipped";
+  const strokeColor = isDone ? color : isActive ? color : isSkipped ? "#c4b5fd" : "#e2e8f0";
 
   return (
     <>
       <BaseEdge
         id={id}
         path={path}
-        style={{ stroke: strokeColor, strokeWidth: isDone ? 2.5 : 1.5, opacity: isDone ? 1 : isActive ? 0.9 : 0.5 }}
+        style={{
+          stroke: strokeColor, strokeWidth: isDone ? 2.5 : 1.5,
+          opacity: isDone ? 1 : isActive ? 0.9 : isSkipped ? 0.6 : 0.5,
+          strokeDasharray: isSkipped ? "4 3" : undefined,
+        }}
       />
       {isActive && (
         <EdgeLabelRenderer>
@@ -203,32 +215,34 @@ function ExecNode({ data }: { data: Record<string, unknown> }) {
   const isRun    = status === "running";
   const isDone   = status === "completed";
   const isFailed = status === "failed";
+  const isSkipped= status === "skipped";
   const nodeType = String(data.nodeType ?? "");
   const role     = String(data.role ?? "");
   const { Icon, label: typeLabel } = nodeVisual(nodeType, role);
   const accent   = String(data.laneColor ?? "#94a3b8");
-  const nodeAccent = isDone ? "#10b981" : isFailed ? "#dc2626" : isRun ? accent : "#94a3b8";
+  const nodeAccent = isDone ? "#10b981" : isFailed ? "#dc2626" : isSkipped ? "#7c3aed" : isRun ? accent : "#94a3b8";
 
   return (
     <>
       <Handle type="target" position={Position.Left}  style={{ background: nodeAccent, border: "2px solid white", width: 8, height: 8 }} />
       <div style={{
         width: 220, background: "white",
-        border: `1.5px solid ${isRun ? nodeAccent : isDone ? "#a7f3d0" : isFailed ? "#fecaca" : "#e2e8f0"}`,
+        border: `1.5px solid ${isRun ? nodeAccent : isDone ? "#a7f3d0" : isFailed ? "#fecaca" : isSkipped ? "#ddd6fe" : "#e2e8f0"}`,
         borderRadius: 10, fontFamily: "system-ui, -apple-system, sans-serif",
         boxShadow: isRun ? `0 0 0 3px ${nodeAccent}25, 0 4px 16px ${nodeAccent}20` : isDone ? `0 0 0 1px #a7f3d050` : "0 1px 3px rgba(0,0,0,0.08)",
         transition: "all 0.4s ease", overflow: "hidden", position: "relative",
       }}>
         {/* color accent bar on left edge */}
-        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: isDone ? "#10b981" : isFailed ? "#dc2626" : accent, borderRadius: "10px 0 0 10px" }} />
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: isDone ? "#10b981" : isFailed ? "#dc2626" : isSkipped ? "#7c3aed" : accent, borderRadius: "10px 0 0 10px" }} />
 
         {isRun && <div style={{ position:"absolute",top:0,left:3,right:0,height:2,background:`linear-gradient(90deg,transparent,${accent},transparent)`,animation:"scanline 1.8s linear infinite" }} />}
 
-        <div style={{ padding: "8px 12px 8px 15px", borderBottom:`1px solid ${isRun?`${nodeAccent}25`:"#f1f5f9"}`, display:"flex",alignItems:"center",gap:8, background: isRun?`${nodeAccent}08`:isDone?"#f0fdf4":isFailed?"#fef2f2":"#fafafa" }}>
+        <div style={{ padding: "8px 12px 8px 15px", borderBottom:`1px solid ${isRun?`${nodeAccent}25`:"#f1f5f9"}`, display:"flex",alignItems:"center",gap:8, background: isRun?`${nodeAccent}08`:isDone?"#f0fdf4":isFailed?"#fef2f2":isSkipped?"#f5f3ff":"#fafafa" }}>
           <div style={{ width:28,height:28,borderRadius:6,background:`${nodeAccent}15`,border:`1px solid ${nodeAccent}30`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
             {isRun ? <Loader2 style={{width:13,height:13,color:nodeAccent,animation:"spin 1s linear infinite"}} />
               : isDone ? <CheckCircle2 style={{width:13,height:13,color:nodeAccent}} />
               : isFailed ? <AlertTriangle style={{width:13,height:13,color:nodeAccent}} />
+              : isSkipped ? <SkipForward style={{width:13,height:13,color:nodeAccent}} />
               : status==="waiting_approval" ? <OctagonAlert style={{width:13,height:13,color:nodeAccent}} />
               : <Icon style={{width:13,height:13,color:nodeAccent}} />}
           </div>
@@ -447,6 +461,7 @@ function StepTimeline({ steps, allNodeIds, selectedId, onSelect, colMap }: {
                   : status==="completed" ? <CheckCircle2 style={{width:11,height:11,color:"#10b981"}} />
                   : status==="failed" ? <AlertTriangle style={{width:11,height:11,color:"#dc2626"}} />
                   : status==="waiting_approval" ? <OctagonAlert style={{width:11,height:11,color:"#d97706"}} />
+                  : status==="skipped" ? <SkipForward style={{width:11,height:11,color:"#7c3aed"}} />
                   : <span style={{width:7,height:7,borderRadius:"50%",background:"#e2e8f0",display:"block"}}/>}
               </div>
               {!isLast && <div style={{ width:2,flex:1,minHeight:14,background:status==="completed"?`linear-gradient(to bottom,${accent}80,#e2e8f0)`:"#f1f5f9",transition:"background 0.5s" }}/>}
@@ -513,7 +528,8 @@ function RunCanvas({ graphNodes, graphEdges, steps, onNodeSelect, colMap }: {
       const targetStep = stepByNodeId[e.target];
       const edgeStatus =
         sourceStep?.status==="completed"&&targetStep?.status==="running"  ? "running"  :
-        sourceStep?.status==="completed"&&targetStep?.status==="completed" ? "completed" : "queued";
+        sourceStep?.status==="completed"&&targetStep?.status==="completed" ? "completed" :
+        targetStep?.status==="skipped" || sourceStep?.status==="skipped" ? "skipped" : "queued";
       const col = colMap[e.target] ?? colMap[e.source] ?? 0;
       return { ...e, type:"flowEdge", sourcePosition:Position.Right, targetPosition:Position.Left, data:{ edgeStatus, edgeColor: laneColor(col) } };
     }),
@@ -646,6 +662,7 @@ function RunViewInner() {
   const selectedStepIdRef = useRef<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [showMemory, setShowMemory] = useState(false);
   const [rightWidth, setRightWidth] = useState(420);
   const rightDragging = useRef(false);
   const rightStartX = useRef(0);
@@ -706,6 +723,12 @@ function RunViewInner() {
     queryFn: () => api.getRunApprovals(token, runId),
     refetchInterval: 5000,
   });
+  const memoryQuery = useQuery({
+    queryKey: ["run-memory", runId],
+    queryFn: () => api.runMemory(runId),
+    enabled: showMemory,
+    refetchInterval: () => { const run = queryClient.getQueryData<{status:string}>(["run",runId]); return isActive(run?.status??"running")?4000:false; },
+  });
 
   useEffect(() => {
     if (!selectedStepIdRef.current || !stepsQuery.data) return;
@@ -731,7 +754,7 @@ function RunViewInner() {
   const selectedGateConfig = selectedStep
     ? ((savedGraph.nodes ?? []).find((n: Node) => n.id === selectedStep.node_id)?.data ?? {}) as ApprovalGateConfig
     : undefined;
-  const completedCount = steps.filter((s) => s.status === "completed").length;
+  const completedCount = steps.filter((s) => s.status === "completed" || s.status === "skipped").length;
   const totalNodes = allNodeIds.length || steps.length;
 
   const stepByNodeId = useMemo(() => {
@@ -781,6 +804,17 @@ function RunViewInner() {
         </div>
         {pendingApproval&&<span style={{fontSize:10,fontWeight:700,color:"#d97706",border:"1px solid #fde68a",padding:"3px 10px",borderRadius:12,background:"#fffbeb",animation:"pulseGlow 1.5s ease-in-out infinite"}}>⚠ Awaiting approval</span>}
         <div style={{flex:1}}/>
+        <button
+          onClick={() => { setShowMemory(v => !v); if (!showMemory) { setSelectedStep(null); selectedStepIdRef.current = null; setRightCollapsed(false); } }}
+          title="View this run's structured memory"
+          style={{ display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,
+            color: showMemory ? "#4f46e5" : "#374151",
+            background: showMemory ? "#eef2ff" : "#f9fafb",
+            border: `1px solid ${showMemory ? "#c7d2fe" : "#e5e7eb"}`,
+            padding:"5px 12px",cursor:"pointer",fontFamily:"inherit",borderRadius:6 }}
+        >
+          <Brain style={{width:12,height:12}}/> Memory
+        </button>
         {isActive(runStatus)&&<button onClick={()=>cancelMutation.mutate()} disabled={cancelMutation.isPending} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:"#dc2626",background:"#fef2f2",border:"1px solid #fecaca",padding:"5px 14px",cursor:"pointer",fontFamily:"inherit",borderRadius:6}}><Square style={{width:11,height:11}}/> Cancel</button>}
       </div>
 
@@ -796,7 +830,7 @@ function RunViewInner() {
             </button>
           </div>
           {!leftCollapsed
-            ? <StepTimeline steps={steps} allNodeIds={allNodeIds} selectedId={selectedStep?.id??null} onSelect={(s)=>{setSelectedStep(s);selectedStepIdRef.current=s.id;}} colMap={colMap}/>
+            ? <StepTimeline steps={steps} allNodeIds={allNodeIds} selectedId={selectedStep?.id??null} onSelect={(s)=>{setSelectedStep(s);selectedStepIdRef.current=s.id;setShowMemory(false);}} colMap={colMap}/>
             : (
               <div style={{ flex:1, overflowY:"auto", display:"flex", flexDirection:"column", alignItems:"center", paddingTop:8, gap:4 }}>
                 {(allNodeIds.length ? allNodeIds : steps.map(s=>s.node_id)).map((nodeId) => {
@@ -808,11 +842,11 @@ function RunViewInner() {
                   return (
                     <div
                       key={nodeId}
-                      onClick={() => step && (setSelectedStep(step), selectedStepIdRef.current = step.id, setLeftCollapsed(false))}
+                      onClick={() => step && (setSelectedStep(step), selectedStepIdRef.current = step.id, setLeftCollapsed(false), setShowMemory(false))}
                       title={step?.agent_name ?? nodeId}
                       style={{ width:28, height:28, borderRadius:"50%", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", cursor:step?"pointer":"default",
                         background: isRun ? `${accent}15` : "white",
-                        border: `2px solid ${isRun ? accent : status==="completed" ? "#10b981" : status==="failed" ? "#dc2626" : status==="waiting_approval" ? "#d97706" : "#e2e8f0"}`,
+                        border: `2px solid ${isRun ? accent : status==="completed" ? "#10b981" : status==="failed" ? "#dc2626" : status==="waiting_approval" ? "#d97706" : status==="skipped" ? "#7c3aed" : "#e2e8f0"}`,
                         boxShadow: isRun ? `0 0 8px ${accent}50` : "none",
                         transition: "all 0.3s",
                       }}
@@ -822,6 +856,7 @@ function RunViewInner() {
                         : status==="completed" ? <CheckCircle2 style={{width:11,height:11,color:"#10b981"}}/>
                         : status==="failed"    ? <AlertTriangle style={{width:11,height:11,color:"#dc2626"}}/>
                         : status==="waiting_approval" ? <OctagonAlert style={{width:11,height:11,color:"#d97706"}}/>
+                        : status==="skipped" ? <SkipForward style={{width:11,height:11,color:"#7c3aed"}}/>
                         : <span style={{width:6,height:6,borderRadius:"50%",background:"#e2e8f0",display:"block"}}/>}
                     </div>
                   );
@@ -838,21 +873,21 @@ function RunViewInner() {
               graphNodes={layoutNodes}
               graphEdges={savedGraph.edges??[]}
               steps={steps}
-              onNodeSelect={(s)=>{setSelectedStep(s);selectedStepIdRef.current=s.id;setRightCollapsed(false);}}
+              onNodeSelect={(s)=>{setSelectedStep(s);selectedStepIdRef.current=s.id;setRightCollapsed(false);setShowMemory(false);}}
               colMap={colMap}
             />
           </ReactFlowProvider>
           {!savedGraph.nodes?.length&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><p style={{fontSize:12,color:"#94a3b8"}}>No graph saved — save the workflow first.</p></div>}
         </div>
 
-        {/* right — log drawer, collapsible */}
-        {selectedStep && (
+        {/* right — memory panel or log drawer, collapsible */}
+        {(showMemory || selectedStep) && (
           rightCollapsed ? (
             <div style={{ width:40,flexShrink:0,borderLeft:"1px solid #e2e8f0",background:"white",display:"flex",flexDirection:"column",alignItems:"center",paddingTop:12,gap:8 }}>
-              <button onClick={()=>setRightCollapsed(false)} title="Expand output" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",display:"flex",padding:4,borderRadius:4}}>
+              <button onClick={()=>setRightCollapsed(false)} title="Expand panel" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",display:"flex",padding:4,borderRadius:4}}>
                 <PanelRightOpen style={{width:14,height:14}}/>
               </button>
-              <div style={{width:3,height:40,borderRadius:2,background:selectedStepColor,opacity:0.5}}/>
+              {!showMemory && <div style={{width:3,height:40,borderRadius:2,background:selectedStepColor,opacity:0.5}}/>}
             </div>
           ) : (
             <div style={{ display:"flex",flexDirection:"row",width:rightWidth,flexShrink:0 }}>
@@ -865,20 +900,26 @@ function RunViewInner() {
               </div>
               <div style={{ display:"flex",flexDirection:"column",flex:1,minWidth:0,overflow:"hidden" }}>
               <div style={{ padding:"6px 10px 0",display:"flex",justifyContent:"flex-end",background:"white",borderLeft:"1px solid #e2e8f0",borderBottom:"1px solid #f1f5f9",flexShrink:0 }}>
-                <button onClick={()=>setRightCollapsed(true)} title="Collapse output" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",display:"flex",padding:4,borderRadius:4}}>
+                <button onClick={()=>setRightCollapsed(true)} title="Collapse panel" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",display:"flex",padding:4,borderRadius:4}}>
                   <PanelRightClose style={{width:14,height:14}}/>
                 </button>
               </div>
-              <LogDrawer
-                step={selectedStep} token={token} runId={runId}
-                onClose={()=>{setSelectedStep(null);selectedStepIdRef.current=null;}}
-                approval={selectedStepApproval}
-                gateConfig={selectedGateConfig}
-                onApprove={(note)=>selectedStepApproval?.status==="pending"&&approveMutation.mutate({id:selectedStepApproval.id,note})}
-                onReject={(note)=>selectedStepApproval?.status==="pending"&&rejectMutation.mutate({id:selectedStepApproval.id,note})}
-                onRevise={(note)=>selectedStepApproval?.status==="pending"&&reviseMutation.mutate({id:selectedStepApproval.id,note})}
-                laneColor={selectedStepColor}
-              />
+              {showMemory ? (
+                <div style={{ flex:1, overflowY:"auto", borderLeft:"1px solid #e2e8f0", background:"white" }}>
+                  <MemoryPanel entries={memoryQuery.data ?? []} />
+                </div>
+              ) : selectedStep ? (
+                <LogDrawer
+                  step={selectedStep} token={token} runId={runId}
+                  onClose={()=>{setSelectedStep(null);selectedStepIdRef.current=null;}}
+                  approval={selectedStepApproval}
+                  gateConfig={selectedGateConfig}
+                  onApprove={(note)=>selectedStepApproval?.status==="pending"&&approveMutation.mutate({id:selectedStepApproval.id,note})}
+                  onReject={(note)=>selectedStepApproval?.status==="pending"&&rejectMutation.mutate({id:selectedStepApproval.id,note})}
+                  onRevise={(note)=>selectedStepApproval?.status==="pending"&&reviseMutation.mutate({id:selectedStepApproval.id,note})}
+                  laneColor={selectedStepColor}
+                />
+              ) : null}
               </div>
             </div>
           )

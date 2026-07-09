@@ -17,6 +17,7 @@ from uuid import uuid4
 from app.core.config import get_settings
 from app.db.session import db_session
 from app.runtime import linear_logger
+from app.runtime.memory import read_memory, write_memory
 
 DEFAULT_APPROVAL_TIMEOUT_HOURS = 24
 MIN_APPROVAL_TIMEOUT_HOURS = 1
@@ -134,7 +135,7 @@ def _write_step(run_id: str, node: dict, status: str, stdout: str = "", stderr: 
                 step_id, run_id, node["id"],
                 str(data.get("label") or node["id"]),
                 str(data.get("role") or node.get("type") or "agent"),
-                str(data.get("model") or "codex-cli"),
+                str(data.get("model") or f"{data.get('sandboxAgent') or 'codex'} (auto)"),
                 status, _now(), summary or None, error,
             ),
         )
@@ -262,13 +263,27 @@ def _call_host_runner(path: str, body: dict) -> dict[str, Any]:
 
 # ── node executor ─────────────────────────────────────────────────────────────
 
-def _build_prompt(node: dict, context: str) -> str:
+def _skill_prompt_fragments(skill_ids: list[str]) -> list[str]:
+    """Fetch selected skills' prompt templates, skipping any without one."""
+    if not skill_ids:
+        return []
+    placeholders = ",".join("?" for _ in skill_ids)
+    with db_session() as db:
+        rows = db.execute(
+            f"SELECT name, prompt_template FROM skills WHERE id IN ({placeholders})", skill_ids
+        ).fetchall()
+    return [f"[Skill: {r['name']}] {r['prompt_template']}" for r in rows if str(r["prompt_template"] or "").strip()]
+
+
+def _build_prompt(node: dict, context: str, memory_context: str = "") -> str:
     data = node.get("data") or {}
     node_type = node.get("type", "")
     label = str(data.get("label") or node["id"])
     role = str(data.get("role") or "")
     objective = str(data.get("objective") or "")
     instructions = str(data.get("systemInstructions") or "")
+    skill_ids = [str(s) for s in (data.get("selectedSkills") or []) if s]
+    skill_fragments = _skill_prompt_fragments(skill_ids) if node_type in ("supervisorAgent", "specialistAgent") else []
 
     parts = []
     if node_type == "supervisorAgent":
@@ -279,6 +294,7 @@ def _build_prompt(node: dict, context: str) -> str:
             "relevant to the objective, then write a 3-bullet action plan for the downstream agents. "
             "Be concise — respond in under 300 words. Do NOT explore every file."
         )
+        parts.extend(skill_fragments)
         if instructions:
             parts.append(f"Additional context: {instructions}")
     elif node_type == "specialistAgent":
@@ -291,6 +307,7 @@ def _build_prompt(node: dict, context: str) -> str:
         )
         if objective:
             parts.append(f"Objective: {objective}")
+        parts.extend(skill_fragments)
         if instructions:
             parts.append(f"Instructions: {instructions}")
     elif node_type == "memory":
@@ -304,11 +321,25 @@ def _build_prompt(node: dict, context: str) -> str:
             f"where available. Do NOT explore files or run commands. Only summarise what is in the context below."
         )
 
+    if memory_context:
+        parts.append(f"\nRelevant memory from earlier in this run (use as background only):\n{memory_context[-1500:]}")
+
     if context:
         parts.append(f"\nPrevious step context (use as background only):\n{context[-1500:]}")
 
     parts.append("\nRespond with a short structured summary only. Be concise.")
     return " ".join(parts)
+
+
+def _memory_context_for_node(run_id: str, node: dict) -> str:
+    """Fetch workflow/team-scoped memory, plus this node's own agent_private memory."""
+    data = node.get("data") or {}
+    label = str(data.get("label") or node.get("id") or "")
+    rows = read_memory(run_id, scope="workflow") + read_memory(run_id, scope="team")
+    if str(data.get("memoryScope") or "") == "agent_private":
+        rows += [r for r in read_memory(run_id, scope="agent_private") if r.get("created_by_agent") == label]
+    rows.sort(key=lambda r: r.get("created_at") or "")
+    return "\n".join(f"[{r['key']}] {r['value_text']}" for r in rows[-10:])
 
 
 def _is_cancelled(run_id: str) -> bool:
@@ -358,6 +389,84 @@ def _poll_progress(job_token: str, run_id: str, node_id: str, label: str, stop_e
             pass
 
 
+def _evaluate_condition(node: dict, context: str, memory_context: str, workspace_path: str, run_id: str) -> tuple[str, str, str]:
+    """Ask the node's agent a strict yes/no question. Returns (status, branch, summary)
+    where branch is 'true' or 'false' (only meaningful when status == 'completed')."""
+    data = node.get("data") or {}
+    label = str(data.get("label") or node["id"])
+    condition = str(data.get("condition") or "").strip()
+    if not condition:
+        return "failed", "", "Conditional node has no condition configured."
+
+    prompt_parts = [
+        f"You are {label}, a conditional gate in a workflow. Question: {condition}\n"
+        "Respond with ONLY the single word YES or NO (all caps, no punctuation, no other text, "
+        "no explanation) based on the question and the context below."
+    ]
+    if memory_context:
+        prompt_parts.append(f"\nRelevant memory:\n{memory_context[-1500:]}")
+    if context:
+        prompt_parts.append(f"\nPrevious step context:\n{context[-1500:]}")
+    prompt = " ".join(prompt_parts)
+
+    agent = str(data.get("sandboxAgent") or "codex").strip().lower()
+    runtime = str(data.get("runtime") or "sandbox").strip().lower()
+    model = str(data.get("model") or "").strip()
+    host_path = "/runtimes/direct-cli/run" if runtime == "direct" else "/runtimes/docker-sandbox/run"
+    host_payload: dict[str, Any] = {
+        "agent": agent,
+        "workspace_path": workspace_path,
+        "prompt": prompt,
+        "mode": "read-only",
+        "timeout_seconds": 120,
+        "job_token": str(uuid4()),
+    }
+    if model:
+        host_payload["model"] = model
+
+    result = _call_host_runner(host_path, host_payload)
+    if _is_cancelled(run_id):
+        return "cancelled", "", "Run cancelled."
+    if not result.get("ok"):
+        err = str(result.get("message") or result.get("stderr") or "Condition evaluation failed.")
+        return "failed", "", err
+
+    answer = str(result.get("final_message") or result.get("stdout") or "").strip().upper()
+    first_word = answer.split()[0].strip(".,!:;\"'") if answer.split() else ""
+    branch = "true" if first_word in ("YES", "TRUE") else "false"
+    return "completed", branch, f"Condition: {condition}\nAnswer: {branch.upper()}"
+
+
+def _dispatch_webhook(node: dict, context: str, run_id: str) -> tuple[str, str, str]:
+    """POST a JSON payload to the configured URL. No CLI involved."""
+    data = node.get("data") or {}
+    label = str(data.get("label") or node["id"])
+    url = str(data.get("url") or "").strip()
+    if not url:
+        return "failed", "", "Webhook node has no URL configured."
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return "failed", "", "Webhook URL must start with http:// or https://."
+
+    method = str(data.get("method") or "POST").strip().upper()
+    template = str(data.get("payloadTemplate") or "").strip()
+    body_text = template.replace("{{context}}", context[-1500:]) if template else json.dumps(
+        {"run_id": run_id, "node": label, "context": context[-1500:]}
+    )
+
+    try:
+        req = urllib.request.Request(url, data=body_text.encode("utf-8"), method=method)
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            status_code = resp.status
+            resp_body = resp.read(2000).decode("utf-8", errors="replace")
+        summary = f"Webhook {method} {url} → {status_code}"
+        return "completed", summary, summary + (f"\n{resp_body}" if resp_body else "")
+    except urllib.error.HTTPError as exc:
+        return "failed", "", f"Webhook {method} {url} → HTTP {exc.code}: {exc.reason}"
+    except Exception as exc:
+        return "failed", "", f"Webhook {method} {url} failed: {exc}"
+
+
 def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) -> tuple[str, str, str]:
     """Returns (status, stdout, summary)."""
     data = node.get("data") or {}
@@ -367,23 +476,35 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
     if node_type == "humanApproval":
         return "waiting_approval", "", str(data.get("reason") or "Awaiting human approval.")
 
+    if node_type == "webhook":
+        return _dispatch_webhook(node, context, run_id)
+
+    if node_type == "conditional":
+        memory_context = _memory_context_for_node(run_id, node)
+        status, branch, summary = _evaluate_condition(node, context, memory_context, workspace_path, run_id)
+        if status != "completed":
+            return status, "", summary
+        return "completed", branch, summary
+
     # agent nodes → dispatch to host runner (codex, claude, or cursor)
-    job_token = str(uuid4())
-    prompt = _build_prompt(node, context)
+    memory_context = _memory_context_for_node(run_id, node)
+    prompt = _build_prompt(node, context, memory_context)
     agent = str(data.get("sandboxAgent") or data.get("agent") or "codex").strip().lower()
     runtime = str(data.get("runtime") or "sandbox").strip().lower()
-
-    stop_event = threading.Event()
-    poll_thread = threading.Thread(
-        target=_poll_progress,
-        args=(job_token, run_id, node["id"], label, stop_event),
-        daemon=True,
-    )
-    poll_thread.start()
+    model = str(data.get("model") or "").strip()
 
     if runtime == "direct":
         # Direct CLI — fast, no sandbox overhead, runs on host with the selected agent
         host_path = "/runtimes/direct-cli/run"
+        agent_label = f"{agent.title()} (Direct)"
+    else:
+        host_path = "/runtimes/docker-sandbox/run"
+        agent_label = {"claude": "Claude Code", "cursor": "Cursor"}.get(agent, "Codex")
+
+    max_attempts = max(1, min(20, int(data.get("maxIterations") or 1)))
+    result: dict[str, Any] = {}
+    for attempt in range(max_attempts):
+        job_token = str(uuid4())
         host_payload = {
             "agent": agent,
             "workspace_path": workspace_path,
@@ -392,49 +513,33 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
             "timeout_seconds": 480,
             "job_token": job_token,
         }
-        agent_label = f"{agent.title()} (Direct)"
-    elif agent == "claude":
-        host_path = "/runtimes/docker-sandbox/run"
-        host_payload = {
-            "agent": "claude",
-            "workspace_path": workspace_path,
-            "prompt": prompt,
-            "mode": "read-only",
-            "timeout_seconds": 480,
-            "job_token": job_token,
-        }
-        agent_label = "Claude Code"
-    elif agent == "cursor":
-        host_path = "/runtimes/docker-sandbox/run"
-        host_payload = {
-            "agent": "cursor",
-            "workspace_path": workspace_path,
-            "prompt": prompt,
-            "mode": "read-only",
-            "timeout_seconds": 480,
-            "job_token": job_token,
-        }
-        agent_label = "Cursor"
-    else:
-        host_path = "/runtimes/docker-sandbox/run"
-        host_payload = {
-            "agent": "codex",
-            "workspace_path": workspace_path,
-            "prompt": prompt,
-            "mode": "read-only",
-            "timeout_seconds": 480,
-            "job_token": job_token,
-        }
-        agent_label = "Codex"
+        if model:
+            host_payload["model"] = model
 
-    result = _call_host_runner(host_path, host_payload)
+        stop_event = threading.Event()
+        poll_thread = threading.Thread(
+            target=_poll_progress,
+            args=(job_token, run_id, node["id"], label, stop_event),
+            daemon=True,
+        )
+        poll_thread.start()
 
-    stop_event.set()
-    poll_thread.join(timeout=5)
+        result = _call_host_runner(host_path, host_payload)
 
-    # if cancelled while agent was running, return cancelled status
-    if _is_cancelled(run_id):
-        return "cancelled", "", "Run cancelled."
+        stop_event.set()
+        poll_thread.join(timeout=5)
+
+        if _is_cancelled(run_id):
+            return "cancelled", "", "Run cancelled."
+
+        if result.get("ok"):
+            break
+        if attempt < max_attempts - 1:
+            _write_log(
+                run_id, "warn",
+                f"[{label}] attempt {attempt + 1}/{max_attempts} failed, retrying…",
+                {"node_id": node["id"]},
+            )
 
     stdout = str(result.get("stdout") or "")
     final_message = str(result.get("final_message") or "").strip()
@@ -518,35 +623,77 @@ def _run_approval_node(run_id: str, node: dict, workflow_name: str, workspace_pa
     return True
 
 
-def _run_single_node(run_id: str, node: dict, workspace_path: str, context: str) -> tuple[str, str]:
-    """Execute one agent/memory node. Returns (status, summary)."""
+def _run_single_node(run_id: str, node: dict, workspace_path: str, context: str) -> tuple[str, str, str | None]:
+    """Execute one agent/memory/conditional/webhook node. Returns (status, summary, branch).
+    branch is 'true'/'false' for a completed conditional node, else None."""
     node_id = node["id"]
+    node_type = node.get("type", "unknown")
     label = str((node.get("data") or {}).get("label") or node_id)
-    _write_log(run_id, "info", f"Starting node: {label}", {"node_id": node_id, "node_type": node.get("type", "unknown")})
+    _write_log(run_id, "info", f"Starting node: {label}", {"node_id": node_id, "node_type": node_type})
     step_id = _write_step(run_id, node, "running")
     try:
         status, stdout, summary = _execute_node(node, workspace_path, context, run_id)
     except Exception as exc:
         status, stdout, summary = "failed", "", f"Node execution raised: {exc}"
 
+    branch = stdout if (node_type == "conditional" and status == "completed") else None
+
     if status == "cancelled":
         _update_step(step_id, "cancelled", summary="Cancelled mid-execution.")
         _write_log(run_id, "info", f"Run cancelled during node: {label}")
-        return status, summary
+        return status, summary, branch
 
     _update_step(step_id, status, stdout=stdout, summary=summary, error=summary if status == "failed" else None)
     _write_log(run_id, "info" if status == "completed" else "error", f"Node {label}: {status}", {"node_id": node_id})
-    return status, summary
+
+    if status == "completed" and summary:
+        scope = str((node.get("data") or {}).get("memoryScope") or "workflow")
+        write_memory(run_id, scope, key=label, value=summary, agent_run_id=step_id, created_by_agent=label)
+
+    return status, summary, branch
 
 
-def _run_level(run_id: str, nodes: list[dict], workspace_path: str, context: str, max_parallel: int) -> list[tuple[dict, str, str]]:
-    """Execute a level's nodes, up to max_parallel concurrently. Returns [(node, status, summary)] in input order."""
+def _run_level(run_id: str, nodes: list[dict], workspace_path: str, context: str, max_parallel: int) -> list[tuple[dict, str, str, str | None]]:
+    """Execute a level's nodes, up to max_parallel concurrently. Returns [(node, status, summary, branch)] in input order."""
     if len(nodes) == 1 or max_parallel <= 1:
         return [(node, *_run_single_node(run_id, node, workspace_path, context)) for node in nodes]
 
     with ThreadPoolExecutor(max_workers=min(max_parallel, len(nodes))) as pool:
         futures = [pool.submit(_run_single_node, run_id, node, workspace_path, context) for node in nodes]
         return [(node, *future.result()) for node, future in zip(nodes, futures)]
+
+
+def _nodes_to_skip(nodes: list[dict], edges: list[dict], removed_edge_ids: set[str]) -> set[str]:
+    """Given edges to drop (the not-taken branch of one or more conditionals),
+    return every node no longer reachable from any *original* root (nodes with
+    no incoming edge in the full graph — a node that loses its only inbound
+    edge because it was removed is NOT a root, it's orphaned).
+    A node stays reachable if ANY surviving path reaches it — this is what makes
+    branches that later merge (e.g. into a shared report node) still run."""
+    original_in_degree: dict[str, int] = {n["id"]: 0 for n in nodes}
+    for e in edges:
+        tgt = e.get("target")
+        if tgt in original_in_degree:
+            original_in_degree[tgt] += 1
+    roots = [nid for nid, deg in original_in_degree.items() if deg == 0]
+
+    live_edges = [e for e in edges if e.get("id") not in removed_edge_ids]
+    adjacency: dict[str, list[str]] = {n["id"]: [] for n in nodes}
+    for e in live_edges:
+        src, tgt = e.get("source"), e.get("target")
+        if src in adjacency and tgt in adjacency:
+            adjacency[src].append(tgt)
+
+    reachable: set[str] = set()
+    queue = list(roots)
+    while queue:
+        nid = queue.pop(0)
+        if nid in reachable:
+            continue
+        reachable.add(nid)
+        queue.extend(adjacency.get(nid, []))
+
+    return {n["id"] for n in nodes} - reachable
 
 
 def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> None:
@@ -567,20 +714,32 @@ def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str
     _update_run_status(run_id, "running")
 
     accumulated_context = ""
+    removed_edge_ids: set[str] = set()
+    skip_ids = _nodes_to_skip(nodes, edges, removed_edge_ids)
 
     for level in levels:
         if _is_cancelled(run_id):
             _write_log(run_id, "info", "Run cancelled — stopping before next node.")
             return
 
-        # skip already-completed nodes (resume after approval / restart)
+        # skip already-completed nodes (resume after approval / restart),
+        # and nodes made unreachable by an earlier conditional's branch
         pending: list[dict] = []
         for node in level:
-            label = str((node.get("data") or {}).get("label") or node["id"])
-            existing_step = _latest_step_for_node(run_id, node["id"])
+            node_id = node["id"]
+            label = str((node.get("data") or {}).get("label") or node_id)
+            if node_id in skip_ids:
+                if not _latest_step_for_node(run_id, node_id):
+                    skip_step_id = _write_step(run_id, node, "skipped")
+                    _update_step(skip_step_id, "skipped", summary="Skipped — unreachable after a conditional branch.")
+                    _write_log(run_id, "info", f"Skipped (unreachable branch): {label}", {"node_id": node_id})
+                continue
+            existing_step = _latest_step_for_node(run_id, node_id)
             if existing_step and existing_step["status"] == "completed":
                 if existing_step["summary"]:
                     accumulated_context += f"\n\n[{label}]\n{existing_step['summary']}"
+            elif existing_step and existing_step["status"] == "skipped":
+                continue
             else:
                 pending.append(node)
         if not pending:
@@ -601,7 +760,8 @@ def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str
 
         failed_label: str | None = None
         failed_summary = ""
-        for node, status, summary in results:
+        new_branch_taken = False
+        for node, status, summary, branch in results:
             label = str((node.get("data") or {}).get("label") or node["id"])
             if status == "cancelled":
                 return
@@ -609,12 +769,22 @@ def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str
                 failed_label, failed_summary = label, summary
             if status == "completed" and summary:
                 accumulated_context += f"\n\n[{label}]\n{summary}"
+            if node.get("type") == "conditional" and branch:
+                not_taken = "false" if branch == "true" else "true"
+                for e in edges:
+                    if e.get("source") == node["id"] and e.get("sourceHandle") == not_taken:
+                        removed_edge_ids.add(str(e.get("id")))
+                        new_branch_taken = True
+                _write_log(run_id, "info", f"Conditional \"{label}\" took the {branch} branch.", {"node_id": node["id"]})
 
         if failed_label is not None:
             _update_run_status(run_id, "failed")
             _write_log(run_id, "error", f"Run failed at node: {failed_label}")
             linear_logger.log_run_failure(run_id, workflow_name, failed_label, failed_summary or "Node execution failed.", workspace_path)
             return
+
+        if new_branch_taken:
+            skip_ids = _nodes_to_skip(nodes, edges, removed_edge_ids)
 
     _update_run_status(run_id, "completed")
     _write_log(run_id, "info", "Workflow run completed successfully.")

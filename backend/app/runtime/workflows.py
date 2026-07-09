@@ -5,12 +5,40 @@ from uuid import uuid4
 from app.db.session import db_session
 
 
+_TEMPLATE_NODE_KEY_MAP = {
+    "memory_scope": "memoryScope",
+    "strategy": "delegationStrategy",
+    "agent": "sandboxAgent",
+    "skills": "selectedSkills",
+    "tools": "selectedTools",
+}
+# fields the template JSON may set that no longer configure anything at runtime
+_TEMPLATE_NODE_DROP_KEYS = {"requires_approval"}
+_TEMPLATE_NODE_TOP_LEVEL_KEYS = {"id", "type", "position"}
+
+
+def _normalize_template_node(raw: dict) -> dict:
+    """Template JSON nodes are authored flat (label/role/skills at the top
+    level); the runtime and frontend both expect {id, type, data: {...}}."""
+    if "data" in raw:
+        return raw
+    data = {}
+    for key, value in raw.items():
+        if key in _TEMPLATE_NODE_TOP_LEVEL_KEYS or key in _TEMPLATE_NODE_DROP_KEYS:
+            continue
+        data[_TEMPLATE_NODE_KEY_MAP.get(key, key)] = value
+    node = {"id": raw["id"], "type": raw.get("type", "specialistAgent"), "data": data}
+    if "position" in raw:
+        node["position"] = raw["position"]
+    return node
+
+
 def _seed_template(filename: str) -> None:
     template_path = Path(__file__).resolve().parent.parent / "templates" / filename
     template = json.loads(template_path.read_text(encoding="utf-8"))
 
     graph = {
-        "nodes": template["nodes"],
+        "nodes": [_normalize_template_node(n) for n in template["nodes"]],
         "edges": [
             {
                 "id": f"edge-{index}",

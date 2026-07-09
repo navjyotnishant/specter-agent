@@ -9,7 +9,8 @@
       "type": "supervisorAgent",
       "label": "Security Supervisor Agent",
       "role": "Supervisor Agent",
-      "model": "ollama/llama3.1",
+      "agent": "codex",
+      "model": "",
       "strategy": "sequential_delegation",
       "memory_scope": "team",
       "requires_approval": true

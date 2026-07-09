@@ -24,27 +24,28 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Code2,
   Copy,
   Database,
   FileText,
   GitBranch,
+  GitMerge,
   History,
   Loader2,
   Play,
   Save,
   ShieldCheck,
+  Sparkles,
   Trash2,
-  Wrench,
+  Webhook,
 } from "lucide-react";
 import type { McpServer } from "@/lib/types";
 import { AgentInspector } from "@/components/agents/AgentInspector";
-import { AgentTimeline } from "@/components/agents/AgentTimeline";
-import { MemoryPanel } from "@/components/memory/MemoryPanel";
+import { ConditionalNode } from "@/components/workflow/nodes/ConditionalNode";
 import { HumanApprovalNode } from "@/components/workflow/nodes/HumanApprovalNode";
 import { MemoryNode } from "@/components/workflow/nodes/MemoryNode";
 import { SpecialistAgentNode } from "@/components/workflow/nodes/SpecialistAgentNode";
 import { SupervisorAgentNode } from "@/components/workflow/nodes/SupervisorAgentNode";
+import { WebhookNode } from "@/components/workflow/nodes/WebhookNode";
 import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { layoutGeneratedSubgraph } from "@/lib/graph-layout";
@@ -60,45 +61,75 @@ const nodeTypes = {
   specialistAgent: SpecialistAgentNode,
   humanApproval: HumanApprovalNode,
   memory: MemoryNode,
+  conditional: ConditionalNode,
+  webhook: WebhookNode,
 };
+
+// id of the seeded "Standard Report Format" skill (backend/app/runtime/skill_seeds.py)
+const STANDARD_REPORT_FORMAT_SKILL_ID = "standard-report-format";
 
 // ── default data per node type ──────────────────────────────────────────────
 const nodeDefaults: Record<string, Record<string, unknown>> = {
-  supervisorAgent: { label: "Supervisor Agent", model: "codex-cli", tools: 0, skills: 0, memoryScope: "team", maxIterations: 4, requiresApproval: true, delegationStrategy: "sequential_delegation", objective: "", systemInstructions: "" },
-  specialistAgent: { label: "Specialist Agent", role: "", model: "codex-cli", tools: 0, skills: 0, memoryScope: "workflow", maxIterations: 3, requiresApproval: false, objective: "", systemInstructions: "" },
+  supervisorAgent: { label: "Supervisor Agent", sandboxAgent: "codex", model: "", memoryScope: "team", maxIterations: 1, delegationStrategy: "sequential_delegation", objective: "", systemInstructions: "" },
+  specialistAgent: { label: "Specialist Agent", role: "", sandboxAgent: "codex", model: "", memoryScope: "workflow", maxIterations: 1, objective: "", systemInstructions: "" },
   humanApproval: { label: "Human Approval", reason: "Requires manual approval before continuing.", timeoutHours: 24 },
   memory: { label: "Write Memory", scope: "workflow" },
+  conditional: { label: "Conditional", condition: "", sandboxAgent: "codex", model: "" },
+  webhook: { label: "Webhook", url: "", method: "POST", payloadTemplate: "" },
+};
+
+// ── presets: same node type as a palette category, but with real pre-filled
+// starting data instead of just a different label ──────────────────────────
+const presetDefaults: Record<string, Record<string, unknown>> = {
+  smartSupervisor: {
+    ...nodeDefaults.supervisorAgent,
+    objective: "Analyze the objective and repository, break it into the smallest set of independent specialist subtasks, decide which can run in parallel vs must run sequentially, and generate the workflow. Click \"Plan workflow\" below after adjusting this objective.",
+    delegationStrategy: "parallel_delegation",
+  },
+  reportWriter: {
+    ...nodeDefaults.specialistAgent,
+    role: "Report writer",
+    objective: "Aggregate the findings from all prior agents in this workflow into one report.",
+    selectedSkills: [STANDARD_REPORT_FORMAT_SKILL_ID],
+    memoryScope: "workflow",
+  },
+  aggregator: {
+    ...nodeDefaults.specialistAgent,
+    role: "Aggregator",
+    objective: "Combine the outputs of the parallel branches feeding into this node into a single, de-duplicated summary. Note any conflicts or disagreements between branches explicitly.",
+    memoryScope: "workflow",
+  },
 };
 
 // ── palette definition ──────────────────────────────────────────────────────
-const palette: { category: string; items: { icon: typeof Bot; label: string; nodeType: string }[] }[] = [
+const palette: { category: string; items: { icon: typeof Bot; label: string; nodeType: string; presetKey?: string }[] }[] = [
   {
     category: "Agents",
     items: [
-      { icon: ShieldCheck, label: "Supervisor Agent", nodeType: "supervisorAgent" },
+      { icon: ShieldCheck, label: "Generic Supervisor", nodeType: "supervisorAgent" },
+      { icon: Sparkles, label: "Smart Supervisor", nodeType: "supervisorAgent", presetKey: "smartSupervisor" },
       { icon: Bot, label: "Specialist Agent", nodeType: "specialistAgent" },
+      { icon: FileText, label: "Report Writer", nodeType: "specialistAgent", presetKey: "reportWriter" },
+      { icon: GitMerge, label: "Aggregator", nodeType: "specialistAgent", presetKey: "aggregator" },
     ],
   },
   {
     category: "Control Flow",
     items: [
       { icon: CheckCircle2, label: "Human Approval", nodeType: "humanApproval" },
+      { icon: GitBranch, label: "Conditional", nodeType: "conditional" },
     ],
   },
   {
-    category: "Memory + Context",
+    category: "Memory",
     items: [
       { icon: Database, label: "Write Memory", nodeType: "memory" },
-      { icon: Database, label: "Read Memory", nodeType: "memory" },
     ],
   },
   {
-    category: "Code + SDLC",
+    category: "Notifications",
     items: [
-      { icon: Code2, label: "Codebase Scan", nodeType: "specialistAgent" },
-      { icon: Wrench, label: "MCP Tool", nodeType: "specialistAgent" },
-      { icon: GitBranch, label: "GitHub Action", nodeType: "specialistAgent" },
-      { icon: FileText, label: "Report Generator", nodeType: "specialistAgent" },
+      { icon: Webhook, label: "Webhook", nodeType: "webhook" },
     ],
   },
 ];
@@ -109,12 +140,12 @@ const palette: { category: string; items: { icon: typeof Bot; label: string; nod
 // memory runs in parallel with code as a planning step off the supervisor
 const COL = 320;
 const defaultNodes: Node[] = [
-  { id: "supervisor",  type: "supervisorAgent", position: { x: 0,        y: 200 }, data: { label: "Security Supervisor",    model: "codex-cli", selectedTools: [], selectedSkills: [], memoryScope: "team",         maxIterations: 4, requiresApproval: false, delegationStrategy: "sequential_delegation", objective: "Scope this security review, identify the top areas to inspect, and coordinate specialist agents to run in sequence.", systemInstructions: "Delegate only to known specialist agents. Enforce tool allowlists, memory boundaries, and approval policy." } },
+  { id: "supervisor",  type: "supervisorAgent", position: { x: 0,        y: 200 }, data: { label: "Security Supervisor",    sandboxAgent: "codex", model: "", selectedTools: [], selectedSkills: [], memoryScope: "team",         maxIterations: 4, requiresApproval: false, delegationStrategy: "sequential_delegation", objective: "Scope this security review, identify the top areas to inspect, and coordinate specialist agents to run in sequence.", systemInstructions: "Delegate only to known specialist agents. Enforce tool allowlists, memory boundaries, and approval policy." } },
   { id: "memory-plan", type: "memory",          position: { x: COL,      y: 40  }, data: { label: "Write task plan",        scope: "team" } },
-  { id: "code",        type: "specialistAgent", position: { x: COL * 2,  y: 200 }, data: { label: "Code Security Reviewer",  role: "Secure code review",    model: "codex-cli", selectedTools: [], selectedSkills: [], memoryScope: "workflow",      maxIterations: 3, requiresApproval: false, objective: "Review 2–3 key source files for auth, injection, and access-control vulnerabilities.", systemInstructions: "" } },
-  { id: "deps",        type: "specialistAgent", position: { x: COL * 3,  y: 200 }, data: { label: "Dependency Auditor",      role: "Dependency auditor",    model: "codex-cli", selectedTools: [], selectedSkills: [], memoryScope: "workflow",      maxIterations: 3, requiresApproval: false, objective: "Check requirements.txt or package.json for known vulnerable or outdated packages.", systemInstructions: "" } },
-  { id: "secrets",     type: "specialistAgent", position: { x: COL * 4,  y: 200 }, data: { label: "Secrets & Config Agent",  role: "Masked config review",  model: "codex-cli", selectedTools: [], selectedSkills: [], memoryScope: "agent_private", maxIterations: 3, requiresApproval: false, objective: "Scan config files and env patterns for hardcoded secrets, tokens, or insecure defaults.", systemInstructions: "" } },
-  { id: "report",      type: "specialistAgent", position: { x: COL * 5,  y: 200 }, data: { label: "Report Writer Agent",     role: "Security report writer", model: "codex-cli", selectedTools: [], selectedSkills: [], memoryScope: "workflow",      maxIterations: 2, requiresApproval: false, objective: "Summarise findings from all prior agents into a structured security report with severity ratings.", systemInstructions: "" } },
+  { id: "code",        type: "specialistAgent", position: { x: COL * 2,  y: 200 }, data: { label: "Code Security Reviewer",  role: "Secure code review",    sandboxAgent: "codex", model: "", selectedTools: [], selectedSkills: [], memoryScope: "workflow",      maxIterations: 3, requiresApproval: false, objective: "Review 2–3 key source files for auth, injection, and access-control vulnerabilities.", systemInstructions: "" } },
+  { id: "deps",        type: "specialistAgent", position: { x: COL * 3,  y: 200 }, data: { label: "Dependency Auditor",      role: "Dependency auditor",    sandboxAgent: "codex", model: "", selectedTools: [], selectedSkills: [], memoryScope: "workflow",      maxIterations: 3, requiresApproval: false, objective: "Check requirements.txt or package.json for known vulnerable or outdated packages.", systemInstructions: "" } },
+  { id: "secrets",     type: "specialistAgent", position: { x: COL * 4,  y: 200 }, data: { label: "Secrets & Config Agent",  role: "Masked config review",  sandboxAgent: "codex", model: "", selectedTools: [], selectedSkills: [], memoryScope: "agent_private", maxIterations: 3, requiresApproval: false, objective: "Scan config files and env patterns for hardcoded secrets, tokens, or insecure defaults.", systemInstructions: "" } },
+  { id: "report",      type: "specialistAgent", position: { x: COL * 5,  y: 200 }, data: { label: "Report Writer Agent",     role: "Security report writer", sandboxAgent: "codex", model: "", selectedTools: [], selectedSkills: [], memoryScope: "workflow",      maxIterations: 2, requiresApproval: false, objective: "Summarise findings from all prior agents into a structured security report with severity ratings.", systemInstructions: "" } },
 ];
 
 const defaultEdges: Edge[] = [
@@ -153,14 +184,12 @@ function DataRow({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   );
 }
-function GateRow({ label, ready }: { label: string; ready: boolean }) {
+function GateDot({ ok, label }: { ok: boolean; label: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-[#f3f4f6] py-1.5 last:border-b-0">
-      <span className="text-[10px] text-[#374151]" style={MONO}>{label}</span>
-      <span className="border px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide" style={{ borderColor: ready ? "#6ee7b7" : "#fcd34d", color: ready ? "#065f46" : "#92400e", background: ready ? "#ecfdf5" : "#fffbeb", ...MONO }}>
-        {ready ? "ready" : "required"}
-      </span>
-    </div>
+    <span className="flex items-center gap-1 text-[9px] text-[#6b7280]" title={ok ? `${label}: ready` : `${label}: required`}>
+      <span className="block h-1.5 w-1.5 rounded-full" style={{ background: ok ? "#10b981" : "#f59e0b" }} />
+      {label}
+    </span>
   );
 }
 
@@ -184,20 +213,33 @@ function BuilderInner({
   const [nodes, setNodes, onNodesChange] = useNodesState(isNew ? [] : defaultNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(isNew ? [] : defaultEdges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("context");
+  const [activeTab, setActiveTab] = useState("agent");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [workflowName, setWorkflowName] = useState(isNew ? "" : "Security Review Team");
   const [workflowDescription, setWorkflowDescription] = useState(isNew ? "" : "");
+  const [nameTouched, setNameTouched] = useState(false);
   const [statusMessage, setStatusMessage] = useState(isNew ? "New workflow — drag nodes from the palette to get started." : "Drag from the palette to add nodes.");
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(() => {
     try { return localStorage.getItem(`specter_workspace_${workflowId}`) ?? ""; } catch { return ""; }
   });
+  const [autoSaveDb, setAutoSaveDb] = useState(() => {
+    try { return localStorage.getItem("specter_autosave_db") === "1"; } catch { return false; }
+  });
   const fitViewOptions = useMemo(() => ({ padding: 0.2 }), []);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSaveDbTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const graphLoadedRef = useRef(false);
 
-  const runtimeStatusQuery = useQuery({ queryKey: ["codex-runtime-status"], queryFn: () => api.codexRuntimeStatus(token), enabled: canUseBackend, retry: false });
+  const toggleAutoSaveDb = () => {
+    setAutoSaveDb((v) => {
+      const next = !v;
+      try { localStorage.setItem("specter_autosave_db", next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
   const workspacesQuery = useQuery({ queryKey: ["runtime-workspaces"], queryFn: () => api.runtimeWorkspaces(token), enabled: canUseBackend, retry: false });
   const skillsQuery = useQuery({ queryKey: ["skills"], queryFn: () => api.skills(token), enabled: canUseBackend, retry: false });
   const mcpQuery = useQuery({ queryKey: ["mcp-list"], queryFn: () => api.mcpList(token), enabled: canUseBackend, retry: false });
@@ -305,6 +347,17 @@ function BuilderInner({
     },
   });
 
+  // ── auto-save to database 2.5s after any change, when enabled ─────────────
+  useEffect(() => {
+    if (isNew || !autoSaveDb || !graphLoadedRef.current || !canUseBackend || !workflowName.trim()) return;
+    if (autoSaveDbTimer.current) clearTimeout(autoSaveDbTimer.current);
+    autoSaveDbTimer.current = setTimeout(() => {
+      if (!saveMutation.isPending) saveMutation.mutate(undefined);
+    }, 2500);
+    return () => { if (autoSaveDbTimer.current) clearTimeout(autoSaveDbTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges, workflowName, workflowDescription, isNew, autoSaveDb, canUseBackend]);
+
   // ── smart supervisor planning ──────────────────────────────────────────────
   // Reverse-map the generated subgraph back into the planner's plan schema so
   // refinement prompts can reference the current plan without storing extra state.
@@ -342,10 +395,18 @@ function BuilderInner({
     };
   };
 
+  const revealTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => { revealTimers.current.forEach(clearTimeout); }, []);
+
+  const setSupervisorPlanning = (supId: string, planning: boolean) => {
+    setNodes((cur) => cur.map((n) => (n.id === supId ? { ...n, data: { ...n.data, isPlanning: planning } } : n)));
+  };
+
   const planMutation = useMutation({
     mutationFn: ({ sup, feedback }: { sup: Node; feedback?: string }) => {
       if (!selectedWorkspace) throw new Error("Select an approved repository first — the planner inspects it to ground the plan.");
       const d = sup.data as Record<string, unknown>;
+      setSupervisorPlanning(sup.id, true);
       return api.planWorkflow(token, {
         objective: String(d.objective ?? ""),
         supervisor_node_id: sup.id,
@@ -361,6 +422,7 @@ function BuilderInner({
       const genNodes = (graph.nodes ?? []) as Node[];
       const genEdges = (graph.edges ?? []) as Edge[];
       if (!genNodes.length) {
+        setSupervisorPlanning(sup.id, false);
         setStatusMessage("Planner returned no sub-agents — try refining the objective.");
         return;
       }
@@ -371,14 +433,36 @@ function BuilderInner({
       );
       const mergedEdges = [...keptEdges, ...genEdges];
       const anchor = keptNodes.find((n) => n.id === sup.id) ?? sup;
-      const mergedNodes = layoutGeneratedSubgraph([...keptNodes, ...genNodes], mergedEdges, anchor);
-      setNodes(mergedNodes);
-      setEdges(mergedEdges);
-      const specialistCount = genNodes.filter((n) => n.type === "specialistAgent").length;
-      setStatusMessage(`Generated ${specialistCount} specialist agents — review before running. Saving to database…`);
-      saveMutation.mutate({ nodes: mergedNodes, edges: mergedEdges });
+      const laidOutGenNodes = layoutGeneratedSubgraph([...keptNodes, ...genNodes], mergedEdges, anchor)
+        .filter((n) => genNodes.some((g) => g.id === n.id));
+      const finalNodes = [...keptNodes.map((n) => (n.id === sup.id ? { ...n, data: { ...n.data, isPlanning: false } } : n)), ...laidOutGenNodes];
+
+      // reveal generated nodes one at a time for a "materializing" feel
+      revealTimers.current.forEach(clearTimeout);
+      revealTimers.current = [];
+      setNodes([...keptNodes.map((n) => (n.id === sup.id ? { ...n, data: { ...n.data, isPlanning: false } } : n))]);
+      setEdges([]);
+      laidOutGenNodes.forEach((genNode, i) => {
+        const timer = setTimeout(() => {
+          setNodes((cur) => (cur.some((n) => n.id === genNode.id) ? cur : [...cur, { ...genNode, className: "specter-node-materialize" }]));
+          const incomingEdges = mergedEdges.filter((e) => e.target === genNode.id);
+          setEdges((cur) => [...cur, ...incomingEdges.filter((e) => !cur.some((c) => c.id === e.id))]);
+        }, i * 220);
+        revealTimers.current.push(timer);
+      });
+      const finalizeTimer = setTimeout(() => {
+        setNodes(finalNodes);
+        setEdges(mergedEdges);
+        const specialistCount = genNodes.filter((n) => n.type === "specialistAgent").length;
+        setStatusMessage(`Generated ${specialistCount} specialist agents — review before running. Saving to database…`);
+        saveMutation.mutate({ nodes: finalNodes, edges: mergedEdges });
+      }, laidOutGenNodes.length * 220 + 150);
+      revealTimers.current.push(finalizeTimer);
     },
-    onError: (err) => setStatusMessage(err instanceof Error ? err.message : "Planning failed."),
+    onError: (err, { sup }) => {
+      setSupervisorPlanning(sup.id, false);
+      setStatusMessage(err instanceof Error ? err.message : "Planning failed.");
+    },
   });
 
   const tuneNodeMutation = useMutation({
@@ -443,9 +527,10 @@ function BuilderInner({
   );
 
   // ── palette drag ───────────────────────────────────────────────────────────
-  const onDragStart = (e: React.DragEvent, nodeType: string, label: string) => {
+  const onDragStart = (e: React.DragEvent, nodeType: string, label: string, presetKey?: string) => {
     e.dataTransfer.setData("application/specter-node-type", nodeType);
     e.dataTransfer.setData("application/specter-node-label", label);
+    e.dataTransfer.setData("application/specter-node-preset", presetKey ?? "");
     e.dataTransfer.effectAllowed = "move";
   };
 
@@ -459,14 +544,16 @@ function BuilderInner({
       e.preventDefault();
       const nodeType = e.dataTransfer.getData("application/specter-node-type");
       const label = e.dataTransfer.getData("application/specter-node-label");
+      const presetKey = e.dataTransfer.getData("application/specter-node-preset");
       if (!nodeType || !nodeTypes[nodeType as keyof typeof nodeTypes]) return;
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const id = `${nodeType}-${++nodeCounter}`;
+      const baseDefaults = (presetKey && presetDefaults[presetKey]) || nodeDefaults[nodeType];
       const newNode: Node = {
         id,
         type: nodeType,
         position,
-        data: { ...nodeDefaults[nodeType], label },
+        data: { ...baseDefaults, label },
       };
       setNodes((cur) => [...cur, newNode]);
       setSelectedNodeId(id);
@@ -498,6 +585,11 @@ function BuilderInner({
     if (!isNew) {
       try { localStorage.setItem(storageKey(workflowId), JSON.stringify({ nodes, edges })); } catch { /* ignore */ }
     }
+    if (!workflowName.trim()) {
+      setNameTouched(true);
+      setStatusMessage("Workflow name is required before saving.");
+      return;
+    }
     if (!canUseBackend) {
       setStatusMessage(`Saved to browser storage at ${new Date().toLocaleTimeString()}.`);
       return;
@@ -508,9 +600,7 @@ function BuilderInner({
   // ── derived state ──────────────────────────────────────────────────────────
   const activeWorkspaces = workspacesQuery.data?.filter((w) => w.is_active) ?? [];
   const selectedWorkspace = activeWorkspaces.find((w) => w.id === selectedWorkspaceId);
-  const runtimeStatus = runtimeStatusQuery.data;
-  const runtimeReady = runtimeStatus?.status === "ready" || Boolean(runtimeStatus?.available && runtimeStatus?.installed);
-  const executionReady = runtimeReady && Boolean(selectedWorkspace);
+  const executionReady = Boolean(selectedWorkspace);
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const hasSelection = nodes.some((n) => n.selected) || edges.some((e) => e.selected);
   const mcpServers: McpServer[] = mcpQuery.data?.servers ?? [];
@@ -528,7 +618,7 @@ function BuilderInner({
             </span>
             <span className="border px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-widest"
               style={executionReady ? { borderColor: "#6ee7b7", color: "#065f46", background: "#ecfdf5" } : { borderColor: "#fcd34d", color: "#92400e", background: "#fffbeb" }}>
-              {executionReady ? "ready" : "config required"}
+              {executionReady ? "ready" : "select repository"}
             </span>
             {!canUseBackend && (
               <span className="border border-[#fcd34d] bg-[#fffbeb] px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-widest text-[#92400e]">
@@ -536,14 +626,25 @@ function BuilderInner({
               </span>
             )}
           </div>
-          <input
-            className="mt-2 block w-full max-w-xl rounded bg-transparent text-[15px] font-semibold text-[#0f1117] outline-none ring-0 transition hover:bg-[#f1f5f9] focus:bg-white focus:px-2 focus:ring-1 focus:ring-indigo-300"
-            value={workflowName}
-            onChange={(e) => setWorkflowName(e.target.value)}
-            onBlur={saveGraph}
-            placeholder="Workflow name"
-            style={{ border: "none", padding: 0 }}
-          />
+          <div className="mt-2 flex items-center gap-1">
+            <input
+              className={`block w-full max-w-xl rounded bg-transparent text-[15px] font-semibold text-[#0f1117] outline-none ring-0 transition hover:bg-[#f1f5f9] focus:bg-white focus:px-2 focus:ring-1 ${
+                nameTouched && !workflowName.trim() ? "focus:ring-red-400" : "focus:ring-indigo-300"
+              }`}
+              value={workflowName}
+              onChange={(e) => setWorkflowName(e.target.value)}
+              onBlur={() => { setNameTouched(true); saveGraph(); }}
+              placeholder="Workflow name"
+              style={{
+                border: nameTouched && !workflowName.trim() ? "1px solid #fca5a5" : "none",
+                padding: nameTouched && !workflowName.trim() ? "0 6px" : 0,
+              }}
+            />
+            <span className="shrink-0 text-[13px] font-semibold text-red-500" title="Required">*</span>
+          </div>
+          {nameTouched && !workflowName.trim() && (
+            <p className="mt-0.5 text-[9px] font-medium text-red-500" style={MONO}>Workflow name is required.</p>
+          )}
           <input
             className="mt-0.5 block w-full max-w-2xl rounded bg-transparent text-[11px] leading-relaxed text-[#6b7280] outline-none ring-0 transition hover:bg-[#f1f5f9] focus:bg-white focus:px-2 focus:ring-1 focus:ring-indigo-300"
             value={workflowDescription}
@@ -606,6 +707,25 @@ function BuilderInner({
             </div>
           )}
 
+          <button
+            onClick={toggleAutoSaveDb}
+            title={autoSaveDb ? "Auto-save to database is on — click to switch to manual save" : "Auto-save to database is off — click to save automatically as you edit"}
+            className={`flex h-8 items-center gap-1.5 border px-2.5 text-[10px] font-medium transition-colors ${
+              autoSaveDb ? "border-[#6ee7b7] bg-[#ecfdf5] text-[#065f46]" : "border-[#d1d5db] bg-white text-[#6b7280] hover:bg-[#f9fafb]"
+            }`}
+            style={MONO}
+          >
+            <span
+              className="relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors"
+              style={{ background: autoSaveDb ? "#10b981" : "#d1d5db" }}
+            >
+              <span
+                className="inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform"
+                style={{ transform: autoSaveDb ? "translateX(11px)" : "translateX(2px)" }}
+              />
+            </span>
+            Auto-save
+          </button>
           <Button onClick={saveGraph} disabled={saveMutation.isPending} variant="outline"
             className={`h-8 rounded-none px-3 text-[11px] font-medium transition-colors ${
               saveStatus === "saved" ? "border-[#6ee7b7] bg-[#ecfdf5] text-[#065f46]" :
@@ -616,7 +736,7 @@ function BuilderInner({
               ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
               : saveStatus === "saved" ? <CheckCircle2 className="mr-1.5 h-3 w-3" />
               : <Save className="mr-1.5 h-3 w-3" />}
-            {saveStatus === "saved" ? "Saved" : saveStatus === "error" ? "Save failed" : "Save graph"}
+            {saveStatus === "saved" ? "Saved" : saveStatus === "error" ? "Save failed" : autoSaveDb ? "Save now" : "Save graph"}
           </Button>
           <Button
             disabled={isNew || !executionReady || runMutation.isPending}
@@ -636,10 +756,51 @@ function BuilderInner({
         </div>
       </div>
 
-      {/* ── status strip ── */}
-      <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-[#fafafa] px-5 py-1.5">
-        <p className="text-[10px] text-[#6b7280]" style={MONO}>{statusMessage}</p>
-        <p className="shrink-0 text-[9px] text-[#9ca3af]" style={MONO}>changes auto-saved locally · click Save graph to push to DB</p>
+      {/* ── workflow status strip (repo + gates — applies to the whole workflow, not a selected node) ── */}
+      <div className="border-b border-[#e5e7eb] bg-[#fafafa]" style={MONO}>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-5 py-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] uppercase tracking-widest text-[#9ca3af]">repo</span>
+            <select
+              className="border border-[#d1d5db] bg-white px-1.5 py-[3px] text-[10px] text-[#374151] outline-none focus:border-[#374151]"
+              style={MONO}
+              value={selectedWorkspaceId}
+              onChange={(e) => handleWorkspaceChange(e.target.value)}
+            >
+              {!activeWorkspaces.length && <option value="">No repositories configured</option>}
+              {activeWorkspaces.map((w) => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+          </div>
+          <GateDot ok={Boolean(selectedWorkspace)} label="repo approved" />
+          <GateDot ok={nodes.some((n) => n.type === "humanApproval")} label="approval gate" />
+          <button
+            onClick={() => setDetailsOpen((v) => !v)}
+            className="ml-auto flex items-center gap-1 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af] hover:text-[#374151]"
+          >
+            Details <ChevronDown className={`h-3 w-3 transition-transform ${detailsOpen ? "rotate-180" : ""}`} />
+          </button>
+        </div>
+
+        {detailsOpen && (
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 border-t border-[#f3f4f6] px-5 py-2.5 sm:grid-cols-4">
+            <DataRow label="nodes" value={nodes.length} />
+            <DataRow label="edges" value={edges.length} />
+            <DataRow label="approval gates" value={nodes.filter((n) => n.type === "humanApproval").length} />
+            <DataRow label="nodes w/ tools" value={nodes.filter((n) => Array.isArray(n.data.selectedTools) && (n.data.selectedTools as string[]).length > 0).length} />
+            <DataRow label="nodes w/ skills" value={nodes.filter((n) => Array.isArray(n.data.selectedSkills) && (n.data.selectedSkills as string[]).length > 0).length} />
+            <DataRow label="MCP servers avail." value={mcpServers.filter((s) => s.configured && s.enabled).length} />
+            <DataRow label="skills avail." value={allSkills.length} />
+          </div>
+        )}
+
+        <div className="flex items-center justify-between border-t border-[#f3f4f6] px-5 py-1.5">
+          <p className="text-[10px] text-[#6b7280]">{statusMessage}</p>
+          <p className="shrink-0 text-[9px] text-[#9ca3af]">
+            {autoSaveDb ? "auto-saving to database as you edit" : "changes auto-saved locally · click Save graph to push to DB"}
+          </p>
+        </div>
       </div>
 
       {/* ── three-column layout ── */}
@@ -671,11 +832,11 @@ function BuilderInner({
                     <p className="px-3 pb-0.5 pt-2 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>
                       {group.category}
                     </p>
-                    {group.items.map(({ icon: Icon, label, nodeType }) => (
+                    {group.items.map(({ icon: Icon, label, nodeType, presetKey }) => (
                       <div
                         key={label}
                         draggable
-                        onDragStart={(e) => onDragStart(e, nodeType, label)}
+                        onDragStart={(e) => onDragStart(e, nodeType, label, presetKey)}
                         className="flex cursor-grab items-center gap-1.5 px-3 py-1.5 text-[10px] text-[#374151] hover:bg-[#f9fafb] active:cursor-grabbing select-none"
                         style={MONO}
                       >
@@ -735,8 +896,8 @@ function BuilderInner({
           </button>
         {!rightCollapsed && <div className="overflow-y-auto h-full">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid h-7 w-full grid-cols-4 rounded-none border-b border-[#e5e7eb] bg-white p-0" style={MONO}>
-              {["context", "agent", "run", "memory"].map((tab) => (
+            <TabsList className="grid h-7 w-full grid-cols-2 rounded-none border-b border-[#e5e7eb] bg-white p-0" style={MONO}>
+              {["agent", "memory"].map((tab) => (
                 <TabsTrigger key={tab} value={tab}
                   className="h-full rounded-none border-r border-[#e5e7eb] text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af] last:border-r-0 data-[state=active]:bg-[#f9fafb] data-[state=active]:text-[#0f1117] data-[state=active]:shadow-none"
                   style={MONO}>
@@ -744,79 +905,6 @@ function BuilderInner({
                 </TabsTrigger>
               ))}
             </TabsList>
-
-            {/* Context */}
-            <TabsContent value="context" className="mt-0 divide-y divide-[#f3f4f6]">
-
-              {/* Runtime block */}
-              <div className="px-4 py-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>Execution runtime</p>
-                  <span className="border px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-widest"
-                    style={{ borderColor: runtimeReady ? "#6ee7b7" : "#fcd34d", color: runtimeReady ? "#065f46" : "#92400e", background: runtimeReady ? "#ecfdf5" : "#fffbeb", ...MONO }}>
-                    {runtimeStatus?.status ?? "unknown"}
-                  </span>
-                </div>
-                <div className="divide-y divide-[#f3f4f6] border border-[#e5e7eb]">
-                  <DataRow label="runtime" value={runtimeStatus?.display_name ?? "Codex CLI Runtime"} />
-                  <DataRow label="version" value={runtimeStatus?.version ?? runtimeStatus?.current_version ?? "—"} />
-                  <DataRow label="mode" value={runtimeStatus?.runner_mode ?? "safe"} />
-                </div>
-              </div>
-
-              {/* Repository block */}
-              <div className="px-4 py-3">
-                <p className="mb-2 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>Approved repository</p>
-                <select
-                  className="w-full border border-[#d1d5db] bg-white px-2.5 py-1.5 text-[11px] text-[#374151] outline-none focus:border-[#374151]"
-                  style={MONO}
-                  value={selectedWorkspaceId}
-                  onChange={(e) => handleWorkspaceChange(e.target.value)}
-                >
-                  {!activeWorkspaces.length && <option value="">No repositories configured</option>}
-                  {activeWorkspaces.map((w) => (
-                    <option key={w.id} value={w.id}>{w.name}</option>
-                  ))}
-                </select>
-                {selectedWorkspace && (
-                  <p className="mt-1.5 break-all text-[10px] leading-relaxed text-[#6b7280]" style={MONO}>{selectedWorkspace.path}</p>
-                )}
-              </div>
-
-              {/* MCP + Skills summary (per-node — configured in Agent tab) */}
-              <div className="px-4 py-3">
-                <p className="mb-2 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>Tools &amp; skills (per node)</p>
-                <div className="divide-y divide-[#f3f4f6] border border-[#e5e7eb]">
-                  <DataRow label="MCP servers available" value={mcpServers.filter((s) => s.configured && s.enabled).length} />
-                  <DataRow label="Skills available" value={allSkills.length} />
-                  <DataRow label="Nodes with tools" value={nodes.filter((n) => Array.isArray(n.data.selectedTools) && (n.data.selectedTools as string[]).length > 0).length} />
-                  <DataRow label="Nodes with skills" value={nodes.filter((n) => Array.isArray(n.data.selectedSkills) && (n.data.selectedSkills as string[]).length > 0).length} />
-                </div>
-                <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>Click a node → Agent tab to configure its tools and skills.</p>
-              </div>
-
-              {/* Run gates block */}
-              <div className="px-4 py-3">
-                <p className="mb-2 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>Run gates</p>
-                <div className="divide-y divide-[#f3f4f6] border border-[#e5e7eb]">
-                  <GateRow label="Runtime ready" ready={runtimeReady} />
-                  <GateRow label="Repository approved" ready={Boolean(selectedWorkspace)} />
-                  <GateRow label="Safe mode" ready={(runtimeStatus?.runner_mode ?? "safe") === "safe"} />
-                  <GateRow label="Human approval node" ready={nodes.some((n) => n.type === "humanApproval")} />
-                </div>
-              </div>
-
-              {/* Graph stats block */}
-              <div className="px-4 py-3">
-                <p className="mb-2 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>Graph</p>
-                <div className="divide-y divide-[#f3f4f6] border border-[#e5e7eb]">
-                  <DataRow label="nodes" value={nodes.length} />
-                  <DataRow label="edges" value={edges.length} />
-                  <DataRow label="approval gates" value={nodes.filter((n) => n.type === "humanApproval").length} />
-                  <DataRow label="memory nodes" value={nodes.filter((n) => n.type === "memory").length} />
-                </div>
-              </div>
-            </TabsContent>
 
             {/* Agent inspector */}
             <TabsContent value="agent" className="mt-0 p-4">
@@ -833,14 +921,15 @@ function BuilderInner({
               />
             </TabsContent>
 
-            {/* Run timeline */}
-            <TabsContent value="run" className="mt-0 p-4">
-              <AgentTimeline />
-            </TabsContent>
-
             {/* Memory */}
             <TabsContent value="memory" className="mt-0 p-4">
-              <MemoryPanel />
+              <div className="border border-[#e5e7eb] px-4 py-6 text-center" style={MONO}>
+                <p className="text-[10px] leading-relaxed text-[#9ca3af]">
+                  Memory is populated once this workflow runs — each node writes its output
+                  here, scoped by its Memory scope setting (workflow / team / agent_private).
+                  Open a run to view its live memory.
+                </p>
+              </div>
             </TabsContent>
           </Tabs>
         </div>}

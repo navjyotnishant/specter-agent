@@ -3,42 +3,28 @@ import type { MemoryEntry } from "@/lib/types";
 
 const MONO: React.CSSProperties = { fontFamily: "ui-monospace, 'Cascadia Code', monospace" };
 
-const sampleMemory: MemoryEntry[] = [
-  {
-    id: "memory-1",
-    workflow_run_id: "demo-run",
-    scope: "workflow",
-    key: "supervisor_plan",
-    value_text: "Sequential security review delegated to code, dependency, secrets, and report specialists.",
-    sensitivity_label: "internal",
-    created_by_agent: "Security Supervisor Agent",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "memory-2",
-    workflow_run_id: "demo-run",
-    scope: "agent_private",
-    key: "masked_config_observation",
-    value_text: "Potential secret-like value found and masked as sk_••••••••.",
-    sensitivity_label: "sensitive_masked",
-    created_by_agent: "Secrets & Configuration Agent",
-    created_at: new Date().toISOString(),
-  },
-];
-
 const scopeColor: Record<string, string> = {
   workflow: "#6366f1",
   team: "#0ea5e9",
   agent_private: "#6b7280",
 };
 
-export function MemoryPanel({ entries = sampleMemory }: { entries?: MemoryEntry[] }) {
+export function MemoryPanel({ entries = [] }: { entries?: MemoryEntry[] }) {
   return (
     <div className="border border-[#e5e7eb]" style={MONO}>
       <div className="border-b border-[#e5e7eb] px-4 py-2.5">
         <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]">Structured memory</p>
-        <p className="mt-0.5 text-[10px] text-[#6b7280]">{entries.length} entr{entries.length === 1 ? "y" : "ies"} · demo run</p>
+        <p className="mt-0.5 text-[10px] text-[#6b7280]">{entries.length} entr{entries.length === 1 ? "y" : "ies"} this run</p>
       </div>
+
+      {entries.length === 0 && (
+        <div className="px-4 py-6 text-center">
+          <p className="text-[10px] text-[#9ca3af]">
+            No memory entries yet. Each node writes its output here after it completes,
+            scoped by its Memory scope setting.
+          </p>
+        </div>
+      )}
 
       <div className="divide-y divide-[#f3f4f6]">
         {entries.map((entry) => {
@@ -71,9 +57,6 @@ export function MemoryPanel({ entries = sampleMemory }: { entries?: MemoryEntry[
         })}
       </div>
 
-      <div className="border-t border-[#e5e7eb] px-4 py-2.5">
-        <p className="text-[10px] text-[#9ca3af]">Memory is populated during a live workflow run.</p>
-      </div>
     </div>
   );
 }

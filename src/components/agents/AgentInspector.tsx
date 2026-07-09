@@ -5,6 +5,32 @@ import type { McpServer, Skill } from "@/lib/types";
 
 const MONO: React.CSSProperties = { fontFamily: "ui-monospace, 'Cascadia Code', monospace" };
 
+// Model options per CLI agent. Verified against each CLI's own model list
+// (`codex exec --help`, `claude --help`, `cursor-agent models`) — update here
+// if a CLI ships new model names.
+const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  codex: [
+    { value: "", label: "Auto (Codex default)" },
+    { value: "gpt-5.3-codex", label: "Codex 5.3" },
+    { value: "gpt-5.3-codex-high", label: "Codex 5.3 High" },
+    { value: "gpt-5.3-codex-xhigh", label: "Codex 5.3 Extra High" },
+    { value: "gpt-5.2-codex", label: "Codex 5.2" },
+    { value: "gpt-5.2", label: "GPT-5.2" },
+  ],
+  claude: [
+    { value: "", label: "Auto (Claude Code default)" },
+    { value: "sonnet", label: "Claude Sonnet (latest)" },
+    { value: "opus", label: "Claude Opus (latest)" },
+    { value: "haiku", label: "Claude Haiku (latest)" },
+    { value: "fable", label: "Claude Fable (latest)" },
+  ],
+  cursor: [
+    { value: "", label: "Auto (Cursor default)" },
+    { value: "gpt-5", label: "GPT-5" },
+    { value: "sonnet-4-thinking", label: "Sonnet 4 (thinking)" },
+  ],
+};
+
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
     <p className="mb-2 mt-4 text-[9px] font-semibold uppercase tracking-widest text-[#6b7280] first:mt-0" style={MONO}>
@@ -13,19 +39,25 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, required, empty, children }: { label: string; required?: boolean; empty?: boolean; children: React.ReactNode }) {
   return (
     <div className="border-b border-[#f3f4f6] pb-3 last:border-b-0 last:pb-0">
-      <p className="mb-1 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>{label}</p>
+      <p className="mb-1 flex items-center gap-1 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>
+        {label}
+        {required && <span className={required && empty ? "text-red-500" : "text-red-400"} title="Required">*</span>}
+      </p>
       {children}
+      {required && empty && (
+        <p className="mt-1 text-[9px] font-medium text-red-500" style={MONO}>Required.</p>
+      )}
     </div>
   );
 }
 
-function TextInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+function TextInput({ value, onChange, placeholder, error }: { value: string; onChange: (v: string) => void; placeholder?: string; error?: boolean }) {
   return (
     <input
-      className="w-full border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]"
+      className={`w-full border bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151] ${error ? "border-red-300" : "border-[#e5e7eb]"}`}
       style={MONO}
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -34,14 +66,15 @@ function TextInput({ value, onChange, placeholder }: { value: string; onChange: 
   );
 }
 
-function TextArea({ value, onChange, rows = 3 }: { value: string; onChange: (v: string) => void; rows?: number }) {
+function TextArea({ value, onChange, rows = 3, placeholder, error }: { value: string; onChange: (v: string) => void; rows?: number; placeholder?: string; error?: boolean }) {
   return (
     <textarea
       rows={rows}
-      className="w-full resize-none border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]"
+      className={`w-full resize-none border bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151] placeholder:text-[#c7ccd4] ${error ? "border-red-300" : "border-[#e5e7eb]"}`}
       style={MONO}
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
     />
   );
 }
@@ -75,18 +108,7 @@ function NumericField({ value, onChange, min = 1, max = 20 }: { value: number; o
   );
 }
 
-function McpChecklist({
-  servers,
-  selected,
-  onChange,
-}: {
-  servers: McpServer[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-}) {
-  const toggle = (name: string, checked: boolean) =>
-    onChange(checked ? [...selected, name] : selected.filter((n) => n !== name));
-
+function McpList({ servers }: { servers: McpServer[] }) {
   if (!servers.length) {
     return (
       <p className="py-2 text-[10px] text-[#9ca3af]" style={MONO}>
@@ -99,19 +121,11 @@ function McpChecklist({
     <div className="max-h-40 overflow-y-auto border border-[#e5e7eb]">
       {servers.map((s) => {
         const active = s.configured && s.enabled;
-        const checked = selected.includes(s.name);
         return (
-          <label
+          <div
             key={s.name}
-            className={`flex cursor-pointer items-start gap-2 border-b border-[#f3f4f6] px-3 py-2 last:border-b-0 ${active ? "hover:bg-[#f9fafb]" : "opacity-50"}`}
+            className={`flex items-start gap-2 border-b border-[#f3f4f6] px-3 py-2 last:border-b-0 ${active ? "" : "opacity-50"}`}
           >
-            <input
-              type="checkbox"
-              className="mt-0.5 h-3 w-3"
-              checked={checked}
-              disabled={!active}
-              onChange={(e) => toggle(s.name, e.target.checked)}
-            />
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
                 <span className="block truncate text-[10px] font-medium text-[#111827]" style={MONO}>{s.display_name}</span>
@@ -128,7 +142,7 @@ function McpChecklist({
               </span>
               <span className="line-clamp-1 text-[9px] text-[#9ca3af]" style={MONO}>{s.description}</span>
             </span>
-          </label>
+          </div>
         );
       })}
     </div>
@@ -218,13 +232,14 @@ export function AgentInspector({
   const d = node.data as NodeData;
   const isApproval = node.type === "humanApproval";
   const isMemory = node.type === "memory";
+  const isConditional = node.type === "conditional";
+  const isWebhook = node.type === "webhook";
   const isSupervisor = node.type === "supervisorAgent";
-  const isAgent = !isApproval && !isMemory;
+  const isAgent = node.type === "supervisorAgent" || node.type === "specialistAgent";
 
   const patch = (partial: Partial<NodeData>) => onChange(patchNode(node, partial));
 
-  // per-node tool/skill selections stored as string arrays in node data
-  const selectedTools = Array.isArray(d.selectedTools) ? (d.selectedTools as string[]) : [];
+  // per-node skill selection stored as a string array in node data
   const selectedSkills = Array.isArray(d.selectedSkills) ? (d.selectedSkills as string[]) : [];
 
   return (
@@ -233,7 +248,12 @@ export function AgentInspector({
       <div className="flex items-center justify-between border-b border-[#e5e7eb] px-4 py-2.5">
         <div>
           <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]">
-            {node.type === "supervisorAgent" ? "Supervisor" : node.type === "specialistAgent" ? "Specialist" : node.type === "humanApproval" ? "Approval gate" : "Memory"}
+            {node.type === "supervisorAgent" ? "Supervisor"
+              : node.type === "specialistAgent" ? "Specialist"
+              : node.type === "humanApproval" ? "Approval gate"
+              : node.type === "conditional" ? "Conditional"
+              : node.type === "webhook" ? "Webhook"
+              : "Memory"}
             {" · node config"}
           </p>
           <p className="mt-0.5 text-[12px] font-semibold text-[#111827]">{String(d.label ?? node.id)}</p>
@@ -245,20 +265,58 @@ export function AgentInspector({
 
         {/* ── identity ── */}
         <SectionHeader>Identity</SectionHeader>
-        <Field label="Label">
-          <TextInput value={String(d.label ?? "")} onChange={(v) => patch({ label: v })} placeholder="Node label" />
+        <Field label="Label" required empty={!String(d.label ?? "").trim()}>
+          <TextInput value={String(d.label ?? "")} onChange={(v) => patch({ label: v })} placeholder="Node label" error={!String(d.label ?? "").trim()} />
         </Field>
 
         {isAgent && (
           <>
             <Field label="Role">
-              <TextInput value={String(d.role ?? "")} onChange={(v) => patch({ role: v })} placeholder="Agent role" />
+              <TextInput value={String(d.role ?? "")} onChange={(v) => patch({ role: v })} placeholder="e.g. Secure code review" />
             </Field>
-            <Field label="Objective">
-              <TextArea value={String(d.objective ?? "")} onChange={(v) => patch({ objective: v })} rows={2} />
+            <Field label="Objective" required empty={!String(d.objective ?? "").trim()}>
+              <TextArea
+                value={String(d.objective ?? "")}
+                onChange={(v) => patch({ objective: v })}
+                rows={2}
+                placeholder="The task for this run, e.g. &quot;Review the auth middleware for injection and access-control flaws.&quot;"
+                error={!String(d.objective ?? "").trim()}
+              />
+              {String(d.objective ?? "").trim() && (
+                <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                  What this agent should do this run.
+                </p>
+              )}
             </Field>
+
+            <SectionHeader>
+              Skills
+              <span className="ml-2 border border-[#e5e7eb] px-1.5 py-[1px] text-[9px] text-[#9ca3af]">
+                {selectedSkills.length} selected
+              </span>
+            </SectionHeader>
+            <SkillChecklist
+              skills={skills}
+              selected={selectedSkills}
+              onChange={(ids) => patch({ selectedSkills: ids })}
+            />
+            <p className="mt-1.5 text-[9px] leading-relaxed text-[#9ca3af]" style={MONO}>
+              Reusable prompt fragments, applied before System instructions below. Prefer a
+              Skill for guidance you'll reuse across nodes or workflows.
+            </p>
+
             <Field label="System instructions">
-              <TextArea value={String(d.systemInstructions ?? "")} onChange={(v) => patch({ systemInstructions: v })} rows={3} />
+              <TextArea
+                value={String(d.systemInstructions ?? "")}
+                onChange={(v) => patch({ systemInstructions: v })}
+                rows={3}
+                placeholder="One-off behavioral constraints for this node, e.g. &quot;Only look at files under /api/auth. Do not modify code, only report findings.&quot;"
+              />
+              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                {selectedSkills.length > 0
+                  ? `${selectedSkills.length} skill${selectedSkills.length === 1 ? "" : "s"} attached — its instructions are included automatically. Add anything extra here.`
+                  : "How this agent should behave, scoped or constrained beyond the objective."}
+              </p>
             </Field>
           </>
         )}
@@ -282,21 +340,23 @@ export function AgentInspector({
                 </p>
               )}
             </Field>
-            {(d.runtime ?? "sandbox") === "sandbox" && (
-              <Field label="Sandbox agent">
-                <SelectField
-                  value={String(d.sandboxAgent ?? "codex")}
-                  onChange={(v) => patch({ sandboxAgent: v })}
-                  options={[
-                    { value: "codex",  label: "Codex" },
-                    { value: "claude", label: "Claude Code" },
-                    { value: "cursor", label: "Cursor" },
-                  ]}
-                />
-              </Field>
-            )}
+            <Field label="Agent">
+              <SelectField
+                value={String(d.sandboxAgent ?? "codex")}
+                onChange={(v) => patch({ sandboxAgent: v, model: "" })}
+                options={[
+                  { value: "codex",  label: "Codex" },
+                  { value: "claude", label: "Claude Code" },
+                  { value: "cursor", label: "Cursor" },
+                ]}
+              />
+            </Field>
             <Field label="Model">
-              <TextInput value={String(d.model ?? "codex-cli")} onChange={(v) => patch({ model: v })} placeholder="codex-cli" />
+              <SelectField
+                value={String(d.model ?? "")}
+                onChange={(v) => patch({ model: v })}
+                options={MODEL_OPTIONS[String(d.sandboxAgent ?? "codex")] ?? MODEL_OPTIONS.codex}
+              />
             </Field>
             <Field label="Memory scope">
               <SelectField
@@ -308,23 +368,17 @@ export function AgentInspector({
                   { value: "agent_private", label: "agent_private — scratchpad only" },
                 ]}
               />
+              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                After this node finishes, its output is saved to memory at this scope and
+                surfaced to later nodes that share it (workflow = whole run, team = supervisor
+                + specialists, agent_private = only this node's own future runs).
+              </p>
             </Field>
             <Field label="Max iterations">
-              <NumericField value={Number(d.maxIterations ?? 3)} onChange={(v) => patch({ maxIterations: v })} min={1} max={20} />
-            </Field>
-            <Field label="Approval required">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id={`approval-${node.id}`}
-                  checked={Boolean(d.requiresApproval)}
-                  onChange={(e) => patch({ requiresApproval: e.target.checked })}
-                  className="h-3 w-3"
-                />
-                <label htmlFor={`approval-${node.id}`} className="text-[11px] text-[#374151]">
-                  Pause before executing
-                </label>
-              </div>
+              <NumericField value={Number(d.maxIterations ?? 1)} onChange={(v) => patch({ maxIterations: v })} min={1} max={20} />
+              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                Retry attempts if the agent call fails or times out. 1 = no retry.
+              </p>
             </Field>
           </>
         )}
@@ -402,37 +456,20 @@ export function AgentInspector({
           </>
         )}
 
-        {/* ── MCP tools ── */}
+        {/* ── MCP tools (read-only: configured per-CLI, not per-node) ── */}
         {isAgent && (
           <>
             <SectionHeader>
               MCP Tools
               <span className="ml-2 border border-[#e5e7eb] px-1.5 py-[1px] text-[9px] text-[#9ca3af]">
-                {selectedTools.length} selected
+                {mcpServers.filter((s) => s.configured && s.enabled).length} available
               </span>
             </SectionHeader>
-            <McpChecklist
-              servers={mcpServers}
-              selected={selectedTools}
-              onChange={(ids) => patch({ selectedTools: ids, tools: ids.length })}
-            />
-          </>
-        )}
-
-        {/* ── skills ── */}
-        {isAgent && (
-          <>
-            <SectionHeader>
-              Skills
-              <span className="ml-2 border border-[#e5e7eb] px-1.5 py-[1px] text-[9px] text-[#9ca3af]">
-                {selectedSkills.length} selected
-              </span>
-            </SectionHeader>
-            <SkillChecklist
-              skills={skills}
-              selected={selectedSkills}
-              onChange={(ids) => patch({ selectedSkills: ids, skills: ids.length })}
-            />
+            <McpList servers={mcpServers} />
+            <p className="mt-1.5 text-[9px] leading-relaxed text-[#9ca3af]" style={MONO}>
+              MCP servers are configured globally per agent CLI, not per node — every node
+              using the same agent shares this list. Manage servers in Connectors.
+            </p>
           </>
         )}
 
@@ -506,6 +543,94 @@ export function AgentInspector({
                   { value: "agent_private", label: "agent_private" },
                 ]}
               />
+            </Field>
+          </>
+        )}
+
+        {/* ── conditional node fields ── */}
+        {isConditional && (
+          <>
+            <SectionHeader>Condition</SectionHeader>
+            <Field label="Question" required empty={!String(d.condition ?? "").trim()}>
+              <TextArea
+                value={String(d.condition ?? "")}
+                onChange={(v) => patch({ condition: v })}
+                rows={2}
+                placeholder="A yes/no question about prior output, e.g. &quot;Did the code review find any CRITICAL or HIGH severity issues?&quot;"
+                error={!String(d.condition ?? "").trim()}
+              />
+              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                Answered YES/NO by the agent below, based on prior steps' output and memory.
+                Connect the canvas card's two outputs (top = true, bottom = false) to different
+                downstream nodes to branch the workflow.
+              </p>
+            </Field>
+
+            <SectionHeader>Evaluator</SectionHeader>
+            <Field label="Execution mode">
+              <SelectField
+                value={String(d.runtime ?? "sandbox")}
+                onChange={(v) => patch({ runtime: v })}
+                options={[
+                  { value: "sandbox", label: "Docker Sandbox (isolated microVM)" },
+                  { value: "direct",  label: "Direct CLI (fast, runs on host)" },
+                ]}
+              />
+            </Field>
+            <Field label="Agent">
+              <SelectField
+                value={String(d.sandboxAgent ?? "codex")}
+                onChange={(v) => patch({ sandboxAgent: v, model: "" })}
+                options={[
+                  { value: "codex",  label: "Codex" },
+                  { value: "claude", label: "Claude Code" },
+                  { value: "cursor", label: "Cursor" },
+                ]}
+              />
+            </Field>
+            <Field label="Model">
+              <SelectField
+                value={String(d.model ?? "")}
+                onChange={(v) => patch({ model: v })}
+                options={MODEL_OPTIONS[String(d.sandboxAgent ?? "codex")] ?? MODEL_OPTIONS.codex}
+              />
+            </Field>
+          </>
+        )}
+
+        {/* ── webhook node fields ── */}
+        {isWebhook && (
+          <>
+            <SectionHeader>Webhook</SectionHeader>
+            <Field label="URL" required empty={!String(d.url ?? "").trim()}>
+              <TextInput
+                value={String(d.url ?? "")}
+                onChange={(v) => patch({ url: v })}
+                placeholder="https://hooks.example.com/workflow-notify"
+                error={!String(d.url ?? "").trim()}
+              />
+            </Field>
+            <Field label="Method">
+              <SelectField
+                value={String(d.method ?? "POST")}
+                onChange={(v) => patch({ method: v })}
+                options={[
+                  { value: "POST", label: "POST" },
+                  { value: "PUT", label: "PUT" },
+                ]}
+              />
+            </Field>
+            <Field label="Payload template">
+              <TextArea
+                value={String(d.payloadTemplate ?? "")}
+                onChange={(v) => patch({ payloadTemplate: v })}
+                rows={3}
+                placeholder={'{ "text": "Workflow update: {{context}}" }'}
+              />
+              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                {'{{context}}'} is replaced with the accumulated output from prior steps. Leave
+                blank to send a default JSON payload with the run id and context.
+              </p>
             </Field>
           </>
         )}
