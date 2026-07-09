@@ -1,5 +1,7 @@
-# Sequential workflow graph runner.
-# Walks nodes in topological order, executes each via Codex CLI, writes events to DB.
+# Workflow graph runner.
+# Walks nodes level-by-level in topological order; nodes at the same depth can run
+# in parallel (per the supervisor's delegation strategy). Executes each node via the
+# host runner CLIs (Codex, Claude Code, Cursor) and writes events to the DB.
 from __future__ import annotations
 
 import json
@@ -7,6 +9,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -54,6 +57,42 @@ def topological_order(nodes: list[dict], edges: list[dict]) -> list[dict]:
             order.append(node)
 
     return order
+
+
+def topological_levels(nodes: list[dict], edges: list[dict]) -> list[list[dict]]:
+    """Group nodes into topological depth levels (depth = max parent depth + 1).
+
+    Nodes in the same level have no dependencies between them and may run in
+    parallel. humanApproval nodes are split into their own singleton levels so
+    the sequential approval/resume machinery stays untouched.
+    """
+    ordered = topological_order(nodes, edges)
+    parents: dict[str, list[str]] = {n["id"]: [] for n in nodes}
+    for edge in edges:
+        src, tgt = edge.get("source"), edge.get("target")
+        if src in parents and tgt in parents:
+            parents[tgt].append(src)
+
+    depth: dict[str, int] = {}
+    for node in ordered:
+        parent_depths = [depth.get(p, 0) for p in parents[node["id"]]]
+        depth[node["id"]] = (max(parent_depths) + 1) if parent_depths else 0
+
+    max_depth = max(depth.values(), default=0)
+    levels: list[list[dict]] = [[] for _ in range(max_depth + 1)]
+    for node in ordered:
+        levels[depth[node["id"]]].append(node)
+
+    # split approval gates into their own levels
+    result: list[list[dict]] = []
+    for level in levels:
+        agents = [n for n in level if n.get("type") != "humanApproval"]
+        approvals = [n for n in level if n.get("type") == "humanApproval"]
+        if agents:
+            result.append(agents)
+        for approval in approvals:
+            result.append([approval])
+    return result
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -233,14 +272,13 @@ def _build_prompt(node: dict, context: str) -> str:
 
     parts = []
     if node_type == "supervisorAgent":
+        goal = objective or "coordinate the workflow steps that follow"
         parts.append(
-            f"You are {label}, a supervisor agent. "
-            "Your task: do a QUICK scan of this codebase. "
-            "List the top 5 files or areas most relevant to security, then write a 3-bullet action plan. "
+            f"You are {label}, a supervisor agent. Objective: {goal}. "
+            "Do a QUICK scoping pass of this workspace: list the top 5 files or areas most "
+            "relevant to the objective, then write a 3-bullet action plan for the downstream agents. "
             "Be concise — respond in under 300 words. Do NOT explore every file."
         )
-        if objective:
-            parts.append(f"Focus area: {objective}")
         if instructions:
             parts.append(f"Additional context: {instructions}")
     elif node_type == "specialistAgent":
@@ -344,16 +382,17 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
     poll_thread.start()
 
     if runtime == "direct":
-        # Direct CLI — fast, no sandbox overhead, runs on host
-        host_path = "/runtimes/codex/run"
+        # Direct CLI — fast, no sandbox overhead, runs on host with the selected agent
+        host_path = "/runtimes/direct-cli/run"
         host_payload = {
+            "agent": agent,
             "workspace_path": workspace_path,
             "prompt": prompt,
             "mode": "read-only",
             "timeout_seconds": 480,
             "job_token": job_token,
         }
-        agent_label = "Codex (Direct)"
+        agent_label = f"{agent.title()} (Direct)"
     elif agent == "claude":
         host_path = "/runtimes/docker-sandbox/run"
         host_payload = {
@@ -423,6 +462,93 @@ def _get_workflow_name(workflow_id: str) -> str:
     return row["name"] if row else workflow_id
 
 
+DEFAULT_MAX_PARALLEL_NODES = 3
+
+
+def _max_parallel_nodes(nodes: list[dict]) -> int:
+    """Read the supervisor's delegation strategy to decide level concurrency."""
+    for node in nodes:
+        if node.get("type") == "supervisorAgent":
+            strategy = str((node.get("data") or {}).get("delegationStrategy") or "").strip()
+            if strategy in ("parallel_delegation", "parallel_delegation_later"):
+                return DEFAULT_MAX_PARALLEL_NODES
+            return 1
+    return 1
+
+
+def _run_approval_node(run_id: str, node: dict, workflow_name: str, workspace_path: str) -> bool:
+    """Handle a humanApproval node. Returns True to continue the run, False to stop."""
+    data = node.get("data") or {}
+    label = str(data.get("label") or node["id"])
+    existing_step = _latest_step_for_node(run_id, node["id"])
+
+    if existing_step and existing_step["status"] == "waiting_approval":
+        step_id = existing_step["id"]
+        approval = _approval_for_step(step_id)
+        approval_id = approval["id"] if approval else _write_approval_request(run_id, step_id, node)
+        if approval and approval["status"] == "approved":
+            _update_step(step_id, "completed", summary="Approved by human reviewer.")
+            _update_run_status(run_id, "running")
+            _write_log(run_id, "info", f"Approval already granted, continuing: {label}", {"approval_id": approval_id})
+            return True
+    else:
+        step_id = _write_step(run_id, node, "running")
+        _update_step(step_id, "waiting_approval", summary=str(data.get("reason") or "Awaiting approval."))
+        _update_run_status(run_id, "waiting_approval")
+        approval_id = _write_approval_request(run_id, step_id, node)
+        _write_log(run_id, "info", f"Paused at approval gate: {label}", {"approval_id": approval_id})
+
+    approval_result = _wait_for_approval(approval_id)
+    if approval_result != "approved":
+        if approval_result == "expired":
+            _update_step(step_id, "cancelled", error="Approval expired without response.")
+            _update_run_status(run_id, "cancelled")
+            _write_log(run_id, "warn", "Run cancelled: approval expired without response.")
+            linear_logger.log_run_failure(run_id, workflow_name, label, "Approval expired without response.", workspace_path)
+        else:
+            _update_step(step_id, "failed", error="Approval rejected or revision requested.")
+            _update_run_status(run_id, "failed")
+            _write_log(run_id, "warn", "Run stopped: approval rejected or revision requested.")
+            linear_logger.log_run_failure(run_id, workflow_name, label, "Approval rejected or revision requested.", workspace_path)
+        return False
+
+    _update_step(step_id, "completed", summary="Approved by human reviewer.")
+    _update_run_status(run_id, "running")
+    _write_log(run_id, "info", f"Approval granted, continuing: {label}")
+    return True
+
+
+def _run_single_node(run_id: str, node: dict, workspace_path: str, context: str) -> tuple[str, str]:
+    """Execute one agent/memory node. Returns (status, summary)."""
+    node_id = node["id"]
+    label = str((node.get("data") or {}).get("label") or node_id)
+    _write_log(run_id, "info", f"Starting node: {label}", {"node_id": node_id, "node_type": node.get("type", "unknown")})
+    step_id = _write_step(run_id, node, "running")
+    try:
+        status, stdout, summary = _execute_node(node, workspace_path, context, run_id)
+    except Exception as exc:
+        status, stdout, summary = "failed", "", f"Node execution raised: {exc}"
+
+    if status == "cancelled":
+        _update_step(step_id, "cancelled", summary="Cancelled mid-execution.")
+        _write_log(run_id, "info", f"Run cancelled during node: {label}")
+        return status, summary
+
+    _update_step(step_id, status, stdout=stdout, summary=summary, error=summary if status == "failed" else None)
+    _write_log(run_id, "info" if status == "completed" else "error", f"Node {label}: {status}", {"node_id": node_id})
+    return status, summary
+
+
+def _run_level(run_id: str, nodes: list[dict], workspace_path: str, context: str, max_parallel: int) -> list[tuple[dict, str, str]]:
+    """Execute a level's nodes, up to max_parallel concurrently. Returns [(node, status, summary)] in input order."""
+    if len(nodes) == 1 or max_parallel <= 1:
+        return [(node, *_run_single_node(run_id, node, workspace_path, context)) for node in nodes]
+
+    with ThreadPoolExecutor(max_workers=min(max_parallel, len(nodes))) as pool:
+        futures = [pool.submit(_run_single_node, run_id, node, workspace_path, context) for node in nodes]
+        return [(node, *future.result()) for node, future in zip(nodes, futures)]
+
+
 def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> None:
     nodes: list[dict] = graph.get("nodes") or []
     edges: list[dict] = graph.get("edges") or []
@@ -434,90 +560,61 @@ def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str
         linear_logger.log_run_failure(run_id, workflow_name, "—", "No nodes in workflow graph.", workspace_path)
         return
 
-    ordered = topological_order(nodes, edges)
-    _write_log(run_id, "info", f"Starting sequential run of {len(ordered)} nodes.", {"run_id": run_id})
+    levels = topological_levels(nodes, edges)
+    max_parallel = _max_parallel_nodes(nodes)
+    mode = "parallel" if max_parallel > 1 else "sequential"
+    _write_log(run_id, "info", f"Starting {mode} run: {len(nodes)} nodes across {len(levels)} levels.", {"run_id": run_id})
     _update_run_status(run_id, "running")
 
     accumulated_context = ""
 
-    for node in ordered:
-        # check for cancellation before starting each node
+    for level in levels:
         if _is_cancelled(run_id):
             _write_log(run_id, "info", "Run cancelled — stopping before next node.")
             return
 
-        node_id = node["id"]
-        node_type = node.get("type", "unknown")
-        data = node.get("data") or {}
-        label = str(data.get("label") or node_id)
-        existing_step = _latest_step_for_node(run_id, node_id)
-
-        if existing_step and existing_step["status"] == "completed":
-            if existing_step["summary"]:
-                accumulated_context += f"\n\n[{label}]\n{existing_step['summary']}"
-            continue
-
-        _write_log(run_id, "info", f"Starting node: {label}", {"node_id": node_id, "node_type": node_type})
-
-        if node_type == "humanApproval":
-            if existing_step and existing_step["status"] == "waiting_approval":
-                step_id = existing_step["id"]
-                approval = _approval_for_step(step_id)
-                approval_id = approval["id"] if approval else _write_approval_request(run_id, step_id, node)
-                if approval and approval["status"] == "approved":
-                    _update_step(step_id, "completed", summary="Approved by human reviewer.")
-                    _update_run_status(run_id, "running")
-                    _write_log(run_id, "info", f"Approval already granted, continuing: {label}", {"approval_id": approval_id})
-                    continue
+        # skip already-completed nodes (resume after approval / restart)
+        pending: list[dict] = []
+        for node in level:
+            label = str((node.get("data") or {}).get("label") or node["id"])
+            existing_step = _latest_step_for_node(run_id, node["id"])
+            if existing_step and existing_step["status"] == "completed":
+                if existing_step["summary"]:
+                    accumulated_context += f"\n\n[{label}]\n{existing_step['summary']}"
             else:
-                step_id = _write_step(run_id, node, "running")
-                _update_step(step_id, "waiting_approval", summary=str(data.get("reason") or "Awaiting approval."))
-                _update_run_status(run_id, "waiting_approval")
-                approval_id = _write_approval_request(run_id, step_id, node)
-                _write_log(run_id, "info", f"Paused at approval gate: {label}", {"approval_id": approval_id})
-
-            approval_result = _wait_for_approval(approval_id)
-            if approval_result != "approved":
-                if approval_result == "expired":
-                    _update_step(step_id, "cancelled", error="Approval expired without response.")
-                    _update_run_status(run_id, "cancelled")
-                    _write_log(run_id, "warn", "Run cancelled: approval expired without response.")
-                    linear_logger.log_run_failure(run_id, workflow_name, label, "Approval expired without response.", workspace_path)
-                else:
-                    _update_step(step_id, "failed", error="Approval rejected or revision requested.")
-                    _update_run_status(run_id, "failed")
-                    _write_log(run_id, "warn", "Run stopped: approval rejected or revision requested.")
-                    linear_logger.log_run_failure(run_id, workflow_name, label, "Approval rejected or revision requested.", workspace_path)
-                return
-
-            _update_step(step_id, "completed", summary="Approved by human reviewer.")
-            _update_run_status(run_id, "running")
-            _write_log(run_id, "info", f"Approval granted, continuing: {label}")
+                pending.append(node)
+        if not pending:
             continue
 
-        # write step as running
-        step_id = _write_step(run_id, node, "running")
+        if pending[0].get("type") == "humanApproval":
+            # approval gates are always singleton levels
+            label = str((pending[0].get("data") or {}).get("label") or pending[0]["id"])
+            _write_log(run_id, "info", f"Starting node: {label}", {"node_id": pending[0]["id"], "node_type": "humanApproval"})
+            if not _run_approval_node(run_id, pending[0], workflow_name, workspace_path):
+                return
+            continue
 
-        # execute node
-        status, stdout, summary = _execute_node(node, workspace_path, accumulated_context, run_id)
+        if len(pending) > 1 and max_parallel > 1:
+            _write_log(run_id, "info", f"Running {len(pending)} nodes in parallel (max {max_parallel} concurrent).")
 
-        if status == "cancelled":
-            _update_step(step_id, "cancelled", summary="Cancelled mid-execution.")
-            _write_log(run_id, "info", f"Run cancelled during node: {label}")
-            return
+        results = _run_level(run_id, pending, workspace_path, accumulated_context, max_parallel)
 
-        _update_step(step_id, status, stdout=stdout, summary=summary, error=summary if status == "failed" else None)
-        _write_log(run_id, "info" if status == "completed" else "error", f"Node {label}: {status}", {"node_id": node_id})
+        failed_label: str | None = None
+        failed_summary = ""
+        for node, status, summary in results:
+            label = str((node.get("data") or {}).get("label") or node["id"])
+            if status == "cancelled":
+                return
+            if status == "failed" and failed_label is None:
+                failed_label, failed_summary = label, summary
+            if status == "completed" and summary:
+                accumulated_context += f"\n\n[{label}]\n{summary}"
 
-        if status == "failed":
+        if failed_label is not None:
             _update_run_status(run_id, "failed")
-            _write_log(run_id, "error", f"Run failed at node: {label}")
-            linear_logger.log_run_failure(run_id, workflow_name, label, summary or "Node execution failed.", workspace_path)
+            _write_log(run_id, "error", f"Run failed at node: {failed_label}")
+            linear_logger.log_run_failure(run_id, workflow_name, failed_label, failed_summary or "Node execution failed.", workspace_path)
             return
-
-        # accumulate context for next nodes
-        if summary:
-            accumulated_context += f"\n\n[{label}]\n{summary}"
 
     _update_run_status(run_id, "completed")
     _write_log(run_id, "info", "Workflow run completed successfully.")

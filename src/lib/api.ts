@@ -116,6 +116,18 @@ export const api = {
     }),
   deleteWorkflow: (token: string, id: string) =>
     request<{ deleted: boolean; workflow_id: string }>(`/workflows/${id}`, { method: "DELETE", headers: authHeaders(token) }),
+  planWorkflow: (token: string, payload: { objective: string; supervisor_node_id: string; runtime: string; agent: string; workspace_path: string; system_instructions?: string; current_plan?: Record<string, unknown> | null; feedback?: string }) =>
+    request<WorkflowGraph>("/workflows/plan", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(payload),
+    }),
+  tuneNode: (token: string, payload: { node_data: Record<string, unknown>; instruction: string; runtime: string; agent: string; workspace_path: string }) =>
+    request<{ label: string; role: string; objective: string; systemInstructions: string }>("/workflows/plan/tune-node", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(payload),
+    }),
   publishTemplate: (token: string, id: string) =>
     request<Workflow>(`/workflows/${id}/publish-template`, { method: "PATCH", headers: authHeaders(token) }),
   unpublishTemplate: (token: string, id: string) =>

@@ -47,6 +47,7 @@ import { SpecialistAgentNode } from "@/components/workflow/nodes/SpecialistAgent
 import { SupervisorAgentNode } from "@/components/workflow/nodes/SupervisorAgentNode";
 import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
+import { layoutGeneratedSubgraph } from "@/lib/graph-layout";
 import type { WorkflowGraph } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -274,9 +275,12 @@ function BuilderInner({
   const saveStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const saveMutation = useMutation({
-    mutationFn: () => isNew
-      ? api.createWorkflow(token, { name: workflowName || "Untitled Workflow", description: workflowDescription, graph: { nodes, edges } })
-      : api.updateWorkflow(token, workflowId, { name: workflowName, description: workflowDescription, graph: { nodes, edges } }),
+    mutationFn: (graphOverride?: { nodes: Node[]; edges: Edge[] }) => {
+      const graph = graphOverride ?? { nodes, edges };
+      return isNew
+        ? api.createWorkflow(token, { name: workflowName || "Untitled Workflow", description: workflowDescription, graph })
+        : api.updateWorkflow(token, workflowId, { name: workflowName, description: workflowDescription, graph });
+    },
     onSuccess: (wf) => {
       setStatusMessage(`Saved "${wf.name}" at ${new Date().toLocaleTimeString()}.`);
       setSaveStatus("saved");
@@ -299,6 +303,106 @@ function BuilderInner({
       if (saveStatusTimer.current) clearTimeout(saveStatusTimer.current);
       saveStatusTimer.current = setTimeout(() => setSaveStatus("idle"), 4000);
     },
+  });
+
+  // ── smart supervisor planning ──────────────────────────────────────────────
+  // Reverse-map the generated subgraph back into the planner's plan schema so
+  // refinement prompts can reference the current plan without storing extra state.
+  const buildCurrentPlan = (sup: Node): Record<string, unknown> | null => {
+    const genNodes = nodes.filter((n) => (n.data as Record<string, unknown>)?.generatedBy === sup.id);
+    const specialists = genNodes.filter((n) => n.type === "specialistAgent");
+    if (!specialists.length) return null;
+    const prefix = `gen-${sup.id}-`;
+    const taskIdOf = (nodeId: string) => (nodeId.startsWith(prefix) ? nodeId.slice(prefix.length) : nodeId);
+    const specialistIds = new Set(specialists.map((n) => n.id));
+    const subtasks = specialists.map((n) => {
+      const d = n.data as Record<string, unknown>;
+      return {
+        id: taskIdOf(n.id),
+        label: String(d.label ?? ""),
+        role: String(d.role ?? ""),
+        objective: String(d.objective ?? ""),
+        depends_on: edges.filter((e) => e.target === n.id && specialistIds.has(e.source)).map((e) => taskIdOf(e.source)),
+      };
+    });
+    const gateNode = genNodes.find((n) => n.type === "humanApproval");
+    const memoryNode = genNodes.find((n) => n.type === "memory");
+    return {
+      subtasks,
+      approval_gate: gateNode
+        ? {
+            needed: true,
+            reason: String((gateNode.data as Record<string, unknown>)?.reason ?? ""),
+            after_task_ids: edges.filter((e) => e.target === gateNode.id && specialistIds.has(e.source)).map((e) => taskIdOf(e.source)),
+          }
+        : { needed: false },
+      memory_synthesis: memoryNode
+        ? { needed: true, label: String((memoryNode.data as Record<string, unknown>)?.label ?? "") }
+        : { needed: false },
+    };
+  };
+
+  const planMutation = useMutation({
+    mutationFn: ({ sup, feedback }: { sup: Node; feedback?: string }) => {
+      if (!selectedWorkspace) throw new Error("Select an approved repository first — the planner inspects it to ground the plan.");
+      const d = sup.data as Record<string, unknown>;
+      return api.planWorkflow(token, {
+        objective: String(d.objective ?? ""),
+        supervisor_node_id: sup.id,
+        runtime: String(d.runtime ?? "sandbox"),
+        agent: String(d.sandboxAgent ?? d.agent ?? "codex"),
+        workspace_path: selectedWorkspace.path,
+        system_instructions: String(d.systemInstructions ?? ""),
+        current_plan: feedback ? buildCurrentPlan(sup) : null,
+        feedback: feedback ?? "",
+      });
+    },
+    onSuccess: (graph, { sup }) => {
+      const genNodes = (graph.nodes ?? []) as Node[];
+      const genEdges = (graph.edges ?? []) as Edge[];
+      if (!genNodes.length) {
+        setStatusMessage("Planner returned no sub-agents — try refining the objective.");
+        return;
+      }
+      const removedIds = new Set(nodes.filter((n) => (n.data as Record<string, unknown>)?.generatedBy === sup.id).map((n) => n.id));
+      const keptNodes = nodes.filter((n) => !removedIds.has(n.id));
+      const keptEdges = edges.filter(
+        (e) => !removedIds.has(e.source) && !removedIds.has(e.target) && (e.data as Record<string, unknown>)?.generatedBy !== sup.id,
+      );
+      const mergedEdges = [...keptEdges, ...genEdges];
+      const anchor = keptNodes.find((n) => n.id === sup.id) ?? sup;
+      const mergedNodes = layoutGeneratedSubgraph([...keptNodes, ...genNodes], mergedEdges, anchor);
+      setNodes(mergedNodes);
+      setEdges(mergedEdges);
+      const specialistCount = genNodes.filter((n) => n.type === "specialistAgent").length;
+      setStatusMessage(`Generated ${specialistCount} specialist agents — review before running. Saving to database…`);
+      saveMutation.mutate({ nodes: mergedNodes, edges: mergedEdges });
+    },
+    onError: (err) => setStatusMessage(err instanceof Error ? err.message : "Planning failed."),
+  });
+
+  const tuneNodeMutation = useMutation({
+    mutationFn: ({ node, instruction }: { node: Node; instruction: string }) => {
+      if (!selectedWorkspace) throw new Error("Select an approved repository first.");
+      const d = node.data as Record<string, unknown>;
+      return api.tuneNode(token, {
+        node_data: {
+          label: String(d.label ?? ""),
+          role: String(d.role ?? ""),
+          objective: String(d.objective ?? ""),
+          systemInstructions: String(d.systemInstructions ?? ""),
+        },
+        instruction,
+        runtime: String(d.runtime ?? "sandbox"),
+        agent: String(d.sandboxAgent ?? d.agent ?? "codex"),
+        workspace_path: selectedWorkspace.path,
+      });
+    },
+    onSuccess: (updated, { node }) => {
+      setNodes((cur) => cur.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, ...updated } } : n)));
+      setStatusMessage(`Node "${updated.label}" tuned — review the updated config.`);
+    },
+    onError: (err) => setStatusMessage(err instanceof Error ? err.message : "Tuning failed."),
   });
 
   // ── connections ────────────────────────────────────────────────────────────
@@ -716,7 +820,17 @@ function BuilderInner({
 
             {/* Agent inspector */}
             <TabsContent value="agent" className="mt-0 p-4">
-              <AgentInspector node={selectedNode} onChange={onNodeChange} mcpServers={mcpServers} skills={allSkills} />
+              <AgentInspector
+                node={selectedNode}
+                onChange={onNodeChange}
+                mcpServers={mcpServers}
+                skills={allSkills}
+                onPlanWorkflow={(node, feedback) => planMutation.mutate({ sup: node, feedback })}
+                planPending={planMutation.isPending}
+                hasGeneratedPlan={Boolean(selectedNode && nodes.some((n) => (n.data as Record<string, unknown>)?.generatedBy === selectedNode.id))}
+                onTuneNode={(node, instruction) => tuneNodeMutation.mutate({ node, instruction })}
+                tunePending={tuneNodeMutation.isPending}
+              />
             </TabsContent>
 
             {/* Run timeline */}

@@ -153,6 +153,145 @@ requestRevision(token, runId, approvalId, note?)
 
 ---
 
+## Backend Parallel Execution (`backend/app/runtime/graph_runner.py`)
+
+The runner walks the graph **level by level** instead of node by node. Each
+level is a set of nodes whose dependencies are already satisfied, so they have
+no ordering constraint relative to each other.
+
+```python
+topological_levels(nodes, edges) -> list[list[node]]
+```
+
+- Depth of a node = `max(depth of its parents) + 1` (Kahn's algorithm, same
+  math as the frontend's `topoLayout`/`colMap`).
+- `humanApproval` nodes are always split into their own singleton level, so
+  the existing pause/resume/expiry machinery is untouched — a level either
+  contains only agent/memory nodes, or exactly one approval gate.
+
+Within a level, `_run_level(...)` executes nodes concurrently via
+`ThreadPoolExecutor`, bounded by `MAX_PARALLEL_NODES` (default 3):
+
+- A level with 1 node (or `max_parallel <= 1`) runs inline — no thread pool
+  overhead.
+- Each node's summary is appended to `accumulated_context` only **after** the
+  whole level joins, in deterministic node order — no cross-thread mutation
+  during execution.
+- If any node in a level fails, its siblings are allowed to finish first, then
+  the run is marked `failed`. This means resume-after-fix only has to re-run
+  the failed node — completed siblings are skipped via `_latest_step_for_node`.
+- Cancellation is checked between levels; in-flight nodes are killed by their
+  own progress-poller (`_poll_progress` → `_kill_job`) once it observes the
+  run's status flip to `cancelled`.
+
+### Turning parallelism on
+
+Concurrency is driven by the **supervisor node's `delegationStrategy`**:
+
+| `delegationStrategy` | `MAX_PARALLEL_NODES` | Behavior |
+|---|---|---|
+| `sequential_delegation` (default) | 1 | Levels still computed, but always run one node at a time — identical to the old sequential runner. |
+| `parallel_delegation` | 3 | Nodes sharing a dependency frontier run concurrently, up to 3 at once. |
+
+Set this in the Builder → select the Supervisor node → Agent tab →
+**Delegation strategy**.
+
+---
+
+## Smart Supervisor Planning (`backend/app/runtime/supervisor.py`)
+
+Instead of hand-wiring every specialist node, the Supervisor Agent can
+**decompose an objective into a subgraph automatically**, using its own
+configured CLI agent (Codex / Claude Code / Cursor, direct or sandboxed).
+
+### Flow
+
+1. In the Builder, select a **Supervisor Agent** node and fill in its
+   **Objective** field (e.g. *"Do a full security review of this repo:
+   code, dependencies, secrets, ending in a report"*).
+2. Click **Plan workflow**. The backend runs the supervisor's agent inside
+   the selected workspace with a planning prompt (see below), parses its
+   JSON response, and returns a specialist subgraph.
+3. The frontend lays the generated nodes out to the right of the supervisor
+   (`layoutGeneratedSubgraph` in `src/lib/graph-layout.ts`, built on the same
+   `topoLayout` column math used by the run view) and merges them into the
+   canvas. The generated workflow is **auto-saved to the database**, so it's
+   immediately runnable from the UI, `scripts/specter-agent`, or the API —
+   no separate "publish" step.
+4. Review/edit the generated nodes like any other node. Two refinement paths:
+   - **Refine plan** (on the supervisor): free-text feedback regenerates the
+     whole generated subgraph, replacing it in place.
+   - **Tune with prompt** (on each generated specialist): a short instruction
+     rewrites just that node's `label`/`role`/`objective`/`systemInstructions`.
+
+### Generated graph shape
+
+Every node/edge the planner creates is tagged `data.generatedBy: <supervisorNodeId>`,
+so re-planning or refining only touches nodes it created — manually added
+nodes and edges are never removed.
+
+```json
+{
+  "id": "gen-sup-1-code-review",
+  "type": "specialistAgent",
+  "data": {
+    "label": "Application Code Security Reviewer",
+    "role": "Secure code review",
+    "objective": "Review auth middleware and API routes for injection and access-control flaws.",
+    "runtime": "direct",
+    "sandboxAgent": "codex",
+    "generatedBy": "sup-1"
+  }
+}
+```
+
+Edges chain specialists per their `depends_on`; specialists with no
+dependencies connect directly from the supervisor. The planner may also emit
+a `humanApproval` node (gating the risky/final steps) and a `memory` node
+(durable summary) when warranted — both wired downstream of the specialists
+they cover.
+
+### Endpoints (`backend/app/routers/workflows.py`)
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /workflows/plan` | `{objective, supervisor_node_id, runtime, agent, workspace_path, system_instructions?, current_plan?, feedback?}` → `{nodes, edges}`. `current_plan`+`feedback` trigger a refinement instead of a fresh plan. |
+| `POST /workflows/plan/tune-node` | `{node_data, instruction, runtime, agent, workspace_path}` → updated `{label, role, objective, systemInstructions}` for one node. |
+
+Both call the host runner directly (`/runtimes/direct-cli/run` or
+`/runtimes/docker-sandbox/run`, whichever the supervisor is configured for),
+same dispatch path as normal node execution. Planning responses are validated
+strictly: JSON must be extractable (fenced or bare), every `depends_on` must
+reference a real subtask, and the dependency graph must be acyclic — bad
+output surfaces as `422` with a human-readable message instead of a garbled
+canvas.
+
+### Example: security review, end to end
+
+```bash
+# 1. Supervisor objective (set in the Builder UI):
+#    "Do a full security review of this repo: source code vulnerabilities,
+#     dependency risks, and secrets handling, ending in a consolidated report."
+#    Supervisor delegation strategy: parallel_delegation
+
+# 2. Click "Plan workflow" — the supervisor (Codex, direct) inspects the repo
+#    and returns something like:
+#      code-review, deps-audit, secrets-config, infra-deploy, test-qa   (parallel)
+#        └──────────────────────┬───────────────────────────────┘
+#                          report (depends on all five)
+#                     approval gate (after all five)
+#                        memory synthesis (final)
+
+# 3. Save happens automatically. Trigger it like any other workflow:
+scripts/specter-agent "Full Security Review" --workspace /path/to/target/repo
+
+# The five specialists run concurrently (parallel_delegation), the report
+# waits for all of them, a human approval gate pauses before the summary is
+# written to memory.
+```
+
+---
+
 ## Run Lifecycle
 
 ```

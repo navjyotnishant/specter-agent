@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { Node } from "@xyflow/react";
+import { Loader2, Sparkles } from "lucide-react";
 import type { McpServer, Skill } from "@/lib/types";
 
 const MONO: React.CSSProperties = { fontFamily: "ui-monospace, 'Cascadia Code', monospace" };
@@ -187,12 +189,24 @@ export function AgentInspector({
   onChange,
   mcpServers = [],
   skills = [],
+  onPlanWorkflow,
+  planPending = false,
+  hasGeneratedPlan = false,
+  onTuneNode,
+  tunePending = false,
 }: {
   node: Node | null;
   onChange: (updated: Node) => void;
   mcpServers?: McpServer[];
   skills?: Skill[];
+  onPlanWorkflow?: (node: Node, feedback?: string) => void;
+  planPending?: boolean;
+  hasGeneratedPlan?: boolean;
+  onTuneNode?: (node: Node, instruction: string) => void;
+  tunePending?: boolean;
 }) {
+  const [planFeedback, setPlanFeedback] = useState("");
+  const [tuneInstruction, setTuneInstruction] = useState("");
   if (!node) {
     return (
       <div className="flex h-48 items-center justify-center border border-[#e5e7eb]">
@@ -318,15 +332,74 @@ export function AgentInspector({
         {isSupervisor && (
           <Field label="Delegation strategy">
             <SelectField
-              value={String(d.delegationStrategy ?? "sequential_delegation")}
+              value={String(d.delegationStrategy ?? "sequential_delegation") === "parallel_delegation_later" ? "parallel_delegation" : String(d.delegationStrategy ?? "sequential_delegation")}
               onChange={(v) => patch({ delegationStrategy: v })}
               options={[
                 { value: "sequential_delegation", label: "Sequential delegation" },
-                { value: "parallel_delegation_later", label: "Parallel (planned)" },
+                { value: "parallel_delegation", label: "Parallel delegation" },
                 { value: "review_and_revise_later", label: "Review-and-revise (planned)" },
               ]}
             />
           </Field>
+        )}
+
+        {/* ── smart planning (supervisor only) ── */}
+        {isSupervisor && onPlanWorkflow && (
+          <>
+            <SectionHeader>Smart planning</SectionHeader>
+            <button
+              onClick={() => onPlanWorkflow(node)}
+              disabled={planPending || !String(d.objective ?? "").trim()}
+              className="flex w-full items-center justify-center gap-1.5 border border-[#0f1117] bg-[#0f1117] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#1f2937] disabled:cursor-not-allowed disabled:opacity-40"
+              style={MONO}
+              title={!String(d.objective ?? "").trim() ? "Set an objective first" : undefined}
+            >
+              {planPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {planPending ? "Planning… (can take 1–3 min)" : hasGeneratedPlan ? "Re-plan workflow" : "Plan workflow"}
+            </button>
+            <p className="text-[9px] leading-relaxed text-[#9ca3af]" style={MONO}>
+              Breaks the objective into specialist sub-agents and adds them to the canvas. Review and edit before running.
+            </p>
+            {hasGeneratedPlan && (
+              <Field label="Refine plan with feedback">
+                <TextArea value={planFeedback} onChange={setPlanFeedback} rows={2} />
+                <button
+                  onClick={() => { onPlanWorkflow(node, planFeedback); setPlanFeedback(""); }}
+                  disabled={planPending || !planFeedback.trim()}
+                  className="mt-1.5 flex w-full items-center justify-center gap-1.5 border border-[#d1d5db] bg-white px-3 py-1.5 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+                  style={MONO}
+                >
+                  {planPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  Refine plan
+                </button>
+                <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                  e.g. "merge the two audit tasks" or "add a test-writer step". Replaces the generated agents.
+                </p>
+              </Field>
+            )}
+          </>
+        )}
+
+        {/* ── prompt tuning for generated nodes ── */}
+        {isAgent && !isSupervisor && Boolean(d.generatedBy) && onTuneNode && (
+          <>
+            <SectionHeader>Tune with prompt</SectionHeader>
+            <Field label="Instruction">
+              <TextArea value={tuneInstruction} onChange={setTuneInstruction} rows={2} />
+              <button
+                onClick={() => { onTuneNode(node, tuneInstruction); setTuneInstruction(""); }}
+                disabled={tunePending || !tuneInstruction.trim()}
+                className="mt-1.5 flex w-full items-center justify-center gap-1.5 border border-[#d1d5db] bg-white px-3 py-1.5 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+                style={MONO}
+              >
+                {tunePending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                {tunePending ? "Tuning…" : "Tune node"}
+              </button>
+              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                e.g. "focus this reviewer on the auth module only". Updates this node's label, role, objective, and instructions.
+              </p>
+            </Field>
+          </>
         )}
 
         {/* ── MCP tools ── */}

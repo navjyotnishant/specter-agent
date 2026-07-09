@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
+import { topoLayout } from "@/lib/graph-layout";
 import type { RunStep, RunLog, RunApproval } from "@/lib/types";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -93,54 +94,6 @@ function nodeVisual(nodeType: string, role = "") {
   if (r.includes("secret")|| r.includes("config")) return { Icon: KeyRound,    label: "SPECIALIST" };
   if (r.includes("report")|| r.includes("writer")) return { Icon: FileBarChart2,label: "SPECIALIST" };
   return { Icon: Terminal, label: "SPECIALIST" };
-}
-
-// ── topological layout — assigns column (depth) to each node ─────────────────
-function topoLayout(nodes: Node[], edges: Edge[]): { nodes: Node[]; colMap: Record<string, number> } {
-  if (!nodes.length) return { nodes, colMap: {} };
-
-  const inDegree: Record<string, number> = {};
-  const children: Record<string, string[]> = {};
-  for (const n of nodes) { inDegree[n.id] = 0; children[n.id] = []; }
-  for (const e of edges) {
-    if (inDegree[e.target] !== undefined) inDegree[e.target]++;
-    if (children[e.source]) children[e.source].push(e.target);
-  }
-
-  const col: Record<string, number> = {};
-  const queue = nodes.filter((n) => inDegree[n.id] === 0).map((n) => n.id);
-  for (const id of queue) col[id] = 0;
-
-  let head = 0;
-  while (head < queue.length) {
-    const id = queue[head++];
-    for (const child of children[id] ?? []) {
-      col[child] = Math.max(col[child] ?? 0, (col[id] ?? 0) + 1);
-      if (--inDegree[child] === 0) queue.push(child);
-    }
-  }
-  for (const n of nodes) if (col[n.id] === undefined) col[n.id] = 0;
-
-  const byCol: Record<number, string[]> = {};
-  for (const n of nodes) { const c = col[n.id]; (byCol[c] = byCol[c] ?? []).push(n.id); }
-
-  const COL_GAP = 280;
-  const ROW_GAP = 160;
-  const NODE_H = 120;
-
-  const pos: Record<string, { x: number; y: number }> = {};
-  for (const [c, ids] of Object.entries(byCol)) {
-    const colIdx = Number(c);
-    const totalH = ids.length * NODE_H + (ids.length - 1) * (ROW_GAP - NODE_H);
-    ids.forEach((id, row) => {
-      pos[id] = { x: colIdx * COL_GAP, y: row * ROW_GAP - totalH / 2 + 200 };
-    });
-  }
-
-  return {
-    colMap: col,
-    nodes: nodes.map((n) => ({ ...n, position: pos[n.id] ?? n.position })),
-  };
 }
 
 // ── animated flow edge ────────────────────────────────────────────────────────

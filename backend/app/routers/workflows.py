@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.runtime.auth import require_user
+from app.runtime.supervisor import PlannerUnavailableError, plan_workflow, tune_node
 from app.runtime.workflows import create_workflow, delete_workflow, get_workflow, list_workflows, set_template_flag, update_workflow
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -13,9 +14,63 @@ class WorkflowRequest(BaseModel):
     graph: dict = {}
 
 
+class PlanRequest(BaseModel):
+    objective: str = Field(min_length=1, max_length=4000)
+    supervisor_node_id: str = Field(min_length=1)
+    runtime: str = "sandbox"
+    agent: str = "codex"
+    workspace_path: str = Field(min_length=1)
+    system_instructions: str = ""
+    current_plan: dict | None = None
+    feedback: str = ""
+
+
+class TuneNodeRequest(BaseModel):
+    node_data: dict
+    instruction: str = Field(min_length=1, max_length=2000)
+    runtime: str = "sandbox"
+    agent: str = "codex"
+    workspace_path: str = Field(min_length=1)
+
+
 @router.get("")
 def list_all_workflows(_: dict = Depends(require_user)) -> list[dict]:
     return list_workflows()
+
+
+@router.post("/plan")
+def plan_workflow_route(request: PlanRequest, _: dict = Depends(require_user)) -> dict:
+    try:
+        return plan_workflow(
+            objective=request.objective,
+            supervisor_node_id=request.supervisor_node_id,
+            runtime=request.runtime,
+            agent=request.agent,
+            workspace_path=request.workspace_path,
+            system_instructions=request.system_instructions,
+            current_plan=request.current_plan,
+            feedback=request.feedback,
+        )
+    except PlannerUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/plan/tune-node")
+def tune_node_route(request: TuneNodeRequest, _: dict = Depends(require_user)) -> dict:
+    try:
+        return tune_node(
+            node_data=request.node_data,
+            instruction=request.instruction,
+            runtime=request.runtime,
+            agent=request.agent,
+            workspace_path=request.workspace_path,
+        )
+    except PlannerUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.post("")
