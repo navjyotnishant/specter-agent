@@ -13,6 +13,8 @@ approval gate, and the Workflows page run-management UX.
 
 ## Workflows Page (`src/pages/Workflows.tsx`)
 
+![Workflows list — My Workflows tab showing four workflows with node counts, last-run status, and row actions](/img/workflow-execution/workflows-list.png)
+
 ### Layout
 
 - **My Workflows** tab — user-created workflows, runnable, editable, publishable.
@@ -37,6 +39,47 @@ This prevents concurrent runs and editing a live workflow graph mid-execution.
 
 Clicking a row expands an inline history panel showing up to 20 recent runs per
 workflow, each with status badge, start time, and a link to the full run view.
+
+---
+
+## Workflow Builder (`src/pages/WorkflowBuilder.tsx`)
+
+The Builder is a three-column layout: a drag-and-drop palette on the left, a
+React Flow canvas in the center, and a per-node inspector on the right.
+
+![Workflow Builder — Security Review Team graph on the canvas, with the palette (Agents, Control Flow, Memory, Notifications categories) on the left](/img/workflow-execution/workflow-builder.png)
+
+The palette groups nodes by category:
+
+- **Agents** — Generic Supervisor, Smart Supervisor (LLM-driven planning),
+  Specialist Agent, Report Writer (pre-attaches the "Standard Report Format"
+  skill), Aggregator (combines parallel-branch outputs).
+- **Control Flow** — Human Approval, Conditional (branches the graph on a
+  yes/no LLM judgment).
+- **Memory** — Write Memory.
+- **Notifications** — Webhook (POSTs a payload to an external URL).
+
+Clicking a node opens its config in the right-hand **Agent** tab. Required
+fields (Label, Objective) are marked with a red asterisk and show a validation
+message when empty:
+
+![Agent inspector panel for a specialist node — Identity, Skills (with the seeded Standard Report Format skill), System Instructions, Runtime (execution mode, agent, model, memory scope, max iterations), and a read-only MCP Tools list](/img/workflow-execution/agent-inspector.png)
+
+Notable fields:
+
+- **Skills** — reusable prompt fragments, applied to the agent's prompt
+  *before* System Instructions. Attaching a skill shows a hint under System
+  Instructions ("N skill(s) attached — its instructions are included
+  automatically").
+- **Runtime** — execution mode (Docker Sandbox vs. Direct CLI), agent
+  (Codex / Claude Code / Cursor), and a model dropdown scoped to the selected
+  agent's real model list.
+- **Memory scope** — `workflow` / `team` / `agent_private`; determines who can
+  read this node's output back via memory in later steps.
+- **Max iterations** — retry attempts on failure (`1` = no retry).
+- **MCP Tools** — read-only. MCP servers are configured globally per agent CLI
+  in Connectors, not per node, so this list is informational rather than an
+  editable per-node selection.
 
 ---
 
