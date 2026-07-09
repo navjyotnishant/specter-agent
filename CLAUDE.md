@@ -8,6 +8,16 @@
 > ```
 > Verify the container restarted before reporting anything as done. Never skip this step. Never ask the user if they want a rebuild — just do it.
 
+## MANDATORY: Sync docs + screenshots before every push
+
+> **Before running `git push` — no exceptions — run the `screenshot-docs-sync`
+> global skill** (`~/.claude/skills/screenshot-docs-sync/SKILL.md`) to detect
+> UI-relevant changes since the docs were last updated and refresh the
+> affected pages/screenshots under `docs/`. Commit the doc update as its own
+> `docs:` commit, then push everything upstream together. The skill itself
+> decides whether a re-sync is needed (backend-only/test-only/docs-only diffs
+> need none) — don't skip invoking it preemptively.
+
 ## Canonical rules
 
 All AI agent rules for this repository are defined in [AGENTS.md](AGENTS.md).

@@ -158,6 +158,15 @@ feature/<issue-key-or-short-name> -> main -> production target
 - Prefer feature branches tied to the relevant issue key when issue tracking is active.
 - Never force-push protected branches.
 - Before every push, do a quick code review of the changes: focus on bugs, regressions, missing validation, and security issues.
+- Before every push, run the `screenshot-docs-sync` skill (global skill,
+  `~/.claude/skills/screenshot-docs-sync/SKILL.md`) to detect UI-relevant
+  changes since the docs were last updated, refresh any affected screenshots
+  under `docs/static/img/`, and edit the corresponding page(s) under
+  `docs/docs/`. Commit the resulting documentation update as its own commit
+  (`docs: ...`) before pushing, then push everything upstream together. Skip
+  this step only when the diff has no UI-relevant changes (backend-only,
+  test-only, or docs-only changes need no re-sync) — the skill itself
+  determines this; don't skip it preemptively.
 
 ---
 
