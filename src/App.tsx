@@ -3,11 +3,10 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { History, Settings, Sparkles } from "lucide-react";
+import { Settings, Sparkles } from "lucide-react";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
 import { AuthProvider } from "./lib/auth";
-import Approvals from "./pages/Approvals";
 import Connectors from "./pages/Connectors";
 import Dashboard from "./pages/Dashboard";
 import Index from "./pages/Index";
@@ -19,6 +18,7 @@ import Setup from "./pages/Setup";
 import Skills from "./pages/Skills";
 import Users from "./pages/Users";
 import WorkflowBuilder from "./pages/WorkflowBuilder";
+import WorkflowRun from "./pages/WorkflowRun";
 import Workflows from "./pages/Workflows";
 
 const queryClient = new QueryClient();
@@ -36,6 +36,7 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/workflowssecurity-review-team/builder" element={<Navigate to="/workflows/security-review-team/builder" replace />} />
             <Route element={<ProtectedRoute />}>
+              <Route path="/workflows/:workflowId/run/:runId" element={<WorkflowRun />} />
               <Route element={<AppShell />}>
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/workflows" element={<Workflows />} />
@@ -44,9 +45,6 @@ const App = () => (
                 <Route path="/skills" element={<Skills />} />
 
                 <Route path="/skills/:skillId" element={<PlaceholderPage title="Skill detail" description="Inspect compatibility, default model hints, prompt behavior, and safety requirements for a reusable skill." icon={Sparkles} items={["Prompt template", "Agent compatibility", "Default model", "Tool requirements"]} />} />
-                <Route path="/runs" element={<PlaceholderPage title="Workflow runs" description="Audit manual and scheduled executions with live agent logs, memory writes, approval events, and artifacts." icon={History} items={["Live run console", "Agent timeline", "Step timeline", "Artifacts and final reports"]} />} />
-                <Route path="/runs/:runId" element={<PlaceholderPage title="Run detail" description="Review a single workflow run, including agent messages, memory entries, approval decisions, and final output." icon={History} items={["Agent messages", "Shared memory", "Approval history", "Final security report"]} />} />
-                <Route path="/approvals" element={<Approvals />} />
                 <Route path="/settings/models" element={<Models />} />
                 <Route path="/settings/connectors" element={<Connectors />} />
 

@@ -1,7 +1,7 @@
-import { Database, EyeOff } from "lucide-react";
+import { EyeOff } from "lucide-react";
 import type { MemoryEntry } from "@/lib/types";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+const MONO: React.CSSProperties = { fontFamily: "ui-monospace, 'Cascadia Code', monospace" };
 
 const sampleMemory: MemoryEntry[] = [
   {
@@ -26,27 +26,54 @@ const sampleMemory: MemoryEntry[] = [
   },
 ];
 
+const scopeColor: Record<string, string> = {
+  workflow: "#6366f1",
+  team: "#0ea5e9",
+  agent_private: "#6b7280",
+};
+
 export function MemoryPanel({ entries = sampleMemory }: { entries?: MemoryEntry[] }) {
   return (
-    <Card className="rounded-[2rem] border-cyan-100 bg-cyan-50/70">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-xl font-black text-slate-950"><Database className="h-5 w-5 text-cyan-700" /> Structured memory</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {entries.map((entry) => (
-          <div key={entry.id} className="rounded-3xl border border-cyan-100 bg-white/80 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="font-black text-slate-950">{entry.key}</h4>
-              <div className="flex gap-2">
-                <Badge className="rounded-full bg-cyan-100 text-cyan-800 hover:bg-cyan-100">{entry.scope}</Badge>
-                <Badge variant="outline" className="rounded-full bg-white"><EyeOff className="mr-1 h-3 w-3" /> {entry.sensitivity_label}</Badge>
+    <div className="border border-[#e5e7eb]" style={MONO}>
+      <div className="border-b border-[#e5e7eb] px-4 py-2.5">
+        <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]">Structured memory</p>
+        <p className="mt-0.5 text-[10px] text-[#6b7280]">{entries.length} entr{entries.length === 1 ? "y" : "ies"} · demo run</p>
+      </div>
+
+      <div className="divide-y divide-[#f3f4f6]">
+        {entries.map((entry) => {
+          const isMasked = entry.sensitivity_label === "sensitive_masked";
+          const color = scopeColor[entry.scope] ?? "#6b7280";
+          return (
+            <div key={entry.id} className="px-4 py-3">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[11px] font-semibold text-[#111827]">{entry.key}</p>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span
+                    className="border px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide"
+                    style={{ borderColor: `${color}40`, color, background: `${color}0d` }}
+                  >
+                    {entry.scope}
+                  </span>
+                  {isMasked && (
+                    <span className="flex items-center gap-1 border border-[#fcd34d] bg-[#fffbeb] px-1.5 py-[1px] text-[9px] text-[#92400e]">
+                      <EyeOff className="h-2.5 w-2.5" /> masked
+                    </span>
+                  )}
+                </div>
               </div>
+              <p className="mt-1.5 text-[10px] leading-relaxed text-[#6b7280]">{entry.value_text}</p>
+              <p className="mt-1.5 text-[9px] text-[#9ca3af]">
+                {entry.created_by_agent ?? "runtime"} · {new Date(entry.created_at).toLocaleTimeString()}
+              </p>
             </div>
-            <p className="mt-2 text-sm leading-6 text-slate-700">{entry.value_text}</p>
-            <p className="mt-2 text-xs font-semibold text-slate-500">Written by {entry.created_by_agent ?? "runtime"}</p>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
+          );
+        })}
+      </div>
+
+      <div className="border-t border-[#e5e7eb] px-4 py-2.5">
+        <p className="text-[10px] text-[#9ca3af]">Memory is populated during a live workflow run.</p>
+      </div>
+    </div>
   );
 }

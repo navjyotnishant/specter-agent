@@ -46,7 +46,8 @@
       "id": "approval-final-report",
       "type": "humanApproval",
       "label": "Approve final report",
-      "reason": "Pause before final report generation and external updates."
+      "reason": "Pause before final report generation and external updates.",
+      "timeoutHours": 24
     },
     {
       "id": "report-writer",

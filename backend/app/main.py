@@ -7,8 +7,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.db.session import initialize_database
-from app.routers import agents, approvals, auth, connectors, health, memory, model_providers, skills, workflows
-from app.runtime.workflows import seed_security_review_workflow
+from app.routers import agents, approvals, auth, connectors, health, memory, model_providers, runs, runtime_adapters, skills, workflows
+from app.runtime.graph_runner import recover_approved_waiting_runs
+from app.runtime.workflows import seed_security_review_workflow, seed_claude_code_review_workflow
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -26,17 +27,21 @@ app.add_middleware(
 def on_startup() -> None:
     initialize_database()
     seed_security_review_workflow()
+    seed_claude_code_review_workflow()
+    recover_approved_waiting_runs()
 
 
 app.include_router(health.router, prefix=settings.api_prefix)
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(model_providers.router, prefix=settings.api_prefix)
+app.include_router(runtime_adapters.router, prefix=settings.api_prefix)
 app.include_router(skills.router, prefix=settings.api_prefix)
 app.include_router(connectors.router, prefix=settings.api_prefix)
 app.include_router(workflows.router, prefix=settings.api_prefix)
 app.include_router(agents.router, prefix=settings.api_prefix)
 app.include_router(approvals.router, prefix=settings.api_prefix)
 app.include_router(memory.router, prefix=settings.api_prefix)
+app.include_router(runs.router, prefix=settings.api_prefix)
 
 frontend_dir = Path("/app/frontend")
 if frontend_dir.exists():

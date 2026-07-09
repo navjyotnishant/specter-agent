@@ -1,0 +1,50 @@
+{
+  "id": "claude-code-review",
+  "name": "Claude Code Review",
+  "description": "Three-phase code review using Claude Code: repository scan, code and security review, then human approval before the final summary.",
+  "category": "review",
+  "nodes": [
+    {
+      "id": "repo-scan",
+      "type": "specialistAgent",
+      "label": "Repository Scanner",
+      "role": "Repository analyst",
+      "agent": "claude",
+      "skills": [],
+      "tools": ["local-codebase"],
+      "memory_scope": "workflow"
+    },
+    {
+      "id": "code-review",
+      "type": "specialistAgent",
+      "label": "Code Reviewer",
+      "role": "Code reviewer",
+      "agent": "claude",
+      "skills": [],
+      "tools": ["local-codebase"],
+      "memory_scope": "workflow"
+    },
+    {
+      "id": "approval-gate",
+      "type": "humanApproval",
+      "label": "Approve review findings",
+      "reason": "Review the findings from the repository scan and code review before generating the final summary.",
+      "timeoutHours": 24
+    },
+    {
+      "id": "summary-writer",
+      "type": "specialistAgent",
+      "label": "Summary Writer",
+      "role": "Review summariser",
+      "agent": "claude",
+      "skills": [],
+      "tools": ["local-codebase"],
+      "memory_scope": "workflow"
+    }
+  ],
+  "edges": [
+    ["repo-scan", "code-review"],
+    ["code-review", "approval-gate"],
+    ["approval-gate", "summary-writer"]
+  ]
+}

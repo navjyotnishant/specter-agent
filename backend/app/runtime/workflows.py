@@ -5,8 +5,8 @@ from uuid import uuid4
 from app.db.session import db_session
 
 
-def seed_security_review_workflow() -> None:
-    template_path = Path(__file__).resolve().parent.parent / "templates" / "security_review_team.json"
+def _seed_template(filename: str) -> None:
+    template_path = Path(__file__).resolve().parent.parent / "templates" / filename
     template = json.loads(template_path.read_text(encoding="utf-8"))
 
     graph = {
@@ -38,6 +38,14 @@ def seed_security_review_workflow() -> None:
                 json.dumps(graph),
             ),
         )
+
+
+def seed_security_review_workflow() -> None:
+    _seed_template("security_review_team.json")
+
+
+def seed_claude_code_review_workflow() -> None:
+    _seed_template("claude_code_review.json")
 
 
 def create_workflow(name: str, description: str, graph: dict) -> dict:
@@ -72,6 +80,16 @@ def update_workflow(workflow_id: str, name: str, description: str, graph: dict) 
             WHERE id = ?
             """,
             (name, description, json.dumps(graph), workflow_id),
+        )
+        row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    return _serialize_workflow(row) if row else None
+
+
+def set_template_flag(workflow_id: str, is_template: bool) -> dict | None:
+    with db_session() as db:
+        db.execute(
+            "UPDATE workflows SET is_template = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (1 if is_template else 0, workflow_id),
         )
         row = db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
     return _serialize_workflow(row) if row else None

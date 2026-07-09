@@ -8,6 +8,11 @@ services:
       SDLC_DATABASE_PATH: /app/data/app.db
       SDLC_DATA_DIR: /app/data
       SDLC_ARTIFACTS_DIR: /app/artifacts
+      SDLC_HOST_RUNNER_URL: http://host.docker.internal:8765
+      # Linear integration — set this to enable automatic failure logging
+      SDLC_LINEAR_API_TOKEN: ${LINEAR_API_TOKEN:-}
+      SDLC_LINEAR_TEAM_ID: ${LINEAR_TEAM_ID:-SPE}
+      SDLC_LINEAR_PROJECT_NAME: ${LINEAR_PROJECT_NAME:-specter-agent}
     volumes:
       # Persistent host-mounted state. Do not remove these mounts unless you
       # intentionally want the container to run without durable local data.
