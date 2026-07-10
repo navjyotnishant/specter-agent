@@ -45,17 +45,23 @@ workflow, each with status badge, start time, and a link to the full run view.
 ## Workflow Builder (`src/pages/WorkflowBuilder.tsx`)
 
 The Builder is a three-column layout: a drag-and-drop palette on the left, a
-React Flow canvas in the center, and a per-node inspector on the right.
+React Flow canvas in the center, and a per-node inspector on the right (the
+inspector is drag-resizable from its left edge). A breadcrumb
+(`Workflows › <name>`) links back to the list, and the toolbar includes
+**Tidy layout** (auto-arranges nodes into topological columns), template
+loading, an auto-save toggle, and Run/History actions. Deleting a selection
+from the toolbar asks for confirmation; keyboard Delete stays immediate.
 
 ![Workflow Builder — Security Review Team graph on the canvas, with the palette (Agents, Control Flow, Memory, Notifications categories) on the left](/img/workflow-execution/workflow-builder.png)
 
-The palette groups nodes by category:
+The palette groups nodes by category (each item shows a one-line description):
 
 - **Agents** — Generic Supervisor, Smart Supervisor (LLM-driven planning),
   Specialist Agent, Report Writer (pre-attaches the "Standard Report Format"
   skill), Aggregator (combines parallel-branch outputs).
 - **Control Flow** — Human Approval, Conditional (branches the graph on a
-  yes/no LLM judgment).
+  yes/no LLM judgment; its true/false edges are labeled in green/red on the
+  canvas).
 - **Memory** — Write Memory.
 - **Notifications** — Webhook (POSTs a payload to an external URL).
 
