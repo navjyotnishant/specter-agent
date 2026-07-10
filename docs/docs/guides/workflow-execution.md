@@ -76,7 +76,12 @@ Notable fields:
 - **Skills** — reusable prompt fragments, applied to the agent's prompt
   *before* System Instructions. Attaching a skill shows a hint under System
   Instructions ("N skill(s) attached — its instructions are included
-  automatically").
+  automatically"). Ten SDLC skills ship built-in — Secure Code Review,
+  PR-Readiness Review, Performance Review, Dependency Risk Audit,
+  Secrets & Config Review, Test Gap Analysis, Error Handling & Observability
+  Review, Release Notes Writer, Breaking Change Detector, Deployment Risk
+  Assessment, plus Standard Report Format — all editable in the Skills page
+  (edits survive restarts; deleted built-ins are re-seeded).
 - **Runtime** — execution mode (Docker Sandbox vs. Direct CLI), agent
   (Codex / Claude Code / Cursor), and a model dropdown scoped to the selected
   agent's real model list.
