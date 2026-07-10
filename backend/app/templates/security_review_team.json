@@ -55,7 +55,7 @@
       "type": "specialistAgent",
       "label": "Report Writer Agent",
       "role": "Security report writer",
-      "skills": ["security-report-writer"],
+      "skills": ["standard-report-format"],
       "memory_scope": "workflow"
     }
   ],

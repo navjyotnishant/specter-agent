@@ -9,7 +9,7 @@ from app.core.config import get_settings
 from app.db.session import initialize_database
 from app.routers import agents, approvals, auth, connectors, health, memory, model_providers, runs, runtime_adapters, skills, workflows
 from app.runtime.graph_runner import recover_approved_waiting_runs
-from app.runtime.skill_seeds import seed_standard_report_format_skill
+from app.runtime.skill_seeds import seed_builtin_skills
 from app.runtime.workflows import seed_security_review_workflow, seed_claude_code_review_workflow
 
 settings = get_settings()
@@ -29,7 +29,7 @@ def on_startup() -> None:
     initialize_database()
     seed_security_review_workflow()
     seed_claude_code_review_workflow()
-    seed_standard_report_format_skill()
+    seed_builtin_skills()
     recover_approved_waiting_runs()
 
 
