@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Brain, Code2, FileText, FlaskConical, KeyRound, PackageSearch, Wrench } from "lucide-react";
 import { useState } from "react";
+import { agentModelChip } from "./chip-utils";
 
 // Maps role keywords → accent color + icon
 function roleStyle(role: string): { color: string; bg: string; Icon: typeof Code2 } {
@@ -17,18 +18,20 @@ export function SpecialistAgentNode({ data, selected }: NodeProps) {
   const [editing, setEditing] = useState(false);
   const role = String(data.role ?? "");
   const { color, bg, Icon } = roleStyle(role);
+  const toolCount = Array.isArray(data.selectedTools) ? (data.selectedTools as string[]).length : Number(data.tools ?? 0);
+  const skillCount = Array.isArray(data.selectedSkills) ? (data.selectedSkills as string[]).length : Number(data.skills ?? 0);
 
   return (
     <div
       className={`w-[220px] bg-white ${selected ? "border-2 border-[#0f1117]" : "border border-[#d1d5db]"}`}
-      style={{ fontFamily: "ui-monospace, 'Cascadia Code', monospace", borderLeft: `3px solid ${color}` }}
+      style={{ borderLeft: `3px solid ${color}` }}
     >
       <Handle type="target" position={Position.Left} className="!h-2 !w-2 !rounded-none !border-0" style={{ background: color }} />
 
       {/* header — role-coloured */}
       <div className="flex items-center gap-2 border-b border-[#e5e7eb] px-3 py-2" style={{ background: bg }}>
         <Icon className="h-3.5 w-3.5 shrink-0" style={{ color }} />
-        <span className="truncate text-[10px] font-semibold uppercase tracking-widest" style={{ color }}>
+        <span className="truncate text-[11px] font-semibold uppercase tracking-widest" style={{ color }}>
           {role || "Specialist"}
         </span>
       </div>
@@ -55,17 +58,21 @@ export function SpecialistAgentNode({ data, selected }: NodeProps) {
 
         {/* stats row */}
         <div className="mt-2.5 flex flex-wrap gap-[3px]">
-          <span className="border border-[#e5e7eb] px-1.5 py-[3px] text-[10px] text-[#374151]">{String(data.model ?? "codex-cli")}</span>
-          <span className="flex items-center gap-1 border border-[#e5e7eb] px-1.5 py-[3px] text-[10px] text-[#374151]">
-            <Wrench className="h-2.5 w-2.5" />{Array.isArray(data.selectedTools) ? (data.selectedTools as string[]).length : (data.tools ?? 0)}
-          </span>
-          <span className="flex items-center gap-1 border border-[#e5e7eb] px-1.5 py-[3px] text-[10px] text-[#374151]">
-            <Brain className="h-2.5 w-2.5" />{Array.isArray(data.selectedSkills) ? (data.selectedSkills as string[]).length : (data.skills ?? 0)}
-          </span>
+          <span className="border border-[#e5e7eb] px-1.5 py-[3px] font-mono text-[10px] text-[#374151]">{agentModelChip(data)}</span>
+          {toolCount > 0 && (
+            <span className="flex items-center gap-1 border border-[#e5e7eb] px-1.5 py-[3px] text-[10px] text-[#374151]">
+              <Wrench className="h-2.5 w-2.5" />{toolCount}
+            </span>
+          )}
+          {skillCount > 0 && (
+            <span className="flex items-center gap-1 border border-[#e5e7eb] px-1.5 py-[3px] text-[10px] text-[#374151]">
+              <Brain className="h-2.5 w-2.5" />{skillCount}
+            </span>
+          )}
         </div>
 
         <div className="mt-2 border-t border-[#f3f4f6] pt-2">
-          <span className="text-[9px] uppercase tracking-widest text-[#9ca3af]">memory</span>
+          <span className="text-[10px] uppercase tracking-widest text-[#9ca3af]">memory</span>
           <span className="ml-2 text-[10px] text-[#374151]">{String(data.memoryScope ?? "workflow")}</span>
         </div>
       </div>

@@ -13,9 +13,9 @@ MAX_SUBTASKS = 10
 
 PLAN_SCHEMA_EXAMPLE = """{
   "subtasks": [
-    {"id": "code-review", "label": "Code Security Reviewer", "role": "Secure code review", "objective": "Review auth middleware and API routes for injection and access-control flaws.", "depends_on": []},
-    {"id": "deps-audit", "label": "Dependency Auditor", "role": "Dependency auditor", "objective": "Check dependency manifests for vulnerable or outdated packages.", "depends_on": []},
-    {"id": "report", "label": "Report Writer", "role": "Report writer", "objective": "Aggregate all findings into a severity-rated report.", "depends_on": ["code-review", "deps-audit"]}
+    {"id": "code-review", "label": "Code Security Reviewer", "role": "Auth middleware reviewer", "objective": "Review auth middleware and API routes for injection and access-control flaws.", "depends_on": []},
+    {"id": "deps-audit", "label": "Dependency Auditor", "role": "Dependency vulnerability auditor", "objective": "Check dependency manifests for vulnerable or outdated packages.", "depends_on": []},
+    {"id": "report", "label": "Report Writer", "role": "Findings report writer", "objective": "Aggregate all findings into a severity-rated report.", "depends_on": ["code-review", "deps-audit"]}
   ],
   "approval_gate": {"needed": true, "reason": "Review findings before the final report is written.", "after_task_ids": ["code-review", "deps-audit"]},
   "memory_synthesis": {"needed": true, "label": "Write review summary"}
@@ -236,8 +236,12 @@ def _build_planning_prompt(objective: str, system_instructions: str, current_pla
     )
     parts.append(
         "Decompose the objective into 3-7 subtasks, each handled by one specialist agent. "
-        "Where applicable prefer these role archetypes: code review, dependency/audit, "
-        "secrets/config, test/QA, report/writer. Rules: tasks that are independent must have "
+        "Give every subtask a UNIQUE, specific role: a 2-4 word descriptor of what that agent "
+        "does (e.g. 'Auth middleware reviewer', not 'code review'). No two subtasks may share "
+        "the same role. These archetype categories exist only so the UI can pick an icon and "
+        "color — code review, dependency/audit, secrets/config, test/QA, report/writer — pick "
+        "the closest category when wording each role, but the role string itself must be "
+        "distinct and task-specific. Rules: tasks that are independent must have "
         "disjoint depends_on lists (they will run in parallel); a task that consumes another "
         "task's output must list that task in depends_on; a final aggregation/report task must "
         "depend on every task it summarizes. Recommend an approval_gate before any final report "

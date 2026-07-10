@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   addEdge,
   Background,
@@ -30,6 +30,7 @@ import {
   GitBranch,
   GitMerge,
   History,
+  LayoutGrid,
   Loader2,
   Play,
   Save,
@@ -48,12 +49,22 @@ import { SupervisorAgentNode } from "@/components/workflow/nodes/SupervisorAgent
 import { WebhookNode } from "@/components/workflow/nodes/WebhookNode";
 import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { layoutGeneratedSubgraph } from "@/lib/graph-layout";
+import { layoutGeneratedSubgraph, topoLayout } from "@/lib/graph-layout";
 import type { WorkflowGraph } from "@/lib/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const MONO: React.CSSProperties = { fontFamily: "ui-monospace, 'Cascadia Code', monospace" };
 
 // ── node type registry ──────────────────────────────────────────────────────
 const nodeTypes = {
@@ -102,34 +113,34 @@ const presetDefaults: Record<string, Record<string, unknown>> = {
 };
 
 // ── palette definition ──────────────────────────────────────────────────────
-const palette: { category: string; items: { icon: typeof Bot; label: string; nodeType: string; presetKey?: string }[] }[] = [
+const palette: { category: string; items: { icon: typeof Bot; label: string; nodeType: string; presetKey?: string; description: string }[] }[] = [
   {
     category: "Agents",
     items: [
-      { icon: ShieldCheck, label: "Generic Supervisor", nodeType: "supervisorAgent" },
-      { icon: Sparkles, label: "Smart Supervisor", nodeType: "supervisorAgent", presetKey: "smartSupervisor" },
-      { icon: Bot, label: "Specialist Agent", nodeType: "specialistAgent" },
-      { icon: FileText, label: "Report Writer", nodeType: "specialistAgent", presetKey: "reportWriter" },
-      { icon: GitMerge, label: "Aggregator", nodeType: "specialistAgent", presetKey: "aggregator" },
+      { icon: ShieldCheck, label: "Generic Supervisor", nodeType: "supervisorAgent", description: "Coordinates specialists you wire up yourself" },
+      { icon: Sparkles, label: "Smart Supervisor", nodeType: "supervisorAgent", presetKey: "smartSupervisor", description: "Plans a specialist workflow from an objective" },
+      { icon: Bot, label: "Specialist Agent", nodeType: "specialistAgent", description: "Runs one focused task in the sandbox" },
+      { icon: FileText, label: "Report Writer", nodeType: "specialistAgent", presetKey: "reportWriter", description: "Aggregates prior findings into a report" },
+      { icon: GitMerge, label: "Aggregator", nodeType: "specialistAgent", presetKey: "aggregator", description: "Merges parallel branches into one summary" },
     ],
   },
   {
     category: "Control Flow",
     items: [
-      { icon: CheckCircle2, label: "Human Approval", nodeType: "humanApproval" },
-      { icon: GitBranch, label: "Conditional", nodeType: "conditional" },
+      { icon: CheckCircle2, label: "Human Approval", nodeType: "humanApproval", description: "Pauses the run until a human approves" },
+      { icon: GitBranch, label: "Conditional", nodeType: "conditional", description: "Branches the flow on a true/false check" },
     ],
   },
   {
     category: "Memory",
     items: [
-      { icon: Database, label: "Write Memory", nodeType: "memory" },
+      { icon: Database, label: "Write Memory", nodeType: "memory", description: "Persists a summary to workflow memory" },
     ],
   },
   {
     category: "Notifications",
     items: [
-      { icon: Webhook, label: "Webhook", nodeType: "webhook" },
+      { icon: Webhook, label: "Webhook", nodeType: "webhook", description: "Notifies an external URL when reached" },
     ],
   },
 ];
@@ -156,6 +167,23 @@ const defaultEdges: Edge[] = [
   { id: "e5", source: "secrets",     target: "report",      type: "smoothstep" },
 ];
 
+// ── conditional edge labels ──────────────────────────────────────────────────
+// Edges leaving a Conditional node's "true"/"false" handles get a colored label
+// so the branch semantics are visible on the canvas, not just at the handles.
+function withConditionLabel<T extends Edge | Connection>(edge: T): T {
+  const handle = (edge as Edge).sourceHandle;
+  if (handle !== "true" && handle !== "false") return edge;
+  const isTrue = handle === "true";
+  return {
+    ...edge,
+    label: handle,
+    labelStyle: { fill: isTrue ? "#059669" : "#dc2626", fontSize: 9, fontWeight: 700 },
+    labelBgStyle: { fill: isTrue ? "#ecfdf5" : "#fef2f2" },
+    labelBgPadding: [3, 2] as [number, number],
+    labelBgBorderRadius: 2,
+  } as T;
+}
+
 // ── normalizer ───────────────────────────────────────────────────────────────
 function normalizeGraph(graph?: Partial<WorkflowGraph>): { nodes: Node[]; edges: Edge[] } {
   if (!Array.isArray(graph?.nodes) || graph.nodes.length === 0) return { nodes: defaultNodes, edges: defaultEdges };
@@ -165,7 +193,7 @@ function normalizeGraph(graph?: Partial<WorkflowGraph>): { nodes: Node[]; edges:
     position: (raw.position as { x: number; y: number }) ?? { x: 100 + i * 240, y: 120 },
     data: (raw.data ?? {}) as Record<string, unknown>,
   })) as Node[];
-  const edges = (Array.isArray(graph?.edges) ? graph.edges : []) as Edge[];
+  const edges = ((Array.isArray(graph?.edges) ? graph.edges : []) as Edge[]).map(withConditionLabel);
   return { nodes, edges };
 }
 
@@ -174,19 +202,19 @@ let nodeCounter = 100;
 
 // ── small presentational helpers ─────────────────────────────────────────────
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-widest text-[#6b7280]" style={MONO}>{children}</p>;
+  return <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-[#6b7280]">{children}</p>;
 }
 function DataRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-[#f3f4f6] py-1.5 last:border-b-0">
-      <span className="text-[10px] text-[#9ca3af]" style={MONO}>{label}</span>
-      <span className="text-[10px] font-medium text-[#111827]" style={MONO}>{value}</span>
+      <span className="text-[10px] text-[#9ca3af]">{label}</span>
+      <span className="text-[10px] font-medium text-[#111827]">{value}</span>
     </div>
   );
 }
 function GateDot({ ok, label }: { ok: boolean; label: string }) {
   return (
-    <span className="flex items-center gap-1 text-[9px] text-[#6b7280]" title={ok ? `${label}: ready` : `${label}: required`}>
+    <span className="flex items-center gap-1 text-[10px] text-[#6b7280]" title={ok ? `${label}: ready` : `${label}: required`}>
       <span className="block h-1.5 w-1.5 rounded-full" style={{ background: ok ? "#10b981" : "#f59e0b" }} />
       {label}
     </span>
@@ -206,7 +234,7 @@ function BuilderInner({
   publishOnSave?: boolean;
 }) {
   const isNew = workflowId === "new";
-  const { screenToFlowPosition, deleteElements } = useReactFlow();
+  const { screenToFlowPosition, deleteElements, fitView } = useReactFlow();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -221,6 +249,22 @@ function BuilderInner({
   const [statusMessage, setStatusMessage] = useState(isNew ? "New workflow — drag nodes from the palette to get started." : "Drag from the palette to add nodes.");
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [rightWidth, setRightWidth] = useState(300);
+  const rightDragging = useRef(false);
+  const rightStartX = useRef(0);
+  const rightStartW = useRef(0);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!rightDragging.current) return;
+      const delta = rightStartX.current - e.clientX;
+      setRightWidth(Math.max(280, Math.min(520, rightStartW.current + delta)));
+    };
+    const onUp = () => { rightDragging.current = false; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(() => {
     try { return localStorage.getItem(`specter_workspace_${workflowId}`) ?? ""; } catch { return ""; }
   });
@@ -256,7 +300,7 @@ function BuilderInner({
       try {
         const g = normalizeGraph(JSON.parse(saved));
         setNodes(g.nodes); setEdges(g.edges);
-        setStatusMessage("Graph restored from local storage. Click 'Save graph' to push to database.");
+        setStatusMessage("Draft restored — save to publish your latest edits.");
         graphLoadedRef.current = true;
         return;
       } catch { /* fall through to DB */ }
@@ -284,7 +328,7 @@ function BuilderInner({
     setNodes(g.nodes); setEdges(g.edges);
     setWorkflowName(workflowQuery.data.name);
     setWorkflowDescription(workflowQuery.data.description);
-    setStatusMessage(`Loaded "${workflowQuery.data.name}" from database.`);
+    setStatusMessage(`Loaded "${workflowQuery.data.name}".`);
     graphLoadedRef.current = true;
   }, [setEdges, setNodes, workflowQuery.data]);
 
@@ -420,7 +464,7 @@ function BuilderInner({
     },
     onSuccess: (graph, { sup }) => {
       const genNodes = (graph.nodes ?? []) as Node[];
-      const genEdges = (graph.edges ?? []) as Edge[];
+      const genEdges = ((graph.edges ?? []) as Edge[]).map(withConditionLabel);
       if (!genNodes.length) {
         setSupervisorPlanning(sup.id, false);
         setStatusMessage("Planner returned no sub-agents — try refining the objective.");
@@ -454,7 +498,7 @@ function BuilderInner({
         setNodes(finalNodes);
         setEdges(mergedEdges);
         const specialistCount = genNodes.filter((n) => n.type === "specialistAgent").length;
-        setStatusMessage(`Generated ${specialistCount} specialist agents — review before running. Saving to database…`);
+        setStatusMessage(`Generated ${specialistCount} specialist agents — review before running. Saving…`);
         saveMutation.mutate({ nodes: finalNodes, edges: mergedEdges });
       }, laidOutGenNodes.length * 220 + 150);
       revealTimers.current.push(finalizeTimer);
@@ -491,7 +535,7 @@ function BuilderInner({
 
   // ── connections ────────────────────────────────────────────────────────────
   const onConnect = useCallback(
-    (connection: Connection) => setEdges((cur) => addEdge({ ...connection, style: { stroke: "#9ca3af", strokeWidth: 1 } }, cur)),
+    (connection: Connection) => setEdges((cur) => addEdge(withConditionLabel({ ...connection, style: { stroke: "#9ca3af", strokeWidth: 1 } }), cur)),
     [setEdges],
   );
 
@@ -511,6 +555,8 @@ function BuilderInner({
   }, [setNodes]);
 
   // ── keyboard delete ────────────────────────────────────────────────────────
+  // Deliberately immediate (no confirm) — standard canvas UX; the toolbar
+  // Delete button carries the confirmation for accidental clicks instead.
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return;
@@ -581,6 +627,13 @@ function BuilderInner({
     if (selectedNodeId && selNodes.some((n) => n.id === selectedNodeId)) setSelectedNodeId(null);
   }, [nodes, edges, deleteElements, selectedNodeId]);
 
+  // ── auto-arrange the canvas into topological columns ──────────────────────
+  const tidyLayout = useCallback(() => {
+    setNodes((cur) => topoLayout(cur, edges).nodes);
+    requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
+    setStatusMessage("Layout tidied.");
+  }, [edges, setNodes, fitView]);
+
   const saveGraph = () => {
     if (!isNew) {
       try { localStorage.setItem(storageKey(workflowId), JSON.stringify({ nodes, edges })); } catch { /* ignore */ }
@@ -591,7 +644,7 @@ function BuilderInner({
       return;
     }
     if (!canUseBackend) {
-      setStatusMessage(`Saved to browser storage at ${new Date().toLocaleTimeString()}.`);
+      setStatusMessage("Changes saved locally (preview mode).");
       return;
     }
     saveMutation.mutate();
@@ -607,21 +660,26 @@ function BuilderInner({
   const allSkills = skillsQuery.data ?? [];
 
   return (
-    <div className="flex h-full flex-col" style={MONO} onKeyDown={onKeyDown} tabIndex={-1}>
+    <div className="flex h-full flex-col" onKeyDown={onKeyDown} tabIndex={-1}>
 
       {/* ── top bar ── */}
       <div className="flex items-start justify-between gap-4 border-b border-[#e5e7eb] bg-white px-5 py-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="border border-[#e5e7eb] px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-widest text-[#6b7280]">
-              {isNew ? "new · unsaved" : workflowQuery.data?.is_template ? "template" : "editable"}
+            <nav className="mr-1 flex items-center gap-1 text-[11px] text-[#9ca3af]">
+              <Link to="/workflows" className="hover:text-[#374151]">Workflows</Link>
+              <ChevronRight className="h-3 w-3" />
+              <span className="max-w-[240px] truncate text-[#374151]">{workflowName || "Untitled"}</span>
+            </nav>
+            <span className="border border-[#e5e7eb] px-1.5 py-[2px] text-[10px] font-semibold uppercase tracking-widest text-[#6b7280]">
+              {isNew ? "unsaved" : workflowQuery.data?.is_template ? "template" : "editable"}
             </span>
-            <span className="border px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-widest"
+            <span className="border px-1.5 py-[2px] text-[10px] font-semibold uppercase tracking-widest"
               style={executionReady ? { borderColor: "#6ee7b7", color: "#065f46", background: "#ecfdf5" } : { borderColor: "#fcd34d", color: "#92400e", background: "#fffbeb" }}>
               {executionReady ? "ready" : "select repository"}
             </span>
             {!canUseBackend && (
-              <span className="border border-[#fcd34d] bg-[#fffbeb] px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-widest text-[#92400e]">
+              <span className="border border-[#fcd34d] bg-[#fffbeb] px-1.5 py-[2px] text-[10px] font-semibold uppercase tracking-widest text-[#92400e]">
                 preview mode
               </span>
             )}
@@ -643,7 +701,7 @@ function BuilderInner({
             <span className="shrink-0 text-[13px] font-semibold text-red-500" title="Required">*</span>
           </div>
           {nameTouched && !workflowName.trim() && (
-            <p className="mt-0.5 text-[9px] font-medium text-red-500" style={MONO}>Workflow name is required.</p>
+            <p className="mt-0.5 text-[10px] font-medium text-red-500">Workflow name is required.</p>
           )}
           <input
             className="mt-0.5 block w-full max-w-2xl rounded bg-transparent text-[11px] leading-relaxed text-[#6b7280] outline-none ring-0 transition hover:bg-[#f1f5f9] focus:bg-white focus:px-2 focus:ring-1 focus:ring-indigo-300"
@@ -655,12 +713,11 @@ function BuilderInner({
           />
         </div>
         <div className="flex shrink-0 items-center gap-2 pt-1">
-          {hasSelection && (
-            <Button onClick={deleteSelected} variant="outline"
-              className="h-8 rounded-none border-[#fca5a5] bg-white px-3 text-[11px] font-medium text-[#dc2626] hover:bg-[#fef2f2]" style={MONO}>
-              <Trash2 className="mr-1.5 h-3 w-3" /> Delete
-            </Button>
-          )}
+          <Button onClick={tidyLayout} variant="outline"
+            className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb]"
+            title="Auto-arrange nodes into topological columns">
+            <LayoutGrid className="mr-1.5 h-3 w-3" /> Tidy layout
+          </Button>
           {/* ── template picker dropdown ── */}
           {templatesList.length > 0 && (
             <div style={{ position: "relative" }}>
@@ -668,7 +725,7 @@ function BuilderInner({
                 variant="outline"
                 onClick={() => setTemplateMenuOpen((v) => !v)}
                 className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb]"
-                style={MONO}
+               
               >
                 <Copy className="mr-1.5 h-3 w-3" />
                 Use template
@@ -709,11 +766,11 @@ function BuilderInner({
 
           <button
             onClick={toggleAutoSaveDb}
-            title={autoSaveDb ? "Auto-save to database is on — click to switch to manual save" : "Auto-save to database is off — click to save automatically as you edit"}
+            title={autoSaveDb ? "Auto-save is on — changes are saved as you edit" : "Auto-save is off — edits stay in draft until you save"}
             className={`flex h-8 items-center gap-1.5 border px-2.5 text-[10px] font-medium transition-colors ${
               autoSaveDb ? "border-[#6ee7b7] bg-[#ecfdf5] text-[#065f46]" : "border-[#d1d5db] bg-white text-[#6b7280] hover:bg-[#f9fafb]"
             }`}
-            style={MONO}
+           
           >
             <span
               className="relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors"
@@ -731,7 +788,7 @@ function BuilderInner({
               saveStatus === "saved" ? "border-[#6ee7b7] bg-[#ecfdf5] text-[#065f46]" :
               saveStatus === "error" ? "border-[#fca5a5] bg-[#fef2f2] text-[#dc2626]" :
               "border-[#d1d5db] bg-white text-[#374151] hover:bg-[#f9fafb]"
-            }`} style={MONO}>
+            }`}>
             {saveMutation.isPending
               ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
               : saveStatus === "saved" ? <CheckCircle2 className="mr-1.5 h-3 w-3" />
@@ -741,7 +798,7 @@ function BuilderInner({
           <Button
             disabled={isNew || !executionReady || runMutation.isPending}
             onClick={() => runMutation.mutate()}
-            className="h-8 rounded-none bg-[#0f1117] px-3 text-[11px] font-medium text-white hover:bg-[#1f2937] disabled:opacity-40" style={MONO}
+            className="h-8 rounded-none bg-[#0f1117] px-3 text-[11px] font-medium text-white hover:bg-[#1f2937] disabled:opacity-40"
             title={isNew ? "Save the workflow first before running" : undefined}>
             {runMutation.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Play className="mr-1.5 h-3 w-3" />}
             Run workflow
@@ -749,21 +806,44 @@ function BuilderInner({
           <Button
             onClick={() => navigate("/runs")}
             variant="outline"
-            className="h-8 rounded-none border-[#d1d5db] px-3 text-[11px] font-medium text-[#6b7280] hover:bg-[#f9fafb]" style={MONO}>
+            className="h-8 rounded-none border-[#d1d5db] px-3 text-[11px] font-medium text-[#6b7280] hover:bg-[#f9fafb]">
             <History className="mr-1.5 h-3 w-3" />
             Run history
           </Button>
+          {hasSelection && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline"
+                  className="h-8 rounded-none border-[#fca5a5] bg-white px-3 text-[11px] font-medium text-[#dc2626] hover:bg-[#fef2f2]">
+                  <Trash2 className="mr-1.5 h-3 w-3" /> Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete selection?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Delete {nodes.filter((n) => n.selected).length} node(s) and {edges.filter((e) => e.selected).length} edge(s)? This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={deleteSelected} className="bg-[#dc2626] text-white hover:bg-[#b91c1c]">
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </div>
 
       {/* ── workflow status strip (repo + gates — applies to the whole workflow, not a selected node) ── */}
-      <div className="border-b border-[#e5e7eb] bg-[#fafafa]" style={MONO}>
+      <div className="border-b border-[#e5e7eb] bg-[#fafafa]">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-5 py-2">
           <div className="flex items-center gap-1.5">
-            <span className="text-[9px] uppercase tracking-widest text-[#9ca3af]">repo</span>
+            <span className="text-[10px] uppercase tracking-widest text-[#9ca3af]">repo</span>
             <select
               className="border border-[#d1d5db] bg-white px-1.5 py-[3px] text-[10px] text-[#374151] outline-none focus:border-[#374151]"
-              style={MONO}
               value={selectedWorkspaceId}
               onChange={(e) => handleWorkspaceChange(e.target.value)}
             >
@@ -777,7 +857,7 @@ function BuilderInner({
           <GateDot ok={nodes.some((n) => n.type === "humanApproval")} label="approval gate" />
           <button
             onClick={() => setDetailsOpen((v) => !v)}
-            className="ml-auto flex items-center gap-1 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af] hover:text-[#374151]"
+            className="ml-auto flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-[#9ca3af] hover:text-[#374151]"
           >
             Details <ChevronDown className={`h-3 w-3 transition-transform ${detailsOpen ? "rotate-180" : ""}`} />
           </button>
@@ -797,8 +877,8 @@ function BuilderInner({
 
         <div className="flex items-center justify-between border-t border-[#f3f4f6] px-5 py-1.5">
           <p className="text-[10px] text-[#6b7280]">{statusMessage}</p>
-          <p className="shrink-0 text-[9px] text-[#9ca3af]">
-            {autoSaveDb ? "auto-saving to database as you edit" : "changes auto-saved locally · click Save graph to push to DB"}
+          <p className="shrink-0 text-[10px] text-[#9ca3af]">
+            {autoSaveDb ? "Auto-save on — changes saved as you edit" : "Edits kept as a draft — Save to publish"}
           </p>
         </div>
       </div>
@@ -809,7 +889,7 @@ function BuilderInner({
         {/* ── palette ── */}
         <div
           className="relative shrink-0 border-r border-[#e5e7eb] bg-white transition-all duration-200 overflow-hidden"
-          style={{ width: paletteCollapsed ? 28 : 156 }}
+          style={{ width: paletteCollapsed ? 28 : 180 }}
         >
           {/* collapse toggle */}
           <button
@@ -823,25 +903,29 @@ function BuilderInner({
           {!paletteCollapsed && (
             <>
               <div className="border-b border-[#e5e7eb] px-3 py-2">
-                <p className="text-[9px] font-semibold uppercase tracking-widest text-[#6b7280]" style={MONO}>Palette</p>
-                <p className="text-[9px] text-[#9ca3af]" style={MONO}>Drag to canvas</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#6b7280]">Palette</p>
+                <p className="text-[10px] text-[#9ca3af]">Drag to canvas</p>
               </div>
               <div className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
                 {palette.map((group) => (
                   <div key={group.category} className="border-b border-[#f3f4f6] last:border-b-0">
-                    <p className="px-3 pb-0.5 pt-2 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>
+                    <p className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-widest text-[#9ca3af]">
                       {group.category}
                     </p>
-                    {group.items.map(({ icon: Icon, label, nodeType, presetKey }) => (
+                    {group.items.map(({ icon: Icon, label, nodeType, presetKey, description }) => (
                       <div
                         key={label}
                         draggable
                         onDragStart={(e) => onDragStart(e, nodeType, label, presetKey)}
-                        className="flex cursor-grab items-center gap-1.5 px-3 py-1.5 text-[10px] text-[#374151] hover:bg-[#f9fafb] active:cursor-grabbing select-none"
-                        style={MONO}
+                        title={description}
+                        className="flex cursor-grab items-start gap-1.5 px-3 py-1.5 hover:bg-[#f9fafb] active:cursor-grabbing select-none"
+                       
                       >
-                        <Icon className="h-3 w-3 shrink-0 text-[#9ca3af]" />
-                        {label}
+                        <Icon className="mt-0.5 h-3 w-3 shrink-0 text-[#9ca3af]" />
+                        <span className="min-w-0">
+                          <span className="block text-[10px] text-[#374151]">{label}</span>
+                          <span className="block text-[10px] leading-tight text-[#9ca3af]">{description}</span>
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -881,11 +965,20 @@ function BuilderInner({
           </ReactFlow>
         </div>
 
-        {/* ── right panel ── */}
+        {/* ── right panel (drag left edge to resize) ── */}
         <div
-          className="relative shrink-0 border-l border-[#e5e7eb] bg-white transition-all duration-200 overflow-hidden"
-          style={{ width: rightCollapsed ? 28 : 260 }}
+          className={`relative shrink-0 border-l border-[#e5e7eb] bg-white overflow-hidden ${rightCollapsed ? "transition-all duration-200" : ""}`}
+          style={{ width: rightCollapsed ? 28 : rightWidth }}
         >
+          {!rightCollapsed && (
+            <div
+              onMouseDown={(e) => { rightDragging.current = true; rightStartX.current = e.clientX; rightStartW.current = rightWidth; e.preventDefault(); }}
+              className="absolute left-0 top-0 z-10 flex h-full w-[5px] cursor-col-resize items-center justify-center"
+              title="Drag to resize"
+            >
+              <div className="h-8 w-[3px] rounded bg-[#e2e8f0]" />
+            </div>
+          )}
           {/* collapse toggle */}
           <button
             onClick={() => setRightCollapsed((v) => !v)}
@@ -896,11 +989,11 @@ function BuilderInner({
           </button>
         {!rightCollapsed && <div className="overflow-y-auto h-full">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid h-7 w-full grid-cols-2 rounded-none border-b border-[#e5e7eb] bg-white p-0" style={MONO}>
+            <TabsList className="grid h-7 w-full grid-cols-2 rounded-none border-b border-[#e5e7eb] bg-white p-0">
               {["agent", "memory"].map((tab) => (
                 <TabsTrigger key={tab} value={tab}
-                  className="h-full rounded-none border-r border-[#e5e7eb] text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af] last:border-r-0 data-[state=active]:bg-[#f9fafb] data-[state=active]:text-[#0f1117] data-[state=active]:shadow-none"
-                  style={MONO}>
+                  className="h-full rounded-none border-r border-[#e5e7eb] text-[10px] font-semibold uppercase tracking-widest text-[#9ca3af] last:border-r-0 data-[state=active]:bg-[#f9fafb] data-[state=active]:text-[#0f1117] data-[state=active]:shadow-none"
+                 >
                   {tab}
                 </TabsTrigger>
               ))}
@@ -923,7 +1016,7 @@ function BuilderInner({
 
             {/* Memory */}
             <TabsContent value="memory" className="mt-0 p-4">
-              <div className="border border-[#e5e7eb] px-4 py-6 text-center" style={MONO}>
+              <div className="border border-[#e5e7eb] px-4 py-6 text-center">
                 <p className="text-[10px] leading-relaxed text-[#9ca3af]">
                   Memory is populated once this workflow runs — each node writes its output
                   here, scoped by its Memory scope setting (workflow / team / agent_private).

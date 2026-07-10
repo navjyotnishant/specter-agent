@@ -7,7 +7,6 @@ export function HumanApprovalNode({ data, selected }: NodeProps) {
       className={`w-[220px] border bg-white ${
         selected ? "border-[#0f1117]" : "border-[#d1d5db]"
       }`}
-      style={{ fontFamily: "ui-monospace, 'Cascadia Code', monospace" }}
     >
       <Handle
         type="target"
@@ -19,7 +18,7 @@ export function HumanApprovalNode({ data, selected }: NodeProps) {
       <div className="flex items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 py-2"
            style={{ borderLeft: "3px solid #d97706" }}>
         <OctagonAlert className="h-3.5 w-3.5 shrink-0 text-[#d97706]" />
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-[#374151]">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-[#374151]">
           Approval gate
         </span>
       </div>
@@ -31,7 +30,10 @@ export function HumanApprovalNode({ data, selected }: NodeProps) {
         </p>
 
         <div className="mt-2.5 border border-[#e5e7eb] bg-[#fafafa] px-2.5 py-2">
-          <p className="text-[10px] leading-[1.6] text-[#6b7280]">
+          <p
+            className="line-clamp-2 text-[10px] leading-[1.6] text-[#6b7280]"
+            title={String(data.reason ?? "Requires manual approval before continuing.")}
+          >
             {String(data.reason ?? "Requires manual approval before continuing.")}
           </p>
         </div>

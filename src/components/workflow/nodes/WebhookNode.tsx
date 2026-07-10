@@ -11,7 +11,6 @@ export function WebhookNode({ data, selected }: NodeProps) {
       className={`w-[220px] border bg-white ${
         selected ? "border-[#0f1117]" : "border-[#d1d5db]"
       }`}
-      style={{ fontFamily: "ui-monospace, 'Cascadia Code', monospace" }}
     >
       <Handle
         type="target"
@@ -23,7 +22,7 @@ export function WebhookNode({ data, selected }: NodeProps) {
       <div className="flex items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 py-2"
            style={{ borderLeft: "3px solid #0891b2" }}>
         <Webhook className="h-3.5 w-3.5 shrink-0 text-[#0891b2]" />
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-[#374151]">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-[#374151]">
           Webhook
         </span>
       </div>
@@ -35,8 +34,8 @@ export function WebhookNode({ data, selected }: NodeProps) {
         </p>
 
         <div className="mt-2 flex items-center justify-between border-t border-[#f3f4f6] pt-2">
-          <span className="text-[9px] uppercase tracking-widest text-[#9ca3af]">target</span>
-          <span className="max-w-[140px] truncate border border-[#e5e7eb] px-1.5 py-[2px] text-[9px] text-[#374151]" title={url}>
+          <span className="text-[10px] uppercase tracking-widest text-[#9ca3af]">target</span>
+          <span className="max-w-[140px] truncate border border-[#e5e7eb] px-1.5 py-[2px] font-mono text-[10px] text-[#374151]" title={url}>
             {host || "not set"}
           </span>
         </div>

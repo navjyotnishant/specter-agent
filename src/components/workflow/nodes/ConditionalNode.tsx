@@ -7,7 +7,6 @@ export function ConditionalNode({ data, selected }: NodeProps) {
       className={`w-[220px] border bg-white ${
         selected ? "border-[#0f1117]" : "border-[#d1d5db]"
       }`}
-      style={{ fontFamily: "ui-monospace, 'Cascadia Code', monospace" }}
     >
       <Handle
         type="target"
@@ -19,7 +18,7 @@ export function ConditionalNode({ data, selected }: NodeProps) {
       <div className="flex items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 py-2"
            style={{ borderLeft: "3px solid #7c3aed" }}>
         <GitBranch className="h-3.5 w-3.5 shrink-0 text-[#7c3aed]" />
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-[#374151]">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-[#374151]">
           Conditional
         </span>
       </div>
@@ -37,8 +36,8 @@ export function ConditionalNode({ data, selected }: NodeProps) {
         </div>
 
         <div className="mt-2.5 flex items-center justify-between">
-          <span className="text-[9px] font-semibold text-[#059669]">✓ true</span>
-          <span className="text-[9px] font-semibold text-[#dc2626]">✕ false</span>
+          <span className="text-[10px] font-semibold text-[#059669]">✓ true</span>
+          <span className="text-[10px] font-semibold text-[#dc2626]">✕ false</span>
         </div>
       </div>
 

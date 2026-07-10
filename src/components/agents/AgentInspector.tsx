@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { Node } from "@xyflow/react";
 import { Loader2, Sparkles } from "lucide-react";
 import type { McpServer, Skill } from "@/lib/types";
 
-const MONO: React.CSSProperties = { fontFamily: "ui-monospace, 'Cascadia Code', monospace" };
 
 // Model options per CLI agent. Verified against each CLI's own model list
 // (`codex exec --help`, `claude --help`, `cursor-agent models`) — update here
@@ -33,7 +32,7 @@ const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-2 mt-4 text-[9px] font-semibold uppercase tracking-widest text-[#6b7280] first:mt-0" style={MONO}>
+    <p className="mb-2 mt-4 text-[10px] font-semibold uppercase tracking-widest text-[#6b7280] first:mt-0">
       {children}
     </p>
   );
@@ -42,13 +41,13 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 function Field({ label, required, empty, children }: { label: string; required?: boolean; empty?: boolean; children: React.ReactNode }) {
   return (
     <div className="border-b border-[#f3f4f6] pb-3 last:border-b-0 last:pb-0">
-      <p className="mb-1 flex items-center gap-1 text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]" style={MONO}>
+      <p className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-[#9ca3af]">
         {label}
         {required && <span className={required && empty ? "text-red-500" : "text-red-400"} title="Required">*</span>}
       </p>
       {children}
       {required && empty && (
-        <p className="mt-1 text-[9px] font-medium text-red-500" style={MONO}>Required.</p>
+        <p className="mt-1 text-[10px] font-medium text-red-500">Required.</p>
       )}
     </div>
   );
@@ -58,7 +57,6 @@ function TextInput({ value, onChange, placeholder, error }: { value: string; onC
   return (
     <input
       className={`w-full border bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151] ${error ? "border-red-300" : "border-[#e5e7eb]"}`}
-      style={MONO}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -67,11 +65,20 @@ function TextInput({ value, onChange, placeholder, error }: { value: string; onC
 }
 
 function TextArea({ value, onChange, rows = 3, placeholder, error }: { value: string; onChange: (v: string) => void; rows?: number; placeholder?: string; error?: boolean }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  // auto-grow with the content (capped) — keyed on value so programmatic
+  // writes (e.g. planner tune-node) resize too, not just keystrokes
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+  }, [value]);
   return (
     <textarea
+      ref={ref}
       rows={rows}
-      className={`w-full resize-none border bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151] placeholder:text-[#c7ccd4] ${error ? "border-red-300" : "border-[#e5e7eb]"}`}
-      style={MONO}
+      className={`w-full resize-none overflow-y-auto border bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151] placeholder:text-[#c7ccd4] ${error ? "border-red-300" : "border-[#e5e7eb]"}`}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -83,7 +90,6 @@ function SelectField({ value, onChange, options }: { value: string; onChange: (v
   return (
     <select
       className="w-full border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]"
-      style={MONO}
       value={value}
       onChange={(e) => onChange(e.target.value)}
     >
@@ -101,7 +107,6 @@ function NumericField({ value, onChange, min = 1, max = 20 }: { value: number; o
       min={min}
       max={max}
       className="w-full border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]"
-      style={MONO}
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
     />
@@ -111,7 +116,7 @@ function NumericField({ value, onChange, min = 1, max = 20 }: { value: number; o
 function McpList({ servers }: { servers: McpServer[] }) {
   if (!servers.length) {
     return (
-      <p className="py-2 text-[10px] text-[#9ca3af]" style={MONO}>
+      <p className="py-2 text-[10px] text-[#9ca3af]">
         No MCP servers configured. Add them in Connectors.
       </p>
     );
@@ -128,19 +133,19 @@ function McpList({ servers }: { servers: McpServer[] }) {
           >
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
-                <span className="block truncate text-[10px] font-medium text-[#111827]" style={MONO}>{s.display_name}</span>
+                <span className="block truncate text-[10px] font-medium text-[#111827]">{s.display_name}</span>
                 {!active && (
-                  <span className="border border-[#fcd34d] bg-[#fffbeb] px-1 py-[1px] text-[8px] font-semibold uppercase text-[#92400e]" style={MONO}>
+                  <span className="border border-[#fcd34d] bg-[#fffbeb] px-1 py-[1px] text-[8px] font-semibold uppercase text-[#92400e]">
                     {s.configured ? "disabled" : "not configured"}
                   </span>
                 )}
                 {active && s.auth_status === "o_auth" && (
-                  <span className="border border-[#c4b5fd] bg-[#f5f3ff] px-1 py-[1px] text-[8px] font-semibold uppercase text-[#5b21b6]" style={MONO}>
+                  <span className="border border-[#c4b5fd] bg-[#f5f3ff] px-1 py-[1px] text-[8px] font-semibold uppercase text-[#5b21b6]">
                     oauth
                   </span>
                 )}
               </span>
-              <span className="line-clamp-1 text-[9px] text-[#9ca3af]" style={MONO}>{s.description}</span>
+              <span className="line-clamp-1 text-[10px] text-[#9ca3af]">{s.description}</span>
             </span>
           </div>
         );
@@ -163,7 +168,7 @@ function SkillChecklist({
 
   if (!skills.length) {
     return (
-      <p className="py-2 text-[10px] text-[#9ca3af]" style={MONO}>
+      <p className="py-2 text-[10px] text-[#9ca3af]">
         No skills saved. Add them in Skills.
       </p>
     );
@@ -183,8 +188,8 @@ function SkillChecklist({
             onChange={(e) => toggle(skill.id, e.target.checked)}
           />
           <span className="min-w-0">
-            <span className="block truncate text-[10px] font-medium text-[#111827]" style={MONO}>{skill.name}</span>
-            <span className="line-clamp-1 text-[9px] text-[#9ca3af]" style={MONO}>{skill.description}</span>
+            <span className="block truncate text-[10px] font-medium text-[#111827]">{skill.name}</span>
+            <span className="line-clamp-1 text-[10px] text-[#9ca3af]">{skill.description}</span>
           </span>
         </label>
       ))}
@@ -220,11 +225,12 @@ export function AgentInspector({
   tunePending?: boolean;
 }) {
   const [planFeedback, setPlanFeedback] = useState("");
+  const [idCopied, setIdCopied] = useState(false);
   const [tuneInstruction, setTuneInstruction] = useState("");
   if (!node) {
     return (
       <div className="flex h-48 items-center justify-center border border-[#e5e7eb]">
-        <p className="text-[11px] text-[#9ca3af]" style={MONO}>Select a node to inspect</p>
+        <p className="text-[11px] text-[#9ca3af]">Select a node to inspect</p>
       </div>
     );
   }
@@ -243,11 +249,11 @@ export function AgentInspector({
   const selectedSkills = Array.isArray(d.selectedSkills) ? (d.selectedSkills as string[]) : [];
 
   return (
-    <div className="border border-[#e5e7eb] bg-white" style={MONO}>
+    <div className="border border-[#e5e7eb] bg-white">
       {/* header */}
       <div className="flex items-center justify-between border-b border-[#e5e7eb] px-4 py-2.5">
         <div>
-          <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9ca3af]">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9ca3af]">
             {node.type === "supervisorAgent" ? "Supervisor"
               : node.type === "specialistAgent" ? "Specialist"
               : node.type === "humanApproval" ? "Approval gate"
@@ -258,7 +264,13 @@ export function AgentInspector({
           </p>
           <p className="mt-0.5 text-[12px] font-semibold text-[#111827]">{String(d.label ?? node.id)}</p>
         </div>
-        <span className="border border-[#e5e7eb] px-1.5 py-[2px] text-[9px] text-[#6b7280]">{node.id}</span>
+        <button
+          onClick={() => { navigator.clipboard.writeText(node.id).catch(() => {}); setIdCopied(true); setTimeout(() => setIdCopied(false), 1200); }}
+          title="Copy node id"
+          className="border border-transparent px-1.5 py-[2px] font-mono text-[10px] text-[#b6bcc6] hover:border-[#e5e7eb] hover:text-[#6b7280]"
+        >
+          {idCopied ? "copied" : node.id}
+        </button>
       </div>
 
       <div className="space-y-3 p-4">
@@ -283,7 +295,7 @@ export function AgentInspector({
                 error={!String(d.objective ?? "").trim()}
               />
               {String(d.objective ?? "").trim() && (
-                <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                <p className="mt-1.5 text-[10px] text-[#9ca3af]">
                   What this agent should do this run.
                 </p>
               )}
@@ -291,7 +303,7 @@ export function AgentInspector({
 
             <SectionHeader>
               Skills
-              <span className="ml-2 border border-[#e5e7eb] px-1.5 py-[1px] text-[9px] text-[#9ca3af]">
+              <span className="ml-2 border border-[#e5e7eb] px-1.5 py-[1px] text-[10px] text-[#9ca3af]">
                 {selectedSkills.length} selected
               </span>
             </SectionHeader>
@@ -300,7 +312,7 @@ export function AgentInspector({
               selected={selectedSkills}
               onChange={(ids) => patch({ selectedSkills: ids })}
             />
-            <p className="mt-1.5 text-[9px] leading-relaxed text-[#9ca3af]" style={MONO}>
+            <p className="mt-1.5 text-[10px] leading-relaxed text-[#9ca3af]">
               Reusable prompt fragments, applied before System instructions below. Prefer a
               Skill for guidance you'll reuse across nodes or workflows.
             </p>
@@ -312,7 +324,7 @@ export function AgentInspector({
                 rows={3}
                 placeholder="One-off behavioral constraints for this node, e.g. &quot;Only look at files under /api/auth. Do not modify code, only report findings.&quot;"
               />
-              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+              <p className="mt-1.5 text-[10px] text-[#9ca3af]">
                 {selectedSkills.length > 0
                   ? `${selectedSkills.length} skill${selectedSkills.length === 1 ? "" : "s"} attached — its instructions are included automatically. Add anything extra here.`
                   : "How this agent should behave, scoped or constrained beyond the objective."}
@@ -335,7 +347,7 @@ export function AgentInspector({
                 ]}
               />
               {(d.runtime ?? "sandbox") === "direct" && (
-                <p className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[9px] font-semibold text-amber-700" style={MONO}>
+                <p className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-semibold text-amber-700">
                   No isolation — runs as host user. Safe for read-only tasks.
                 </p>
               )}
@@ -368,7 +380,7 @@ export function AgentInspector({
                   { value: "agent_private", label: "agent_private — scratchpad only" },
                 ]}
               />
-              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+              <p className="mt-1.5 text-[10px] text-[#9ca3af]">
                 After this node finishes, its output is saved to memory at this scope and
                 surfaced to later nodes that share it (workflow = whole run, team = supervisor
                 + specialists, agent_private = only this node's own future runs).
@@ -376,7 +388,7 @@ export function AgentInspector({
             </Field>
             <Field label="Max iterations">
               <NumericField value={Number(d.maxIterations ?? 1)} onChange={(v) => patch({ maxIterations: v })} min={1} max={20} />
-              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+              <p className="mt-1.5 text-[10px] text-[#9ca3af]">
                 Retry attempts if the agent call fails or times out. 1 = no retry.
               </p>
             </Field>
@@ -405,13 +417,13 @@ export function AgentInspector({
               onClick={() => onPlanWorkflow(node)}
               disabled={planPending || !String(d.objective ?? "").trim()}
               className="flex w-full items-center justify-center gap-1.5 border border-[#0f1117] bg-[#0f1117] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#1f2937] disabled:cursor-not-allowed disabled:opacity-40"
-              style={MONO}
+             
               title={!String(d.objective ?? "").trim() ? "Set an objective first" : undefined}
             >
               {planPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
               {planPending ? "Planning… (can take 1–3 min)" : hasGeneratedPlan ? "Re-plan workflow" : "Plan workflow"}
             </button>
-            <p className="text-[9px] leading-relaxed text-[#9ca3af]" style={MONO}>
+            <p className="text-[10px] leading-relaxed text-[#9ca3af]">
               Breaks the objective into specialist sub-agents and adds them to the canvas. Review and edit before running.
             </p>
             {hasGeneratedPlan && (
@@ -421,12 +433,12 @@ export function AgentInspector({
                   onClick={() => { onPlanWorkflow(node, planFeedback); setPlanFeedback(""); }}
                   disabled={planPending || !planFeedback.trim()}
                   className="mt-1.5 flex w-full items-center justify-center gap-1.5 border border-[#d1d5db] bg-white px-3 py-1.5 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
-                  style={MONO}
+                 
                 >
                   {planPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                   Refine plan
                 </button>
-                <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+                <p className="mt-1.5 text-[10px] text-[#9ca3af]">
                   e.g. "merge the two audit tasks" or "add a test-writer step". Replaces the generated agents.
                 </p>
               </Field>
@@ -444,12 +456,12 @@ export function AgentInspector({
                 onClick={() => { onTuneNode(node, tuneInstruction); setTuneInstruction(""); }}
                 disabled={tunePending || !tuneInstruction.trim()}
                 className="mt-1.5 flex w-full items-center justify-center gap-1.5 border border-[#d1d5db] bg-white px-3 py-1.5 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
-                style={MONO}
+               
               >
                 {tunePending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                 {tunePending ? "Tuning…" : "Tune node"}
               </button>
-              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+              <p className="mt-1.5 text-[10px] text-[#9ca3af]">
                 e.g. "focus this reviewer on the auth module only". Updates this node's label, role, objective, and instructions.
               </p>
             </Field>
@@ -461,12 +473,12 @@ export function AgentInspector({
           <>
             <SectionHeader>
               MCP Tools
-              <span className="ml-2 border border-[#e5e7eb] px-1.5 py-[1px] text-[9px] text-[#9ca3af]">
+              <span className="ml-2 border border-[#e5e7eb] px-1.5 py-[1px] text-[10px] text-[#9ca3af]">
                 {mcpServers.filter((s) => s.configured && s.enabled).length} available
               </span>
             </SectionHeader>
             <McpList servers={mcpServers} />
-            <p className="mt-1.5 text-[9px] leading-relaxed text-[#9ca3af]" style={MONO}>
+            <p className="mt-1.5 text-[10px] leading-relaxed text-[#9ca3af]">
               MCP servers are configured globally per agent CLI, not per node — every node
               using the same agent shares this list. Manage servers in Connectors.
             </p>
@@ -489,12 +501,12 @@ export function AgentInspector({
                 }}
                 placeholder="24"
               />
-              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+              <p className="mt-1.5 text-[10px] text-[#9ca3af]">
                 Hours before the pending approval is cancelled. Default is 24.
               </p>
             </Field>
             <Field label="Allowed actions">
-              <p className="mb-1.5 text-[9px] text-[#9ca3af]" style={MONO}>Which actions the reviewer can take</p>
+              <p className="mb-1.5 text-[10px] text-[#9ca3af]">Which actions the reviewer can take</p>
               {(["approve", "reject", "request_revision"] as const).map((action) => {
                 const current: string[] = Array.isArray(d.allowedActions) ? d.allowedActions as string[] : ["approve", "reject", "request_revision"];
                 const checked = current.includes(action);
@@ -510,7 +522,7 @@ export function AgentInspector({
                       }}
                       style={{ accentColor: "#d97706" }}
                     />
-                    <span className="text-[11px] text-[#374151]" style={MONO}>{label}</span>
+                    <span className="text-[11px] text-[#374151]">{label}</span>
                   </label>
                 );
               })}
@@ -523,7 +535,7 @@ export function AgentInspector({
                   onChange={() => patch({ noteRequired: !d.noteRequired })}
                   style={{ accentColor: "#d97706" }}
                 />
-                <span className="text-[11px] text-[#374151]" style={MONO}>Require a note before submitting</span>
+                <span className="text-[11px] text-[#374151]">Require a note before submitting</span>
               </label>
             </Field>
           </>
@@ -559,7 +571,7 @@ export function AgentInspector({
                 placeholder="A yes/no question about prior output, e.g. &quot;Did the code review find any CRITICAL or HIGH severity issues?&quot;"
                 error={!String(d.condition ?? "").trim()}
               />
-              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+              <p className="mt-1.5 text-[10px] text-[#9ca3af]">
                 Answered YES/NO by the agent below, based on prior steps' output and memory.
                 Connect the canvas card's two outputs (top = true, bottom = false) to different
                 downstream nodes to branch the workflow.
@@ -627,7 +639,7 @@ export function AgentInspector({
                 rows={3}
                 placeholder={'{ "text": "Workflow update: {{context}}" }'}
               />
-              <p className="mt-1.5 text-[9px] text-[#9ca3af]" style={MONO}>
+              <p className="mt-1.5 text-[10px] text-[#9ca3af]">
                 {'{{context}}'} is replaced with the accumulated output from prior steps. Leave
                 blank to send a default JSON payload with the run id and context.
               </p>
