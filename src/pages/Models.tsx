@@ -21,6 +21,11 @@ import { api } from "@/lib/api";
 import type { RuntimeAdapterStatus } from "@/lib/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -92,13 +97,15 @@ export default function Models() {
   const [sandboxAgent, setSandboxAgent] = useState<string>(() => {
     try { return localStorage.getItem("specter_sandbox_agent") ?? "claude"; } catch { return "claude"; }
   });
-  const [discoveryRoot, setDiscoveryRoot] = useState("/Users/navjyotnishant/Desktop/github");
+  const [discoveryRoot, setDiscoveryRoot] = useState("");
   const [selectedDiscoveredPaths, setSelectedDiscoveredPaths] = useState<string[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
   const [runtimePrompt, setRuntimePrompt] = useState(defaultRuntimePrompt);
   const [activeRunStartedAt, setActiveRunStartedAt] = useState<string | null>(null);
   const [directoryScanOpen, setDirectoryScanOpen] = useState(false);
-  const [approvedOpen, setApprovedOpen] = useState(false);
+  // Open by default: this is the authoritative answer to "what can agents
+  // touch?", and collapsed behind a Show toggle it never gets audited.
+  const [approvedOpen, setApprovedOpen] = useState(true);
   const [testOpen, setTestOpen] = useState(false);
   const [testRuntime, setTestRuntime] = useState<"sandbox" | "direct">("sandbox");
   const [outputExpanded, setOutputExpanded] = useState(false);
@@ -256,12 +263,26 @@ export default function Models() {
     mutationFn: async () => {
       const repositories = discoverRepositories.data?.repositories ?? [];
       const selected = repositories.filter((repo) => selectedDiscoveredPaths.includes(repo.path));
-      return Promise.all(selected.map((repo) => api.createRuntimeWorkspace(token ?? "", { name: repo.name, path: repo.path })));
+      // allSettled, not all: with Promise.all a rejection part-way through left
+      // the earlier repositories approved server-side while the error implied
+      // nothing had happened -- on an access-control list, the user's belief
+      // about what agents can reach would diverge from reality.
+      const results = await Promise.allSettled(
+        selected.map((repo) => api.createRuntimeWorkspace(token ?? "", { name: repo.name, path: repo.path })),
+      );
+      const ok = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+      const failed = selected.filter((_, i) => results[i].status === "rejected").map((r) => r.path);
+      return { ok, failed };
     },
-    onSuccess: (workspaces) => {
-      if (workspaces[0]) setSelectedWorkspaceId(workspaces[0].id);
+    onSuccess: ({ ok, failed }) => {
+      if (ok[0]) setSelectedWorkspaceId(ok[0].id);
       setSelectedDiscoveredPaths([]);
       queryClient.invalidateQueries({ queryKey: ["runtime-workspaces"] });
+      setError(
+        failed.length
+          ? `Approved ${ok.length} of ${ok.length + failed.length}. Failed: ${failed.join(", ")}`
+          : "",
+      );
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Unable to approve selected repositories"),
   });
@@ -848,8 +869,8 @@ export default function Models() {
             {directoryScanOpen && (
               <>
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                  <Input className="rounded-2xl bg-white" value={discoveryRoot} onChange={(event) => setDiscoveryRoot(event.target.value)} />
-                  <Button type="button" disabled={!canUseBackend || discoverRepositories.isPending || hostRunnerOffline} onClick={() => discoverRepositories.mutate()} className="rounded-2xl bg-cyan-800 hover:bg-cyan-900">
+                  <Input className="rounded-2xl bg-white" value={discoveryRoot} onChange={(event) => setDiscoveryRoot(event.target.value)} placeholder="Absolute path to scan, e.g. ~/code or /Users/you/projects" />
+                  <Button type="button" disabled={!canUseBackend || !discoveryRoot.trim() || discoverRepositories.isPending || hostRunnerOffline} onClick={() => discoverRepositories.mutate()} className="rounded-2xl bg-cyan-800 hover:bg-cyan-900">
                     {discoverRepositories.isPending && <Loader2 className="mr-2 h-4 w-4" />}
                     {discoverRepositories.isPending ? "Scanning" : "Scan"}
                   </Button>
@@ -861,7 +882,41 @@ export default function Models() {
                       <div className="flex flex-wrap gap-2">
                         <Button size="sm" disabled={!selectableDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths(selectableDiscoveredPaths)} variant="outline" className="rounded-xl bg-white">Select all</Button>
                         <Button size="sm" disabled={!selectedDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths([])} variant="outline" className="rounded-xl bg-white">Deselect</Button>
-                        <Button size="sm" disabled={!selectedDiscoveredPaths.length || approveSelectedRepositories.isPending} onClick={() => approveSelectedRepositories.mutate()} className="rounded-xl bg-slate-900 hover:bg-slate-800">Add</Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="sm" disabled={!selectedDiscoveredPaths.length || approveSelectedRepositories.isPending} className="rounded-xl bg-slate-900 hover:bg-slate-800">
+                              Grant access…
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Grant agents access to {selectedDiscoveredPaths.length} repositor
+                                {selectedDiscoveredPaths.length === 1 ? "y" : "ies"}?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription asChild>
+                                <div className="space-y-3">
+                                  <p>
+                                    Approved repositories can be <strong>read in full</strong> by any
+                                    agent you run — including <code>.env</code> files, credentials and
+                                    client work. In <strong>Direct CLI</strong> mode agents also execute
+                                    on this host with no isolation.
+                                  </p>
+                                  <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700">
+                                    {selectedDiscoveredPaths.map((path) => <div key={path}>{path}</div>)}
+                                  </div>
+                                  <p>Approve only repositories you would hand to a contractor.</p>
+                                </div>
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => approveSelectedRepositories.mutate()} className="bg-slate-900 text-white hover:bg-slate-800">
+                                Grant access
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </div>
                     <div className="mt-3 max-h-56 space-y-2 overflow-auto pr-1">
