@@ -334,12 +334,12 @@ export default function Skills() {
             {/* search */}
             <div className="border-b border-slate-100 px-3 py-3">
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
                 <Input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search skills"
-                  className="h-8 rounded-xl bg-slate-50 pl-8 text-xs border-slate-200"
+                  placeholder="Search name, description, role…"
+                  className="h-[29px] rounded-[6px] bg-white pl-7 !text-[11.5px] border-[#dde3ea]"
                 />
               </div>
             </div>
@@ -368,7 +368,7 @@ export default function Skills() {
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-9 rounded-xl px-3 text-sm"
+                    className="h-[29px] rounded-[6px] border-[#dde3ea] !text-[11.5px] px-3 text-sm"
                     onClick={() => applyTemplate("Repository Analysis")}
                   >
                     <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -413,7 +413,7 @@ export default function Skills() {
                     type="button"
                     disabled={create.isPending || update.isPending || !canUseBackend}
                     onClick={saveSelectedSkill}
-                    className="h-9 rounded-xl bg-indigo-600 px-3 text-sm hover:bg-indigo-700"
+                    className="h-[29px] rounded-[6px] border-[#dde3ea] !text-[11.5px] bg-indigo-600 px-3 text-sm hover:bg-indigo-700"
                   >
                     <Save className="mr-1.5 h-3.5 w-3.5" />
                     {create.isPending || update.isPending ? "Saving…" : selectedSaved ? "Save changes" : "Save skill"}
@@ -485,17 +485,17 @@ function SkillBtn({ skill, selected, origin, onSelect }: {
     <button
       type="button"
       onClick={() => onSelect(skill)}
-      className={`w-full rounded-[6px] px-3 py-2 text-left transition-colors ${
+      className={`w-full rounded-[4px] px-3 py-[7px] text-left transition-colors ${
         selected ? "bg-indigo-50" : "hover:bg-slate-50"
       }`}
     >
       <div className="flex items-center gap-1.5">
         <p className={`min-w-0 flex-1 truncate text-[12px] font-semibold ${selected ? "text-indigo-800" : "text-slate-800"}`}>{skill.name}</p>
-        <span className={`shrink-0 rounded px-1.5 py-[1px] text-[8.5px] font-extrabold uppercase tracking-[0.05em] ${badge.className}`}>
+        <span className={`shrink-0 rounded-[3px] px-[5px] py-[1.5px] text-[8.5px] font-extrabold uppercase tracking-[0.05em] ${badge.className}`}>
           {badge.label}
         </span>
       </div>
-      <p className="mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-slate-400">
+      <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-[1.35] text-[#94a3b8]">
         {skill.description || "No description provided."}
       </p>
     </button>
@@ -544,7 +544,7 @@ function SkillList({ skills, savedSkills, selectedSkillId, onSelect }: {
         <div key={label}>
           {i > 0 && <div className="my-2 border-t border-slate-100" />}
           <div className="flex items-center gap-2 px-2 pb-1 pt-2">
-            <span className="text-[9.5px] font-extrabold uppercase tracking-[0.08em] text-slate-400">{label}</span>
+            <span className="text-[9px] font-extrabold uppercase tracking-[0.09em] text-[#9aa5b4]">{label}</span>
             <span className="text-[10px] font-semibold text-slate-300">{items.length}</span>
             {label === "Starting points" && (
               <span className="text-[9px] text-slate-400">not saved yet</span>
@@ -573,21 +573,21 @@ function SkillEditor({ draft, onChange, origin, sourceRepo }: {
   }[origin];
   return (
     <div className="grid gap-4">
-      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-500">
+      <div className="rounded-[7px] border border-[#eef2f6] bg-[#f8fafc] px-3 py-2.5 text-[11px] leading-[1.5] text-[#64748b]">
         {note}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-1.5">
-          <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Name</Label>
-          <Input className="h-9 rounded-xl text-sm" value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} required />
+          <Label className="text-[10px] font-bold text-slate-600">Name</Label>
+          <Input className="h-[29px] rounded-[6px] border-[#dde3ea] !text-[12px]" value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} required />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Description</Label>
-          <Input className="h-9 rounded-xl text-sm" value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} />
+          <Label className="text-[10px] font-bold text-slate-600">Description</Label>
+          <Input className="h-[29px] rounded-[6px] border-[#dde3ea] !text-[12px]" value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} />
         </div>
       </div>
       <div className="space-y-1.5">
-        <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Compatible agent roles</Label>
+        <Label className="text-[10px] font-bold text-slate-600">Compatible agent roles</Label>
         <div className="flex flex-wrap gap-2">
           {AGENT_ROLES.map((role) => {
             const on = draft.compatibleAgentRoles.includes(role);
@@ -619,7 +619,7 @@ function SkillEditor({ draft, onChange, origin, sourceRepo }: {
         </p>
       </div>
       <div className="space-y-1.5">
-        <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Prompt template</Label>
+        <Label className="text-[10px] font-bold text-slate-600">Prompt template</Label>
         <RichTextEditor
           value={draft.promptTemplate}
           onChange={(md) => onChange({ ...draft, promptTemplate: md })}
