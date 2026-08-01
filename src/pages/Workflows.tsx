@@ -386,6 +386,26 @@ function RunHistoryRow({ run, onClick }: { run: WorkflowRun; onClick: () => void
 
 // ── workflow row ──────────────────────────────────────────────────────────────
 // colSpan matches table: templates=3, custom workflows=4 (no "Type" col in separate sections)
+/** Elapsed for a run — measures to now while in flight, so a running row shows
+ *  real time rather than nothing. */
+function runDurationOf(run: WorkflowRun): string {
+  if (!run.created_at) return "";
+  // The two fields arrive in different shapes: created_at is "YYYY-MM-DD HH:MM:SS"
+  // (space-separated, no zone) while completed_at is full ISO with an offset.
+  // Appending "Z" to the former is fine; doing it to the latter yields NaN.
+  const parse = (v: string) => {
+    const iso = v.includes("T") ? v : v.replace(" ", "T") + (/[Z+]/.test(v) ? "" : "Z");
+    return new Date(iso).getTime();
+  };
+  const start = parse(run.created_at);
+  const end = run.completed_at ? parse(run.completed_at) : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return "";
+  const secs = Math.max(0, Math.round((end - start) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  return m < 60 ? `${m}m${secs % 60 ? `${secs % 60}s` : ""}` : `${Math.floor(m / 60)}h${m % 60}m`;
+}
+
 function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBackend, onDelete, isDeleting, onCopyTemplate, onPublish, isPublishing, onUnpublish, isUnpublishing }: {
   workflow: Workflow; runs: WorkflowRun[]; runsLoading: boolean; token: string; canUseBackend: boolean;
   onDelete: (id: string) => void; isDeleting: boolean;
@@ -461,9 +481,33 @@ function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBac
           </div>
         </td>
 
-        {/* nodes */}
-        <td style={{ padding: "12px 8px", fontSize: 13, color: "#6b7280", fontFamily: "ui-monospace, monospace" }}>
-          {nodeCount} nodes
+        {/* last 5 runs — badge + sparkline. "3 of the last 5 failed" is the
+            question operators actually ask; it used to take five clicks. */}
+        <td style={{ padding: "12px 8px" }}>
+          {runsLoading ? (
+            <Loader2 style={{ width: 11, height: 11, color: "#d1d5db", animation: "wf-spin 1s linear infinite" }} />
+          ) : runs.length ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <StatusBadge status={activeRun ? activeRun.status : runs[0].status} />
+              <span className="sp-spark">
+                {[...runs].slice(0, 5).reverse().map((r) => (
+                  <i
+                    key={r.id}
+                    title={`${r.status} · ${fmtRelative(r.created_at)}`}
+                    style={{
+                      height: r.status === "failed" ? 14 : r.status === "completed" ? 10 : 12,
+                      background: r.status === "failed" ? "#e03131"
+                        : r.status === "completed" ? "#12b886"
+                        : ["running", "queued", "waiting_approval"].includes(r.status) ? "#4c6ef5"
+                        : "#adb5bd",
+                    }}
+                  />
+                ))}
+              </span>
+            </div>
+          ) : (
+            <span className="sp-st sp-st-never">never run</span>
+          )}
         </td>
 
         {/* last run — only for custom workflows, not templates */}
@@ -472,17 +516,37 @@ function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBac
             {runsLoading
               ? <Loader2 style={{ width: 11, height: 11, color: "#d1d5db", animation: "wf-spin 1s linear infinite" }} />
               : activeRun
-              ? <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#2563eb", display: "block", animation: "wf-pulse 1s infinite" }} />
-                  <StatusBadge status={activeRun.status} />
+              ? <div>
+                  <p style={{ fontSize: 13, color: "#1a1f26", margin: 0 }}>
+                    started {fmtRelative(activeRun.created_at)}
+                    {runDurationOf(activeRun) ? ` · ${runDurationOf(activeRun)}` : ""}
+                  </p>
+                  <p style={{ fontSize: 11.5, color: "#8b95a3", margin: "2px 0 0" }}>in progress</p>
                 </div>
               : lastRun
               ? <div>
-                  <StatusBadge status={lastRun.status} />
-                  <p style={{ fontSize: 10, color: "#94a3b8", margin: "3px 0 0" }}>{fmtRelative(lastRun.created_at)}</p>
+                  <p style={{ fontSize: 13, color: "#1a1f26", margin: 0 }}>
+                    {fmtRelative(lastRun.created_at)}
+                    {runDurationOf(lastRun) ? ` · ${runDurationOf(lastRun)}` : ""}
+                  </p>
+                  {/* The mockup shows the failure reason here. WorkflowRun carries
+                      no error field -- it lives on RunStep -- so the row shows how
+                      the run was triggered until the API surfaces a summary. */}
+                  <p style={{ fontSize: 11.5, color: lastRun.status === "failed" ? "#c92a2a" : "#8b95a3", margin: "2px 0 0" }}>
+                    {lastRun.status === "failed" ? "open the run for the failure" : `${lastRun.trigger_type || "manual"} trigger`}
+                  </p>
                 </div>
-              : <span style={{ fontSize: 11, color: "#d1d5db" }}>Never run</span>
+              : <span style={{ fontSize: 13, color: "#adb5bd" }}>—</span>
             }
+          </td>
+        )}
+
+        {/* repo — a workflow with none can never run, so say so in red */}
+        {!isTemplate && (
+          <td style={{ padding: "12px 8px", fontSize: 13 }}>
+            {workflow.workspace_path
+              ? <span style={{ color: "#5c6673" }}>{workflow.workspace_path.replace(/\/+$/, "").split("/").filter(Boolean).pop()}</span>
+              : <span style={{ color: "#e03131" }}>no repo set</span>}
           </td>
         )}
 
@@ -924,14 +988,9 @@ export default function Workflows() {
                 <GitBranch className="h-6 w-6" />
               </div>
               <div>
-                <div className="flex items-center gap-3">
-                  <h2 className="text-2xl font-black tracking-tight text-slate-950">Workflows</h2>
-                  <Badge className="rounded-full bg-indigo-100 px-3 py-1 text-indigo-800 hover:bg-indigo-100 text-xs">
-                    Workflow operations
-                  </Badge>
-                </div>
-                <p className="mt-0.5 text-sm text-slate-500">
-                  Click a row to expand run history. Use templates to create editable copies.
+                <h2 className="text-[19px] font-black tracking-tight text-[#1a1f26]">Workflows</h2>
+                <p className="mt-0.5 text-[12px] text-[#7c8798]">
+                  {myWorkflows.length} workflow{myWorkflows.length === 1 ? "" : "s"} · {templates.length} template{templates.length === 1 ? "" : "s"}
                 </p>
               </div>
             </div>
@@ -1003,38 +1062,18 @@ export default function Workflows() {
       </Card>
 
       {/* ── tabbed table card ── */}
-      <Card className="overflow-hidden rounded-2xl border-white/80 bg-white shadow-sm">
+      <Card className="overflow-hidden rounded-[10px] border-[#dfe3e8] bg-white shadow-sm">
 
         {/* tab bar */}
-        <div style={{ display: "flex", alignItems: "center", borderBottom: "1px solid #f1f5f9", background: "#fafafa", padding: "0 20px" }}>
+        <div className="sp-tabs">
           {(["workflows", "templates"] as const).map((tab) => {
             const active = activeTab === tab;
             const count = tab === "workflows" ? myWorkflows.length : templates.length;
-            const label = tab === "workflows" ? "My Workflows" : "Templates";
+            const label = tab === "workflows" ? "My workflows" : "Templates";
             const Icon = tab === "workflows" ? WorkflowIcon : Copy;
             return (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "12px 4px", marginRight: 24,
-                  fontSize: 12, fontWeight: active ? 800 : 600,
-                  color: active ? "#0f172a" : "#94a3b8",
-                  background: "none", border: "none", cursor: "pointer",
-                  borderBottom: active ? "2px solid #4f46e5" : "2px solid transparent",
-                  transition: "color 0.1s, border-color 0.1s",
-                }}
-              >
-                <Icon style={{ width: 13, height: 13 }} />
-                {label}
-                <span style={{
-                  fontSize: 10, fontWeight: 700, borderRadius: 20, padding: "1px 7px",
-                  background: active ? "#eff0fe" : "#f1f5f9",
-                  color: active ? "#4f46e5" : "#94a3b8",
-                }}>
-                  {count}
-                </span>
+              <button key={tab} onClick={() => setActiveTab(tab)} className={`sp-tb ${active ? "sp-tb-on" : ""}`}>
+                {label} · {count}
               </button>
             );
           })}
@@ -1087,16 +1126,11 @@ export default function Workflows() {
             )}
             {(!isLoading || !canUseBackend) && myWorkflows.length > 0 && (
               <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <table className="sp-table">
                   <thead>
-                    <tr style={{ borderBottom: "1px solid #f8fafc", background: "#fafafa" }}>
-                      {["Workflow", "Nodes", "Last run", ""].map((h, i) => (
-                        <th key={h} style={{
-                          padding: "9px " + (i === 0 ? "16px" : i === 3 ? "16px 16px 9px 8px" : "8px"),
-                          fontSize: 11, fontWeight: 700, color: "#8b95a3",
-                          textTransform: "uppercase", letterSpacing: "0.08em",
-                          textAlign: i === 3 ? "right" : "left", whiteSpace: "nowrap",
-                        }}>{h}</th>
+                    <tr>
+                      {["Workflow", "Last 5 runs", "Last run", "Repo", ""].map((h, i) => (
+                        <th key={h || i} style={{ textAlign: i === 4 ? "right" : "left" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
