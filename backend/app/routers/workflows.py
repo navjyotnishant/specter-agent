@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from app.runtime.auth import require_user
 from app.runtime.supervisor import PlannerUnavailableError, plan_workflow, tune_node
-from app.runtime.workflows import create_workflow, delete_workflow, get_workflow, list_workflows, set_template_flag, update_workflow
+from app.runtime.workflows import DuplicateWorkflowName, create_workflow, delete_workflow, get_workflow, list_workflows, set_template_flag, update_workflow
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -12,6 +12,9 @@ class WorkflowRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str = ""
     graph: dict = {}
+    # Repository the workflow runs against. Trigger-started runs have no UI
+    # dropdown to read, so this is the only source they can use.
+    workspace_path: str | None = None
 
 
 class PlanRequest(BaseModel):
@@ -75,7 +78,10 @@ def tune_node_route(request: TuneNodeRequest, _: dict = Depends(require_user)) -
 
 @router.post("")
 def create_workflow_route(request: WorkflowRequest, _: dict = Depends(require_user)) -> dict:
-    return create_workflow(request.name, request.description, request.graph)
+    try:
+        return create_workflow(request.name, request.description, request.graph, request.workspace_path)
+    except DuplicateWorkflowName as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.get("/{workflow_id}")
@@ -88,7 +94,10 @@ def get_workflow_route(workflow_id: str, _: dict = Depends(require_user)) -> dic
 
 @router.patch("/{workflow_id}")
 def update_workflow_route(workflow_id: str, request: WorkflowRequest, _: dict = Depends(require_user)) -> dict:
-    workflow = update_workflow(workflow_id, request.name, request.description, request.graph)
+    try:
+        workflow = update_workflow(workflow_id, request.name, request.description, request.graph, request.workspace_path)
+    except DuplicateWorkflowName as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return workflow
