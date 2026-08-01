@@ -19,28 +19,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  Bot,
-  CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Copy,
-  Database,
-  FileText,
-  GitBranch,
-  GitMerge,
-  History,
-  Layers,
-  LayoutGrid,
-  Loader2,
-  Play,
-  Save,
-  ShieldCheck,
-  Sparkles,
-  Trash2,
-  Webhook,
-  Send,
-  Zap,
+  AlertTriangle, Bot, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Copy, Database, FileText, GitBranch, GitMerge, History, Layers, LayoutGrid, Loader2, Play, Save, Send, ShieldCheck, Sparkles, Trash2, Webhook, Zap,
 } from "lucide-react";
 import type { McpServer } from "@/lib/types";
 import { AgentInspector } from "@/components/agents/AgentInspector";
@@ -56,6 +35,7 @@ import { api } from "@/lib/api";
 import { layoutGeneratedSubgraph, topoLayout } from "@/lib/graph-layout";
 import { useModelPreference } from "@/lib/model-preference";
 import { newNodeId, snapshotOf as snapshotOfGraph, structureOf } from "@/lib/workflow-persistence";
+import { canConnect, graphIssues } from "@/lib/graph-validation";
 import type { WorkflowGraph } from "@/lib/types";
 import {
   AlertDialog,
@@ -827,7 +807,24 @@ function BuilderInner({
   // ── derived state ──────────────────────────────────────────────────────────
   const activeWorkspaces = workspacesQuery.data?.filter((w) => w.is_active) ?? [];
   const selectedWorkspace = activeWorkspaces.find((w) => w.id === selectedWorkspaceId);
-  const executionReady = Boolean(selectedWorkspace);
+  // Was Boolean(selectedWorkspace) alone, so a graph with no edges, empty
+  // objectives, an unset condition or a cycle started a real sandboxed run.
+  const issues = useMemo(() => graphIssues(nodes, edges), [nodes, edges]);
+  // Surface each issue on its node so "what's left to configure?" is answerable
+  // without opening all 15. Kept out of `nodes` state -- it is derived, and
+  // writing it back would land in the saved graph.
+  const issueByNode = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const i of issues) if (!m.has(i.nodeId)) m.set(i.nodeId, i.reason);
+    return m;
+  }, [issues]);
+  const nodesWithIssues = useMemo(
+    () => nodes.map((n) => (issueByNode.has(n.id)
+      ? { ...n, data: { ...n.data, __issue: issueByNode.get(n.id) } }
+      : n)),
+    [nodes, issueByNode],
+  );
+  const executionReady = Boolean(selectedWorkspace) && issues.length === 0 && nodes.length > 0;
   // Trigger nodes declare the values a run needs before it can start.
   const triggerNodes = nodes.filter((n) => n.type === "trigger");
   const triggerInputComplete = triggerNodes.every((n) => {
@@ -1038,7 +1035,13 @@ function BuilderInner({
             disabled={isNew || !executionReady || runMutation.isPending}
             onClick={() => (triggerNodes.length ? setRunInputOpen(true) : runMutation.mutate({}))}
             className="h-8 rounded-none bg-[#0f1117] px-3 text-[11px] font-medium text-white hover:bg-[#1f2937] disabled:opacity-40"
-            title={isNew ? "Save the workflow first before running" : undefined}>
+            title={
+              isNew ? "Save the workflow first before running"
+              : !selectedWorkspace ? "Select a repository first"
+              : issues.length ? `${issues.length} issue${issues.length === 1 ? "" : "s"} must be resolved first`
+              : nodes.length === 0 ? "Add at least one node"
+              : undefined
+            }>
             {runMutation.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Play className="mr-1.5 h-3 w-3" />}
             Run workflow
           </Button>
@@ -1122,6 +1125,33 @@ function BuilderInner({
         </div>
       </div>
 
+      {/* Blocking issues, named and clickable. Previously nothing surfaced these:
+          Run was enabled and the failure arrived from the backend mid-run. */}
+      {issues.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[#fde68a] bg-[#fffbeb] px-5 py-2">
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[#92400e]">
+            <AlertTriangle className="h-3 w-3" />
+            {issues.length} issue{issues.length === 1 ? "" : "s"} block this run
+          </span>
+          {issues.slice(0, 6).map((issue) => (
+            <button
+              key={`${issue.nodeId}-${issue.reason}`}
+              onClick={() => {
+                setNodes((cur) => cur.map((n) => ({ ...n, selected: n.id === issue.nodeId })));
+                setRightCollapsed(false);
+              }}
+              className="border border-[#fcd34d] bg-white px-2 py-[3px] text-[10.5px] text-[#92400e] hover:bg-[#fffbeb]"
+              title="Select this node"
+            >
+              <b className="border-b border-dotted border-[#b45309] font-semibold">{issue.label}</b> {issue.reason}
+            </button>
+          ))}
+          {issues.length > 6 && (
+            <span className="text-[10.5px] text-[#a16207]">+{issues.length - 6} more</span>
+          )}
+        </div>
+      )}
+
       {/* ── three-column layout ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
 
@@ -1182,12 +1212,13 @@ function BuilderInner({
           onDrop={onDrop}
         >
           <ReactFlow
-            nodes={nodes}
+            nodes={nodesWithIssues}
             edges={edges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange as (changes: NodeChange[]) => void}
             onEdgesChange={onEdgesChange as (changes: EdgeChange[]) => void}
             onConnect={onConnect}
+            isValidConnection={(c) => Boolean(c.source && c.target) && canConnect(c.source!, c.target!, edges)}
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
             fitView

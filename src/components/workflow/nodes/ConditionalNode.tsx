@@ -3,7 +3,16 @@ import { GitBranch } from "lucide-react";
 
 export function ConditionalNode({ data, selected }: NodeProps) {
   return (
-    <div
+    <div className="relative">
+      {Boolean((data as Record<string, unknown>).__issue) && (
+        <span
+          title={String((data as Record<string, unknown>).__issue)}
+          className="absolute -right-1.5 -top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-[#dc2626] text-[9px] font-bold text-white"
+        >
+          !
+        </span>
+      )}
+      <div
       className={`w-[220px] border bg-white ${
         selected ? "border-[#0f1117]" : "border-[#d1d5db]"
       }`}
@@ -55,6 +64,7 @@ export function ConditionalNode({ data, selected }: NodeProps) {
         style={{ top: "65%" }}
         className="!h-2 !w-2 !rounded-none !border-0 !bg-[#dc2626]"
       />
+    </div>
     </div>
   );
 }

@@ -7,7 +7,16 @@ export function WebhookNode({ data, selected }: NodeProps) {
   try { host = url ? new URL(url).host : ""; } catch { host = url; }
 
   return (
-    <div
+    <div className="relative">
+      {Boolean((data as Record<string, unknown>).__issue) && (
+        <span
+          title={String((data as Record<string, unknown>).__issue)}
+          className="absolute -right-1.5 -top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-[#dc2626] text-[9px] font-bold text-white"
+        >
+          !
+        </span>
+      )}
+      <div
       className={`w-[220px] border bg-white ${
         selected ? "border-[#0f1117]" : "border-[#d1d5db]"
       }`}
@@ -46,6 +55,7 @@ export function WebhookNode({ data, selected }: NodeProps) {
         position={Position.Right}
         className="!h-2 !w-2 !rounded-none !border-0 !bg-[#0891b2]"
       />
+    </div>
     </div>
   );
 }

@@ -22,7 +22,16 @@ export function SpecialistAgentNode({ data, selected }: NodeProps) {
   const skillCount = Array.isArray(data.selectedSkills) ? (data.selectedSkills as string[]).length : Number(data.skills ?? 0);
 
   return (
-    <div
+    <div className="relative">
+      {Boolean((data as Record<string, unknown>).__issue) && (
+        <span
+          title={String((data as Record<string, unknown>).__issue)}
+          className="absolute -right-1.5 -top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-[#dc2626] text-[9px] font-bold text-white"
+        >
+          !
+        </span>
+      )}
+      <div
       className={`w-[220px] bg-white ${selected ? "border-2 border-[#0f1117]" : "border border-[#d1d5db]"}`}
       style={{ borderLeft: `3px solid ${color}` }}
     >
@@ -78,6 +87,7 @@ export function SpecialistAgentNode({ data, selected }: NodeProps) {
       </div>
 
       <Handle type="source" position={Position.Right} className="!h-2 !w-2 !rounded-none !border-0" style={{ background: color }} />
+    </div>
     </div>
   );
 }

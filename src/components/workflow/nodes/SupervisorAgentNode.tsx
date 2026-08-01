@@ -13,7 +13,16 @@ export function SupervisorAgentNode({ data, selected }: NodeProps) {
   };
 
   return (
-    <div
+    <div className="relative">
+      {Boolean((data as Record<string, unknown>).__issue) && (
+        <span
+          title={String((data as Record<string, unknown>).__issue)}
+          className="absolute -right-1.5 -top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-[#dc2626] text-[9px] font-bold text-white"
+        >
+          !
+        </span>
+      )}
+      <div
       className={`w-[220px] border bg-[#0f1117] text-white ${
         isPlanning ? "specter-supervisor-planning border-[#4f8ef7]" : selected ? "border-[#4f8ef7]" : "border-[#2a2d36]"
       }`}
@@ -72,6 +81,7 @@ export function SupervisorAgentNode({ data, selected }: NodeProps) {
       </div>
 
       <Handle type="source" position={Position.Right} className="!h-2 !w-2 !rounded-none !border-0 !bg-[#4f8ef7]" />
+    </div>
     </div>
   );
 }
