@@ -292,6 +292,9 @@ export const api = {
     request<{ run_id: string; status: string; workflow_id: string }>("/workflow-runs", {
       method: "POST", headers: authHeaders(token), body: JSON.stringify(payload),
     }),
+  runStats: (token: string, windowHours = 24) =>
+    request<{ window_hours: number; total: number; failed: number; completed: number; active: number; median_duration_seconds: number }>(
+      `/workflow-runs/stats?window_hours=${windowHours}`, { headers: authHeaders(token) }),
   listRuns: (token: string, workflow_id?: string) =>
     request<WorkflowRun[]>(`/workflow-runs${workflow_id ? `?workflow_id=${workflow_id}` : ""}`, { headers: authHeaders(token) }),
   getRun: (token: string, runId: string) =>

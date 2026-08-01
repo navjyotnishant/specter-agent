@@ -34,6 +34,13 @@ function parseDate(value: string | null | undefined): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function formatDuration2(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const sec = Math.round(seconds % 60);
+  return m < 60 ? `${m}m${sec ? ` ${sec}s` : ""}` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
 function timeAgo(value: string | null | undefined): string {
   const date = parseDate(value);
   if (!date) return "not recorded";
@@ -60,7 +67,10 @@ function deadlineText(value: string | null | undefined): string {
 
 function formatDuration(start: string, end: string | null): string {
   const startDate = parseDate(start);
-  const endDate = parseDate(end);
+  // A null completed_at means the run is still going, not that it has no
+  // duration -- returning "-" hid elapsed time on exactly the rows an operator
+  // is watching.
+  const endDate = parseDate(end) ?? (startDate ? new Date() : null);
   if (!startDate || !endDate) return "-";
   const seconds = Math.max(0, Math.floor((endDate.getTime() - startDate.getTime()) / 1000));
   if (seconds < 60) return `${seconds}s`;
@@ -167,6 +177,14 @@ export default function Dashboard() {
     retry: false,
     refetchInterval: 10000,
   });
+  const { data: stats } = useQuery({
+    queryKey: ["dashboard", "run-stats"],
+    queryFn: () => api.runStats(token, 24),
+    enabled: canUseBackend,
+    retry: false,
+    refetchInterval: 15000,
+    refetchIntervalInBackground: false,
+  });
   const { data: skillsData = [] } = useQuery({
     queryKey: ["dashboard", "skills"],
     queryFn: () => api.skills(token),
@@ -207,8 +225,12 @@ export default function Dashboard() {
   const completedRuns = runsData.filter((run) => run.status === "completed");
   const attentionRuns = runsData.filter((run) => ["failed", "waiting_approval", "running", "queued"].includes(run.status));
   const activityRuns = [...attentionRuns, ...runsData.filter((run) => !attentionRuns.includes(run))].slice(0, 8);
-  const lastSuccessfulRun = completedRuns[0] ?? null;
-  const lastFailedRun = failedRuns[0] ?? null;
+  // Ordered by completion, not creation: a long run started earlier can finish
+  // after a short one, so created_at order named the wrong "last" run.
+  const byCompletion = (a: WorkflowRun, b: WorkflowRun) =>
+    String(b.completed_at ?? "").localeCompare(String(a.completed_at ?? ""));
+  const lastSuccessfulRun = [...completedRuns].sort(byCompletion)[0] ?? null;
+  const lastFailedRun = [...failedRuns].sort(byCompletion)[0] ?? null;
 
   const apiReady = healthData?.api === "ok";
   const sandboxReady = sandboxStatus?.status === "ready";
@@ -259,11 +281,26 @@ export default function Dashboard() {
         href: "/settings/models",
       };
     }
+    // Consult the SQL aggregate before claiming all-clear. failedRuns is filtered
+    // from a page of recent runs, so a failure just outside that page produced a
+    // confident green banner while the system was in fact failing.
+    if (stats && stats.failed > 0) {
+      return {
+        tone: "amber" as Tone,
+        icon: AlertTriangle,
+        title: `${stats.failed} run${stats.failed === 1 ? "" : "s"} failed in the last 24h`,
+        detail: "Not visible in the recent list below — open the workflows page to review.",
+        action: "Review failures",
+        href: "/workflows",
+      };
+    }
     return {
       tone: "green" as Tone,
       icon: CheckCircle2,
       title: "All clear",
-      detail: "No pending approvals or failed runs are blocking attention.",
+      detail: stats
+        ? `No failures in the last ${stats.window_hours}h and nothing waiting on you.`
+        : "No pending approvals or failed runs are blocking attention.",
       action: "Open workflows",
       href: "/workflows",
     };
@@ -273,11 +310,13 @@ export default function Dashboard() {
 
   const metrics = [
     {
-      label: "Active work",
-      value: activeRuns.length,
-      detail: activeRuns.length ? `${activeRuns.length} run${activeRuns.length > 1 ? "s" : ""} in motion` : "No live runs",
+      label: "Running now",
+      value: stats?.active ?? activeRuns.length,
+      detail: (stats?.active ?? activeRuns.length)
+        ? `${stats?.active ?? activeRuns.length} in motion`
+        : "No live runs",
       icon: Activity,
-      tone: activeRuns.length ? "blue" as Tone : "slate" as Tone,
+      tone: (stats?.active ?? activeRuns.length) ? "blue" as Tone : "slate" as Tone,
       href: "/workflows",
     },
     {
@@ -289,20 +328,26 @@ export default function Dashboard() {
       href: "/workflows",
     },
     {
-      label: "Evidence runs",
-      value: runsData.length,
-      detail: lastSuccessfulRun ? `Last pass ${timeAgo(lastSuccessfulRun.completed_at ?? lastSuccessfulRun.created_at)}` : "No completed runs",
+      // From /stats, aggregated in SQL. This used to be runsData.length -- a count
+      // of the truncated page, so it froze once more runs existed than fit.
+      label: "Failed · 24h",
+      value: stats?.failed ?? 0,
+      detail: stats?.total
+        ? `of ${stats.total} run${stats.total === 1 ? "" : "s"} · ${((stats.failed / stats.total) * 100).toFixed(1)}%`
+        : "No runs in the last 24h",
       icon: History,
-      tone: "indigo" as Tone,
+      tone: (stats?.failed ? "red" : "slate") as Tone,
       href: "/workflows",
     },
     {
-      label: "Reusable skills",
-      value: skillsData.length,
-      detail: `${userWorkflows.length} workflow${userWorkflows.length === 1 ? "" : "s"} configured`,
-      icon: Sparkles,
-      tone: "green" as Tone,
-      href: "/skills",
+      // Replaces a skill count, which never changed and never needed action --
+      // and whose detail line counted workflows, an unrelated number.
+      label: "Median duration",
+      value: stats?.median_duration_seconds ? formatDuration2(stats.median_duration_seconds) : "—",
+      detail: stats?.completed ? `across ${stats.completed} completed` : "No completed runs yet",
+      icon: Activity,
+      tone: "indigo" as Tone,
+      href: "/workflows",
     },
   ];
 

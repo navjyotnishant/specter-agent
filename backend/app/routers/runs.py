@@ -209,16 +209,82 @@ def start_run(request: StartRunRequest, user: dict = Depends(require_admin)) -> 
 
 
 @router.get("")
-def list_runs(workflow_id: str | None = None, _: dict = Depends(require_user)) -> list[dict[str, Any]]:
+def list_runs(
+    workflow_id: str | None = None,
+    limit: int = 100,
+    _: dict = Depends(require_user),
+) -> list[dict[str, Any]]:
+    """Recent runs, newest first.
+
+    The limit is a caller-visible parameter rather than a hidden 20: callers were
+    treating the truncated page as a total, so a dashboard tile froze at 20 once
+    the 21st run existed. Anything wanting real totals should use /stats.
+    """
+    limit = max(1, min(limit, 500))
     with db_session() as db:
         if workflow_id:
             rows = db.execute(
-                "SELECT * FROM workflow_runs WHERE workflow_id = ? ORDER BY created_at DESC LIMIT 20",
-                (workflow_id,),
+                "SELECT * FROM workflow_runs WHERE workflow_id = ? ORDER BY created_at DESC LIMIT ?",
+                (workflow_id, limit),
             ).fetchall()
         else:
-            rows = db.execute("SELECT * FROM workflow_runs ORDER BY created_at DESC LIMIT 20").fetchall()
+            rows = db.execute(
+                "SELECT * FROM workflow_runs ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
     return [_public_run(r) for r in rows]
+
+
+@router.get("/stats")
+def run_stats(window_hours: int = 24, _: dict = Depends(require_user)) -> dict[str, Any]:
+    """Aggregates computed in SQL over the whole table, not a page of it.
+
+    Counting from a truncated list is how the attention banner could report
+    "All clear" while failures sat just outside the loaded window.
+    """
+    window_hours = max(1, min(window_hours, 24 * 30))
+    since = f"-{window_hours} hours"
+    with db_session() as db:
+        totals = db.execute(
+            """
+            SELECT
+              COUNT(*)                                                   AS total,
+              SUM(status = 'failed')                                     AS failed,
+              SUM(status = 'completed')                                  AS completed,
+              SUM(status IN ('running', 'queued', 'waiting_approval'))   AS active
+            FROM workflow_runs
+            WHERE created_at >= datetime('now', ?)
+            """,
+            (since,),
+        ).fetchone()
+        # Active runs are counted without a window: a run started two days ago and
+        # still going is exactly what an operator needs to see.
+        active_all = db.execute(
+            "SELECT COUNT(*) c FROM workflow_runs"
+            " WHERE status IN ('running','queued','waiting_approval')"
+        ).fetchone()["c"]
+        median = db.execute(
+            """
+            SELECT AVG(secs) AS median FROM (
+              SELECT (julianday(completed_at) - julianday(created_at)) * 86400 AS secs
+              FROM workflow_runs
+              WHERE completed_at IS NOT NULL AND created_at >= datetime('now', ?)
+              ORDER BY secs
+              LIMIT 2 - (SELECT COUNT(*) FROM workflow_runs
+                         WHERE completed_at IS NOT NULL AND created_at >= datetime('now', ?)) % 2
+              OFFSET (SELECT (COUNT(*) - 1) / 2 FROM workflow_runs
+                      WHERE completed_at IS NOT NULL AND created_at >= datetime('now', ?))
+            )
+            """,
+            (since, since, since),
+        ).fetchone()
+    return {
+        "window_hours": window_hours,
+        "total": totals["total"] or 0,
+        "failed": totals["failed"] or 0,
+        "completed": totals["completed"] or 0,
+        "active": active_all,
+        "median_duration_seconds": round(median["median"] or 0, 1),
+    }
 
 
 @router.get("/{run_id}")
