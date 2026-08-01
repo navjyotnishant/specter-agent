@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.db.session import db_session
-from app.runtime.auth import require_admin, require_user
+from app.runtime.integrations import get_integration, save_integration, secret_hint
+from app.runtime.auth import issue_service_token, require_admin, require_user
 
 router = APIRouter(prefix="/runtime-adapters", tags=["runtime-adapters"])
 
@@ -40,6 +41,14 @@ class RepositoryDiscoveryRequest(BaseModel):
     root_path: str = Field(min_length=1, max_length=500)
     max_depth: int = Field(default=3, ge=1, le=5)
     max_results: int = Field(default=50, ge=1, le=200)
+
+
+class RepositoryParseRequest(BaseModel):
+    repo_path: str = Field(min_length=1, max_length=500)
+
+
+class RepositoryCloneRequest(BaseModel):
+    repo_url: str = Field(min_length=1, max_length=500)
 
 
 class CodexRunRequest(BaseModel):
@@ -219,6 +228,114 @@ def discover_repositories(request: RepositoryDiscoveryRequest, _: dict = Depends
         method="POST",
         body={"root_path": root_path, "max_depth": request.max_depth, "max_results": request.max_results},
         timeout=30,
+    )
+
+
+class TelegramConfigRequest(BaseModel):
+    bot_token: str = ""
+    allowed_chat_ids: list[str] = []
+
+
+@router.get("/telegram/config")
+def telegram_config(user: dict = Depends(require_admin)) -> dict[str, Any]:
+    """State only -- the bot token is never returned, only a last-4 hint."""
+    saved = get_integration(user["id"], "telegram")
+    if not saved:
+        return {"ok": True, "configured": False, "bot_token_set": False,
+                "bot_token_hint": "", "allowed_chat_ids": []}
+    return {
+        "ok": True,
+        "configured": bool(saved["secret"]) and bool(saved["config"].get("allowed_chat_ids")),
+        "bot_token_set": bool(saved["secret"]),
+        "bot_token_hint": secret_hint(saved["secret"]),
+        "allowed_chat_ids": saved["config"].get("allowed_chat_ids", []),
+        "updated_at": saved["updated_at"],
+    }
+
+
+@router.post("/telegram/config")
+def save_telegram_config(request: TelegramConfigRequest, user: dict = Depends(require_admin)) -> dict[str, Any]:
+    """Persist against the signed-in user, then push to the host poller.
+
+    The database owns the credential; the host runner only needs a working copy
+    because it is the process that long-polls Telegram. An empty bot_token means
+    "keep the stored one", so the secret never has to round-trip through the UI.
+    """
+    save_integration(
+        user["id"], "telegram", request.bot_token.strip(),
+        {"allowed_chat_ids": request.allowed_chat_ids},
+    )
+    saved = get_integration(user["id"], "telegram")
+    if not saved or not saved["secret"]:
+        return {"ok": False, "message": "A bot token is required."}
+
+    settings = get_settings()
+    result = call_host_runner("/telegram/config", method="POST", timeout=15, body={
+        "bot_token": saved["secret"],
+        "allowed_chat_ids": saved["config"].get("allowed_chat_ids", []),
+        # The user is already authenticated -- minting the poller's token here
+        # beats making them paste their own browser token.
+        "api_token": issue_service_token(user["id"]),
+        "backend_url": str(settings.telegram_backend_url),
+    })
+    if not result.get("ok"):
+        # Saved, but the poller did not pick it up -- say so rather than
+        # reporting success for a bot that will never receive a message.
+        return {"ok": True, "configured": True, "warning":
+                result.get("message") or "Saved, but the host runner is unreachable."}
+    return {"ok": True, "configured": True}
+
+
+@router.post("/telegram/discover-chats")
+def telegram_discover_chats(request: TelegramConfigRequest, _: dict = Depends(require_admin)) -> dict[str, Any]:
+    """Chats that have messaged the bot — saves the user hand-curling a token URL."""
+    return call_host_runner(
+        "/telegram/discover-chats", method="POST",
+        body={"bot_token": request.bot_token}, timeout=25,
+    )
+
+
+@router.get("/models")
+def list_agent_models(refresh: bool = False, _: dict = Depends(require_user)) -> dict[str, Any]:
+    """Models each installed CLI actually supports, discovered at runtime.
+
+    Read-only and useful to every signed-in user, so this is require_user rather
+    than require_admin like the repository routes.
+    """
+    return call_host_runner(
+        "/models",
+        method="POST",
+        body={"refresh": refresh},
+        timeout=60,
+    )
+
+
+@router.post("/repositories/parse")
+def parse_repository(request: RepositoryParseRequest, _: dict = Depends(require_admin)) -> dict[str, Any]:
+    """Parse an agentic-orchestrator repo into skills/agents/refs plus a compat report.
+
+    Reads arbitrary host paths, so it is admin-gated like /repositories/discover.
+    """
+    return call_host_runner(
+        "/repositories/parse",
+        method="POST",
+        body={"repo_path": normalize_workspace_path(request.repo_path)},
+        timeout=60,
+    )
+
+
+@router.post("/repositories/clone")
+def clone_repository(request: RepositoryCloneRequest, _: dict = Depends(require_admin)) -> dict[str, Any]:
+    """Shallow-clone an allowlisted https git repo onto the host for import.
+
+    Host/scheme allowlisting and destination sanitizing happen in the host runner,
+    which is the only component with a filesystem and a git binary.
+    """
+    return call_host_runner(
+        "/repositories/clone",
+        method="POST",
+        body={"repo_url": request.repo_url.strip()},
+        timeout=180,
     )
 
 

@@ -13,7 +13,9 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -33,6 +35,25 @@ DOCKER_SANDBOX_CODEX_DOCS_URL = "https://docs.docker.com/ai/sandboxes/agents/cod
 DOCKER_SANDBOX_PRODUCT_URL = "https://www.docker.com/products/docker-sandboxes/"
 DOCKER_SANDBOX_TEMPLATE = "docker/sandbox-templates:codex"
 SANDBOX_POLICY_VALUES = {"allow-all", "balanced", "deny-all"}
+# launchd hands this process PATH=/usr/bin:/bin:/usr/sbin:/sbin, so anything
+# installed by Homebrew, npm, or pip is invisible to shutil.which(). These are the
+# roots to search explicitly, and to prepend when spawning a child process.
+CLI_INSTALL_ROOTS = [
+    Path("/opt/homebrew/bin"),
+    Path("/usr/local/bin"),
+    Path.home() / ".local" / "bin",
+    Path.home() / ".npm-global" / "bin",
+    Path.home() / "bin",
+]
+
+
+def _augmented_path() -> str:
+    """PATH with the usual install roots prepended, for spawned child processes."""
+    existing = os.environ.get("PATH", "").split(os.pathsep)
+    roots = [str(root) for root in CLI_INSTALL_ROOTS]
+    return os.pathsep.join(roots + [p for p in existing if p and p not in roots])
+
+
 # Resolved at startup so launchd's minimal PATH doesn't cause FileNotFoundError
 SBX = shutil.which("sbx") or "/opt/homebrew/bin/sbx"
 
@@ -259,8 +280,25 @@ def maintenance_mode() -> bool:
     return MAINTENANCE_MODE
 
 
+# Logs are served over /logs, so scrub anything token-shaped before it lands there.
+# Belt-and-braces: nothing should log a token, but one careless f-string would
+# otherwise publish it over HTTP.
+_SECRET_PATTERNS = (
+    re.compile(r"\b\d{6,12}:[A-Za-z0-9_-]{30,}\b"),   # telegram bot token
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{16,}"),  # auth header
+    re.compile(r"/bot\d{6,12}:[A-Za-z0-9_-]+"),        # token embedded in a URL
+)
+
+
+def _scrub(text: str) -> str:
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub("[redacted]", text)
+    return text
+
+
 def log_event(level: str, message: str, **metadata: Any) -> None:
     global LOG_SEQ
+    message = _scrub(message)
     with LOG_LOCK:
         LOG_SEQ += 1
         seq = LOG_SEQ
@@ -269,7 +307,10 @@ def log_event(level: str, message: str, **metadata: Any) -> None:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "level": level,
         "message": message,
-        "metadata": {k: v for k, v in metadata.items() if v is not None and v != ""},
+        "metadata": {
+            k: (_scrub(v) if isinstance(v, str) else v)
+            for k, v in metadata.items() if v is not None and v != ""
+        },
     }
     with LOG_LOCK:
         RUNNER_LOGS.append(entry)
@@ -608,25 +649,62 @@ def docker_sandbox_status() -> dict[str, Any]:
     }
 
 
-def sbx_daemon_start() -> dict[str, Any]:
-    """Start the sbx daemon in the background."""
+def sbx_daemon_running() -> bool:
+    """True when `sbx daemon status` reports a live daemon."""
+    executable = best_sbx_candidate()[0]
+    if not executable:
+        return False
     try:
         result = subprocess.run(
-            [SBX, "daemon", "start"],
-            capture_output=True, text=True, timeout=15, check=False,
+            [executable["path"], "daemon", "status"],
+            capture_output=True, text=True, timeout=10, check=False,
         )
-        if result.returncode == 0:
-            log_event("info", "sbx daemon started", stdout=result.stdout.strip())
-            return {"ok": True, "message": "sbx daemon started successfully."}
-        # Already running is not an error
-        combined = (result.stdout + result.stderr).lower()
-        if "already" in combined or "running" in combined:
-            return {"ok": True, "message": "sbx daemon is already running."}
-        return {"ok": False, "message": result.stderr.strip() or result.stdout.strip() or "sbx daemon start failed."}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "message": "sbx daemon start timed out."}
+    except Exception:
+        return False
+    return result.returncode == 0 and "running" in (result.stdout + result.stderr).lower()
+
+
+def sbx_daemon_start() -> dict[str, Any]:
+    """Start the sbx daemon, detached so it outlives this request.
+
+    `sbx daemon start` runs in the FOREGROUND -- it does not fork. Waiting on it
+    with subprocess.run() blocks until the timeout and then kills the daemon,
+    which is why starting it from the app never stuck. Spawn it in its own
+    session with Popen and poll `daemon status` for readiness instead.
+    """
+    best = best_sbx_candidate()[0]
+    if not best:
+        return {"ok": False, "message": "Docker Sandboxes CLI is not installed."}
+    if sbx_daemon_running():
+        return {"ok": True, "message": "sbx daemon is already running."}
+
+    log_path = Path.home() / ".specter" / "sbx-daemon.log"
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(log_path, "ab")
+    except OSError:
+        handle = subprocess.DEVNULL
+
+    try:
+        subprocess.Popen(
+            [best["path"], "daemon", "start"],
+            stdout=handle, stderr=handle, stdin=subprocess.DEVNULL,
+            start_new_session=True,  # detach from the runner's process group
+            env={**os.environ, "PATH": _augmented_path()},
+        )
     except Exception as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": f"Could not launch sbx daemon: {exc}"}
+
+    for _ in range(20):  # up to ~10s for the socket to come up
+        time.sleep(0.5)
+        if sbx_daemon_running():
+            log_event("info", "sbx daemon started", log_path=str(log_path))
+            return {"ok": True, "message": "sbx daemon started successfully."}
+
+    return {
+        "ok": False,
+        "message": f"sbx daemon did not report ready within 10s. See {log_path}.",
+    }
 
 
 def docker_sandbox_policy_status() -> dict[str, Any]:
@@ -1212,11 +1290,31 @@ def extract_codex_error_message(stdout: str) -> str:
 # check_auth_fn: returns (authenticated: bool, note: str) for health reporting
 # install_check: callable that returns path or None
 
+def _resolve_cli(*names: str) -> str | None:
+    """Locate a CLI by name, tolerating launchd's minimal PATH.
+
+    Under launchd the runner inherits PATH=/usr/bin:/bin:/usr/sbin:/sbin, so
+    shutil.which() misses every user- and Homebrew-installed CLI and the agent
+    gets reported as "not installed" while it is sitting in ~/.local/bin. Check
+    the usual install roots explicitly as a fallback.
+    """
+    roots = CLI_INSTALL_ROOTS
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return found
+        for root in roots:
+            candidate = root / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+    return None
+
+
 def _claude_path() -> str | None:
-    return shutil.which("claude")
+    return _resolve_cli("claude")
 
 def _cursor_agent_path() -> str | None:
-    return shutil.which("cursor-agent") or shutil.which("cursor")
+    return _resolve_cli("cursor-agent", "cursor")
 
 def _check_claude_auth() -> tuple[bool, str]:
     exe = _claude_path()
@@ -2040,6 +2138,882 @@ def discover_repositories(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+AGENT_REPO_MAX_ITEMS = 200
+AGENT_REPO_MAX_BODY = 20_000
+# Monorepos nest deeply (packages/*/src/agents/...). 6 was too shallow and failed
+# silently; the skip-list keeps the wider walk cheap.
+AGENT_REPO_MAX_DEPTH = 12
+AGENT_REPO_SKIP_DIRS = SCAN_IGNORE_DIRS | {
+    "node_modules", "site", "dist", "build", "vendor", "target", "__pycache__",
+    # Scaffolding and fixtures define placeholder names (<skill-name>), not real
+    # skills -- importing them would create junk rows.
+    "templates", "template", "examples", "example", "fixtures", "testdata", "tests", "test",
+}
+AGENT_REPO_VALID_CLASSES = {"review", "authoring", "workflow", "pm", "social"}
+_AGENT_REPO_IGNORED_MD = {
+    "README.MD", "CHANGELOG.MD", "LICENSE.MD", "CONTRIBUTING.MD", "CODE_OF_CONDUCT.MD",
+    "SECURITY.MD", "HANDOFF.MD", "CLAUDE.MD", "AGENTS.MD", "GEMINI.MD",
+}
+CLONE_ALLOWED_HOSTS = {"github.com", "gitlab.com"}
+CLONE_ROOT = Path.home() / ".specter" / "imports"
+_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+")
+_REF_RE = re.compile(r"`([a-z0-9][a-z0-9-]{2,})`")
+
+# Ordering is expressed in prose, in two shapes:
+#   `blog-writer` → `blog-fact-checker` → `blog-reviewer`   (backticked, authoritative)
+#   writer → fact-checker → reviewer → editor               (bare, needs resolving)
+_CHAIN_SEP = r"(?:→|->|—>)"
+_CHAIN_BACKTICKED_RE = re.compile(
+    rf"`([a-z0-9][a-z0-9-]{{2,}})`(?:\s*{_CHAIN_SEP}\s*`([a-z0-9][a-z0-9-]{{2,}})`)+"
+)
+_CHAIN_ANY_RE = re.compile(
+    rf"`?([a-z0-9][a-z0-9-]{{2,}})`?(?:\s*{_CHAIN_SEP}\s*`?([a-z0-9][a-z0-9-]{{2,}})`?)+"
+)
+_CHAIN_LINK_RE = re.compile(rf"\s*{_CHAIN_SEP}\s*")
+# "spawn these in a single message (parallel)", "fans out", "runs in parallel"
+_PARALLEL_RE = re.compile(
+    r"in parallel|parallel\)|fans? out|concurrently|independent and runs",
+    re.IGNORECASE,
+)
+# Parallel branches that reconverge: "then converge", "aggregates one verdict".
+_FANIN_RE = re.compile(
+    r"converge|aggregat\w+|combine[sd]? the (?:results|outputs)|then apply serially",
+    re.IGNORECASE,
+)
+
+# A skill that blocks on a human decision before doing something outward-facing
+# should import as a humanApproval gate rather than running unattended.
+#
+# Deliberately specific: generic cost-control boilerplate ("State it and get a yes
+# before the first dispatch") appears in EVERY skill of this toolkit, so matching
+# it would gate all of them and make the signal worthless.
+_APPROVAL_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"never auto-?(?:post|publish|commit|push|merge|creat)", "acts outward only after you confirm"),
+    (r"on opt-in,? (?:it )?creates?|creates? it \*{0,2}on opt-in", "creates the item only on opt-in"),
+    (r"only if (?:you|the user) opts? in|and (?:you|the user) opts? in", "proceeds only if you opt in"),
+    (r"proposes the commit|propose the commit", "proposes a commit for you to approve"),
+    (r"one (?:explicit )?opt-in|ONE opt-in|explicit opt-in before any", "needs one explicit approval before creating"),
+    (r"human decides|the human decides", "a human decides the outcome"),
+    (r"before (?:you )?publish|never publishes", "waits for approval before publishing"),
+)
+_APPROVAL_RES = tuple((re.compile(p, re.IGNORECASE), label) for p, label in _APPROVAL_PATTERNS)
+
+# Agents that act on the finished artifact (publish, post, promote). They depend on
+# everything upstream, so fanning them out from the supervisor would run them before
+# the artifact exists -- e.g. a promo agent with no published URL to reference.
+_TERMINAL_AGENT_RE = re.compile(
+    r"(?:^|-)(poster|publish\w*|promo\w*|announce\w*|deploy\w*|notifier?)$|"
+    r"^social-post$|^release-notes$",
+    re.IGNORECASE,
+)
+
+
+def _is_terminal_agent(key: str, body: str) -> bool:
+    """True when an agent should run after the main pipeline rather than beside it.
+
+    Name is the primary signal; prose like "must clear before posting" or "needs a
+    published URL" confirms the dependency where the name alone is ambiguous.
+    """
+    if _TERMINAL_AGENT_RE.search(key):
+        return True
+    near = re.search(
+        rf"`{re.escape(key)}`[^.]{{0,200}}(?:published|after (?:the )?(?:post|publish)|"
+        rf"before posting|needs a published)",
+        body,
+        re.IGNORECASE,
+    )
+    return bool(near)
+
+
+def _detect_approval_gate(body: str, description: str) -> dict[str, Any]:
+    """Decide whether a skill pauses for a human before acting.
+
+    Returns {"required": bool, "reason": str, "signals": [...]}. The reason is
+    shown in the picker and becomes the humanApproval node's prompt, so it has to
+    read as a sentence rather than a regex name.
+    """
+    haystack = f"{description}\n{body}"
+    signals = [label for pattern, label in _APPROVAL_RES if pattern.search(haystack)]
+    if not signals:
+        return {"required": False, "reason": "", "signals": []}
+    return {
+        "required": True,
+        # Most specific signal first -- the tuple is ordered by how load-bearing it is.
+        "reason": signals[0],
+        "signals": signals,
+    }
+
+
+def _extract_pipeline(body: str, agent_keys: set[str]) -> tuple[list[list[str]], bool]:
+    """Pull ordered agent chains out of a skill's prose.
+
+    Returns (chains, mentions_parallel, mentions_fan_in). Each chain is an ordered
+    list of agent keys meaning "a runs, then b, then c". Bare names are resolved
+    against the known agents by suffix, so `writer → fact-checker` maps onto
+    blog-writer and blog-fact-checker when this skill spawns them.
+    """
+    chains: list[list[str]] = []
+
+    def resolve(token: str) -> str | None:
+        if token in agent_keys:
+            return token
+        # Bare shorthand: "writer" for blog-writer. Only accept an unambiguous match.
+        matches = [k for k in agent_keys if k.endswith(f"-{token}") or k == token]
+        return matches[0] if len(matches) == 1 else None
+
+    for match in _CHAIN_ANY_RE.finditer(body):
+        tokens = [t for t in _CHAIN_LINK_RE.split(match.group(0)) if t]
+        resolved = [resolve(t.strip().strip("`")) for t in tokens]
+        # Keep the chain only if at least two links resolve to real agents; drop
+        # unresolved middles rather than inventing an edge across them.
+        keys = [k for k in resolved if k]
+        if len(keys) >= 2 and len(keys) == len(resolved):
+            deduped: list[str] = []
+            for key in keys:
+                if key not in deduped:
+                    deduped.append(key)
+            if len(deduped) >= 2 and deduped not in chains:
+                chains.append(deduped)
+
+    # Prefer longer chains; a 6-link chain supersedes the 4-link prefix of itself.
+    chains.sort(key=len, reverse=True)
+    kept: list[list[str]] = []
+    for chain in chains:
+        joined = ">".join(chain)
+        if not any(joined in ">".join(other) for other in kept):
+            kept.append(chain)
+
+    return kept, bool(_PARALLEL_RE.search(body)), bool(_FANIN_RE.search(body))
+
+
+def _split_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Split a `---` fenced YAML frontmatter block into flat scalars plus the body.
+
+    Deliberately stdlib-only: the host runner is launchd-run and dependency-free, and
+    every key these files use (name/description/class/subclass/version/color/author)
+    is a flat scalar. Handles the one real edge case in the wild -- a double-quoted
+    value that spans lines (agents/blog-writer.md embeds an <example> block with
+    literal \\n escapes in its description).
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text
+    try:
+        end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+    except StopIteration:
+        return {}, text
+
+    meta: dict[str, str] = {}
+    i = 1
+    while i < end:
+        key, sep, value = lines[i].partition(":")
+        i += 1
+        key = key.strip()
+        if not sep or not key or key.startswith("#"):
+            continue
+        value = value.strip()
+        if value.startswith('"') and not (len(value) > 1 and value.endswith('"')):
+            # Quoted value continues onto following lines until the closing quote.
+            parts = [value]
+            while i < end and not lines[i].rstrip().endswith('"'):
+                parts.append(lines[i])
+                i += 1
+            if i < end:
+                parts.append(lines[i])
+                i += 1
+            value = "\n".join(parts)
+        if len(value) > 1 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        meta[key] = value.replace("\\n", "\n")
+
+    return meta, "\n".join(lines[end + 1:]).strip()
+
+
+def _first_sentence(text: str, limit: int = 160) -> str:
+    flat = " ".join(text.split())
+    cut = flat.split(". ")[0].strip()
+    return (cut[: limit - 1] + "…") if len(cut) > limit else cut
+
+
+def _discover_agent_files(root: Path) -> tuple[list[tuple[Path, str]], str]:
+    """Find every skill/agent-shaped markdown file, wherever it lives in the repo.
+
+    The portable signal is the file itself -- markdown with `name`+`description`
+    frontmatter -- not a hardcoded directory. Layout only supplies a *hint* about
+    whether a file is a skill or an agent; the file's own frontmatter wins. This is
+    what lets a repo that is not nj-agents (a .claude/ plugin, an agents-only repo,
+    a monorepo with skills nested under packages/*) import without special-casing.
+
+    Returns ([(path, hint)], shape, limits) where hint is "skill" | "agent" | ""
+    and limits records whether the scan was cut short (so the caller can say so
+    rather than silently reporting an empty repo).
+    """
+    found: list[tuple[Path, str]] = []
+    hint_dirs = {"skills": "skill", "agents": "agent", "subagents": "agent", "commands": "skill"}
+    roots_seen: set[str] = set()
+    budget = AGENT_REPO_MAX_ITEMS * 4
+    limits = {"depth_hit": False, "budget_hit": False, "max_depth": AGENT_REPO_MAX_DEPTH}
+
+    def hint_for(path: Path) -> str:
+        # Nearest ancestor directory that names a known kind, e.g. .claude/agents/x.md
+        # or skills/foo/SKILL.md. SKILL.md itself is an unambiguous marker.
+        if path.name.upper() == "SKILL.md".upper():
+            return "skill"
+        for part in reversed(path.relative_to(root).parts[:-1]):
+            if part.lower() in hint_dirs:
+                return hint_dirs[part.lower()]
+        return ""
+
+    def walk(path: Path, depth: int) -> None:
+        nonlocal budget
+        if budget <= 0:
+            limits["budget_hit"] = True
+            return
+        if depth > AGENT_REPO_MAX_DEPTH:
+            limits["depth_hit"] = True
+            return
+        try:
+            children = sorted(path.iterdir(), key=lambda c: c.name.lower())
+        except (PermissionError, OSError):
+            return
+        for child in children:
+            if budget <= 0:
+                limits["budget_hit"] = True
+                return
+            name = child.name
+            if child.is_dir():
+                if name in AGENT_REPO_SKIP_DIRS or (name.startswith(".") and name != ".claude"):
+                    continue
+                walk(child, depth + 1)
+            elif (
+                name.lower().endswith(".md")
+                and name.upper() not in _AGENT_REPO_IGNORED_MD
+                and not name.upper().startswith("CONVENTIONS")
+            ):
+                budget -= 1
+                hint = hint_for(child)
+                # Cheap pre-filter: only files with a frontmatter fence can qualify.
+                try:
+                    with child.open("r", encoding="utf-8", errors="replace") as fh:
+                        if fh.readline().strip() != "---":
+                            continue
+                except OSError:
+                    continue
+                found.append((child, hint))
+                rel = child.relative_to(root).parts
+                roots_seen.add(rel[0] if len(rel) > 1 else "")
+
+    walk(root, 0)
+
+    if not found:
+        shape = "unknown"
+    elif (root / ".claude").is_dir() and any(".claude" in f.parts for f, _ in found):
+        shape = "claude-plugin"
+    elif (root / "skills").is_dir() and (root / "agents").is_dir():
+        shape = "skills-and-agents"
+    else:
+        shape = "markdown-agents"
+    return found, shape, limits
+
+
+_CODE_AGENT_EXTS = {".py": "Python", ".ts": "TypeScript", ".js": "JavaScript", ".go": "Go", ".rb": "Ruby"}
+
+
+def _describe_unsupported_layout(root: Path) -> str:
+    """Explain what the repo *does* contain when no markdown definitions are found.
+
+    The common near-miss is a repo that defines agents in code (a `make_agent()`
+    factory, a CrewAI/LangGraph graph) rather than in markdown. Saying so turns a
+    dead end into a diagnosis, and distinguishes it from a wrong path.
+    """
+    hints: list[str] = []
+
+    # An agents/ or skills/ directory holding source files rather than markdown.
+    for dirname in ("agents", "skills", "subagents"):
+        for found in list(root.rglob(dirname))[:20]:
+            if not found.is_dir() or any(p in AGENT_REPO_SKIP_DIRS for p in found.parts):
+                continue
+            langs: dict[str, int] = {}
+            for child in list(found.iterdir())[:100]:
+                lang = _CODE_AGENT_EXTS.get(child.suffix.lower())
+                if child.is_file() and lang and child.name != "__init__.py":
+                    langs[lang] = langs.get(lang, 0) + 1
+            if langs:
+                lang, count = max(langs.items(), key=lambda kv: kv[1])
+                rel = found.relative_to(root)
+                hints.append(
+                    f"Found {count} {lang} file(s) under `{rel}/` — this repo appears to define "
+                    f"agents in code, which this importer does not parse yet."
+                )
+                break
+        if hints:
+            break
+
+    if not hints:
+        md = [p for p in list(root.rglob("*.md"))[:200]
+              if not any(part in AGENT_REPO_SKIP_DIRS or part == ".git" for part in p.parts)]
+        if md:
+            names = ", ".join(sorted(p.name for p in md[:4]))
+            hints.append(
+                f"The repo has {len(md)} markdown file(s) ({names}"
+                f"{'…' if len(md) > 4 else ''}) but none carry skill/agent frontmatter."
+            )
+        else:
+            hints.append("No markdown files found at all — check that the path points at the right repository.")
+
+    return " ".join(hints)
+
+
+def parse_agent_repository(payload: dict[str, Any]) -> dict[str, Any]:
+    """Parse an agentic-orchestrator repo into a neutral skills/agents/refs model.
+
+    Also grades the repo for compatibility in the same pass (every file is already
+    being read), so the UI can show a verdict before the user picks anything.
+    """
+    repo_value = str(payload.get("repo_path") or "").strip()
+    if not repo_value:
+        return {"ok": False, "message": "Repository path is required.", "shape": "unknown"}
+
+    root = Path(repo_value).expanduser().resolve()
+    if not root.is_dir():
+        return {"ok": False, "message": "Repository path does not exist or is not a directory.", "shape": "unknown"}
+
+    discovered, shape, scan_limits = _discover_agent_files(root)
+    checks: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    def check(check_id: str, level: str, ok: bool, message: str, files: list[str] | None = None) -> None:
+        checks.append({"id": check_id, "level": level, "ok": ok, "message": message, "files": files or []})
+
+    if shape == "unknown":
+        # "Nothing found" is a dead end; say what IS there so the user can tell a
+        # wrong path from an unsupported layout.
+        hint = _describe_unsupported_layout(root)
+        if scan_limits.get("depth_hit"):
+            hint += (
+                f" The scan also stopped at {scan_limits['max_depth']} directory levels — if your"
+                " definitions live deeper, point the import at that subdirectory instead."
+            )
+        check(
+            "shape-detected", "error", False,
+            "No skill- or agent-shaped markdown found (a .md file with `name` and `description` frontmatter). "
+            "Looked anywhere in the repo, not just skills/ or .claude/."
+            + (f" {hint}" if hint else ""),
+        )
+        return {
+            "ok": True, "shape": "unknown",
+            "repo": {"name": root.name, "path": str(root), "remote_url": None},
+            "skills": [], "agents": [], "warnings": [],
+            "compat": {
+                "score": 0, "verdict": "incompatible", "shape": "unknown", "shape_confidence": "none",
+                "counts": {"skills": 0, "agents": 0, "refs": 0, "orphan_agents": 0, "dangling_refs": 0, "leaf_skills": 0},
+                "checks": checks,
+            },
+        }
+
+    check("shape-detected", "info", True, f"Detected a {shape} layout.")
+
+    bad_frontmatter: list[str] = []
+    name_mismatch: list[str] = []
+    missing_description: list[str] = []
+    bad_class: list[str] = []
+    oversize: list[str] = []
+
+    def read_entry(path: Path, key: str, rel: str) -> tuple[dict[str, Any], dict[str, str]]:
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            bad_frontmatter.append(rel)
+            return {"key": key, "name": key, "description": "", "body": "", "source_path": rel,
+                    "error": f"unreadable: {exc}"}, {}
+
+        meta, body = _split_frontmatter(raw)
+        entry: dict[str, Any] = {
+            "key": key,
+            "name": meta.get("name") or key,
+            "description": meta.get("description", ""),
+            "version": meta.get("version", ""),
+            "author": meta.get("author", ""),
+            "source_path": rel,
+            "body": body[:AGENT_REPO_MAX_BODY],
+        }
+        if not meta:
+            bad_frontmatter.append(rel)
+            entry["error"] = "no parseable frontmatter block"
+        elif meta.get("name") and meta["name"] != key:
+            name_mismatch.append(rel)
+            entry["error"] = f"frontmatter name '{meta['name']}' does not match path '{key}'"
+        elif not entry["description"].strip():
+            missing_description.append(rel)
+            entry["error"] = "description is empty"
+        if len(body) > AGENT_REPO_MAX_BODY:
+            oversize.append(rel)
+        return entry, meta
+
+    skills: list[dict[str, Any]] = []
+    agents: list[dict[str, Any]] = []
+    skipped_unshaped = 0
+
+    for path, hint in discovered:
+        rel = str(path.relative_to(root))
+        key = path.parent.name if path.name.upper() == "SKILL.MD" else path.stem
+        entry, meta = read_entry(path, key, rel)
+
+        # A file qualifies only if it declares both a name and a description. That is
+        # the portable contract across nj-agents, .claude plugins, and anything else
+        # following the Agent Skills convention -- README/docs noise fails it.
+        if not meta.get("name") or not meta.get("description", "").strip():
+            if hint not in ("skill", "agent"):
+                skipped_unshaped += 1
+                for bucket in (bad_frontmatter, name_mismatch, missing_description):
+                    if rel in bucket:
+                        bucket.remove(rel)
+                continue
+
+        # The file's own frontmatter decides; the directory is only a fallback hint.
+        declared = (meta.get("kind") or meta.get("type") or "").strip().lower()
+        if declared in ("skill", "command"):
+            kind = "skill"
+        elif declared in ("agent", "subagent"):
+            kind = "agent"
+        elif meta.get("class") or meta.get("subclass") or path.name.upper() == "SKILL.MD":
+            kind = "skill"
+        elif meta.get("tools") or meta.get("model") or meta.get("color"):
+            kind = "agent"
+        else:
+            kind = hint or "agent"
+
+        if kind == "skill":
+            if len(skills) >= AGENT_REPO_MAX_ITEMS:
+                continue
+            meta_class = meta.get("class", "")
+            meta_sub = meta.get("subclass", "")
+            entry["class"] = meta_class
+            entry["subclass"] = meta_sub
+            if meta_class and meta_class not in AGENT_REPO_VALID_CLASSES:
+                bad_class.append(rel)
+            elif meta_class == "review" and not meta_sub:
+                bad_class.append(rel)
+            entry["spawns"] = []
+            skills.append(entry)
+        else:
+            if len(agents) >= AGENT_REPO_MAX_ITEMS:
+                continue
+            entry["color"] = meta.get("color", "")
+            entry["spawned_by"] = []
+            agents.append(entry)
+
+    # De-duplicate keys within each kind (a monorepo can define the same slug twice).
+    def dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for item in items:
+            if item["key"] in seen:
+                warnings.append(f"Duplicate key '{item['key']}' at {item['source_path']} was skipped.")
+                continue
+            seen.add(item["key"])
+            out.append(item)
+        return out
+
+    skills = dedupe(skills)
+    agents = dedupe(agents)
+
+    skill_keys = {s["key"]: s for s in skills}
+    agent_keys = {a["key"]: a for a in agents}
+
+    ref_count = 0
+    dangling = 0
+    for skill in skills:
+        # Order of first mention, not alphabetical -- a skill's prose introduces its
+        # agents in the order they run, which is the closest thing to authoring intent.
+        seen_refs: list[str] = []
+        for ref in _REF_RE.findall(skill["body"]):
+            if ref not in seen_refs:
+                seen_refs.append(ref)
+        for ref in seen_refs:
+            # A skill and an agent may legitimately share a name (dead-code-finder,
+            # deps-upgrade, test-gap-finder), so a same-name reference is a real
+            # skill->agent edge, not a self-reference. Only the skill->skill case
+            # is genuinely self-referential and gets dropped.
+            if ref in agent_keys:
+                skill["spawns"].append({"key": ref, "kind": "agent"})
+                agent_keys[ref]["spawned_by"].append(skill["key"])
+                ref_count += 1
+            if ref in skill_keys and ref != skill["key"]:
+                skill["spawns"].append({"key": ref, "kind": "skill"})
+                ref_count += 1
+
+    # Second pass: now that every skill knows which agents it spawns, read the
+    # execution order out of its prose.
+    chain_count = 0
+    for skill in skills:
+        skill["approval"] = _detect_approval_gate(skill["body"], skill.get("description", ""))
+        spawned = {ref["key"] for ref in skill["spawns"] if ref["kind"] == "agent"}
+        if not spawned:
+            skill["pipeline"] = {"chains": [], "parallel": False, "fan_in": False, "terminal": [], "sequential_keys": []}
+            continue
+        chains, parallel, fan_in = _extract_pipeline(skill["body"], spawned)
+        # Only keep links between agents this skill actually spawns.
+        chains = [[k for k in chain if k in spawned] for chain in chains]
+        chains = [c for c in chains if len(c) >= 2]
+        sequential = [k for chain in chains for k in chain]
+        skill["pipeline"] = {
+            "chains": chains,
+            "parallel": parallel,
+            "fan_in": fan_in,
+            # Ordered: these run last, after everything else has produced the artifact.
+            # Ordered, and never an agent already placed by a chain -- the chain is
+            # the more specific signal.
+            "terminal": [
+                k for k in sorted(spawned)
+                if k not in {x for chain in chains for x in chain}
+                and _is_terminal_agent(k, skill["body"])
+            ],
+            # Agents named in a chain run in order; the rest fan out from the supervisor.
+            "sequential_keys": list(dict.fromkeys(sequential)),
+        }
+        chain_count += len(chains)
+
+    orphans = [a["key"] for a in agents if not a["spawned_by"]]
+    leaf_skills = [s["key"] for s in skills if not s["spawns"]]
+
+    check("frontmatter-parses", "error", not bad_frontmatter,
+          "Every skill/agent file has a parseable frontmatter block."
+          if not bad_frontmatter else f"{len(bad_frontmatter)} file(s) have no parseable frontmatter.", bad_frontmatter)
+    check("name-matches-path", "error", not name_mismatch,
+          "Frontmatter names match their file/directory names."
+          if not name_mismatch else f"{len(name_mismatch)} file(s) declare a name that does not match their path.", name_mismatch)
+    check("description-present", "error", not missing_description,
+          "Every skill/agent has a description."
+          if not missing_description else f"{len(missing_description)} file(s) have an empty description.", missing_description)
+    check("dangling-ref", "warn", dangling == 0, "All referenced skills/agents resolve to a file.")
+    check("orphan-agent", "warn", not orphans,
+          "Every agent is spawned by at least one skill."
+          if not orphans else f"{len(orphans)} agent(s) are not spawned by any skill: {', '.join(orphans[:8])}.")
+    check("class-valid", "warn", not bad_class,
+          "Skill classes are valid."
+          if not bad_class else f"{len(bad_class)} skill(s) have a missing/invalid class or subclass.", bad_class)
+    unversioned = [s["source_path"] for s in skills if not _SEMVER_RE.match(s.get("version", ""))]
+    check("version-semver", "info", not unversioned,
+          "All skills carry a semver version."
+          if not unversioned else f"{len(unversioned)} skill(s) have a missing or non-semver version.", unversioned)
+    check("body-size", "info", not oversize,
+          "All bodies fit within the import size cap."
+          if not oversize else f"{len(oversize)} file(s) were truncated at {AGENT_REPO_MAX_BODY} characters.", oversize)
+    check("scan-complete", "warn", not (scan_limits.get("depth_hit") or scan_limits.get("budget_hit")),
+          "The whole repository was scanned."
+          if not (scan_limits.get("depth_hit") or scan_limits.get("budget_hit"))
+          else ("Scan stopped early — "
+                + ("some directories were deeper than "
+                   f"{scan_limits['max_depth']} levels. " if scan_limits.get("depth_hit") else "")
+                + ("the file-scan budget was reached. " if scan_limits.get("budget_hit") else "")
+                + "Import the specific subdirectory to be sure nothing was missed."))
+    conventions = sorted(p.name for p in root.glob("CONVENTIONS*.md"))
+    check("conventions-present", "info", bool(conventions),
+          f"Found shared conventions: {', '.join(conventions)}." if conventions else "No root CONVENTIONS*.md found.")
+
+    # A per-file error excludes that file, not the whole import; only a repo-level
+    # failure (nothing importable at all) makes the repo incompatible.
+    importable = [e for e in skills + agents if not e.get("error")]
+    excluded = [e for e in skills + agents if e.get("error")]
+    errors = [c for c in checks if c["level"] == "error" and not c["ok"]]
+    warns = [c for c in checks if c["level"] == "warn" and not c["ok"]]
+
+    if not importable:
+        verdict = "incompatible"
+        if skills or agents:
+            check("importable-entries", "error", False,
+                  "Every skill/agent file failed validation - nothing can be imported.")
+            errors = [c for c in checks if c["level"] == "error" and not c["ok"]]
+    elif errors or warns:
+        verdict = "partial"
+    else:
+        verdict = "compatible"
+    score = max(0, 100 - 25 * len(errors) - 8 * len(warns))
+
+    if excluded:
+        warnings.append(f"{len(excluded)} file(s) were excluded from the import because they failed validation.")
+    if skipped_unshaped:
+        warnings.append(f"{skipped_unshaped} markdown file(s) were ignored (no name/description frontmatter).")
+    if not skills and not agents:
+        warnings.append("No skill or agent definitions were found in this repository.")
+
+    remote = None
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+        remote = result.stdout.strip() or None
+    except Exception:
+        remote = None
+
+    log_event("info", "Parsed agent repository", repo_path=str(root), shape=shape,
+              skills=len(skills), agents=len(agents), verdict=verdict)
+
+    return {
+        "ok": True,
+        "shape": shape,
+        "repo": {"name": root.name, "path": str(root), "remote_url": remote},
+        "skills": skills,
+        "agents": agents,
+        "warnings": warnings,
+        "compat": {
+            "score": score,
+            "verdict": verdict,
+            "shape": shape,
+            "shape_confidence": "high" if skills and agents else "low",
+            "counts": {
+                "skills": len(skills), "agents": len(agents), "refs": ref_count,
+                "orphan_agents": len(orphans), "dangling_refs": dangling, "leaf_skills": len(leaf_skills),
+                "importable": len(importable), "excluded": len(excluded),
+            },
+            "checks": checks,
+        },
+    }
+
+
+MODEL_CACHE_TTL = 3600.0  # seconds; refresh button bypasses this
+_model_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_model_cache_lock = threading.Lock()
+
+# Grouping is presentation only -- the slug is matched case-insensitively against
+# these prefixes so a 193-model list stays navigable. Order matters: first hit wins.
+_MODEL_FAMILIES = (
+    ("claude", "Claude"), ("opus", "Claude"), ("sonnet", "Claude"), ("haiku", "Claude"),
+    ("fable", "Claude"), ("gpt", "GPT"), ("o1", "GPT"), ("o3", "GPT"), ("o4", "GPT"),
+    ("codex", "GPT"), ("gemini", "Gemini"), ("grok", "Grok"), ("composer", "Composer"),
+    ("deepseek", "DeepSeek"), ("kimi", "Kimi"), ("qwen", "Qwen"), ("llama", "Llama"),
+)
+
+
+def _model_family(slug: str) -> str:
+    lowered = slug.lower()
+    for needle, label in _MODEL_FAMILIES:
+        if needle in lowered:
+            return label
+    return "Other"
+
+
+def _models_from_ant() -> tuple[list[dict[str, Any]], str]:
+    """Claude models via the Anthropic API. `ant` refreshes its own OAuth token."""
+    exe = _resolve_cli("ant")
+    if not exe:
+        return [], "ant CLI not found on PATH"
+    result = subprocess.run(
+        [exe, "models", "list", "--transform", "{id,display_name}", "--format", "jsonl"],
+        capture_output=True, text=True, timeout=45, check=False,
+        env={**os.environ, "PATH": _augmented_path()},
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        return [], f"ant models list failed: {detail[-1] if detail else 'unknown error'}"
+
+    models: list[dict[str, Any]] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        slug = row.get("id")
+        if slug:
+            models.append({"slug": slug, "display_name": row.get("display_name") or slug})
+    return models, ""
+
+
+def _models_from_cursor() -> tuple[list[dict[str, Any]], str]:
+    """Cursor prints `slug - Display Name`, one per line, after a header."""
+    exe = _resolve_cli("cursor-agent", "cursor")
+    if not exe:
+        return [], "cursor-agent not found on PATH"
+    result = subprocess.run(
+        [exe, "models"], capture_output=True, text=True, timeout=45, check=False,
+        env={**os.environ, "PATH": _augmented_path()},
+    )
+    if result.returncode != 0:
+        return [], "cursor-agent models failed"
+
+    models = []
+    for line in result.stdout.splitlines():
+        slug, sep, name = line.strip().partition(" - ")
+        if sep and slug and " " not in slug:
+            models.append({"slug": slug, "display_name": name.strip() or slug})
+    return models, ""
+
+
+def _models_from_codex() -> tuple[list[dict[str, Any]], str]:
+    """Codex has no list command (openai/codex#8871, closed as not planned), but it
+    caches its own catalog on disk -- richer than a hardcoded list, and it carries
+    the per-model reasoning levels."""
+    path = Path.home() / ".codex" / "models_cache.json"
+    if not path.is_file():
+        return [], "no codex model cache found (~/.codex/models_cache.json)"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [], f"could not read codex model cache: {exc}"
+
+    models = []
+    for entry in data.get("models", []):
+        slug = entry.get("slug")
+        if not slug:
+            continue
+        models.append({
+            "slug": slug,
+            "display_name": entry.get("display_name") or slug,
+            "description": entry.get("description", ""),
+            "efforts": [e.get("effort") for e in entry.get("supported_reasoning_levels", []) if e.get("effort")],
+            "default_effort": entry.get("default_reasoning_level", ""),
+        })
+    return models, ""
+
+
+_MODEL_SOURCES = {
+    "claude": ("ant models list", _models_from_ant),
+    "cursor": ("cursor-agent models", _models_from_cursor),
+    "codex": ("~/.codex/models_cache.json", _models_from_codex),
+}
+
+
+def list_agent_models(payload: dict[str, Any]) -> dict[str, Any]:
+    """Discover the models each installed CLI actually supports.
+
+    Every list is discovered at runtime rather than hardcoded, so it can't drift
+    from what the CLI accepts. Results are cached because `cursor-agent models`
+    and `ant models list` both take seconds; `refresh: true` bypasses the cache.
+    """
+    refresh = bool(payload.get("refresh"))
+    requested = payload.get("agents") or list(_MODEL_SOURCES)
+    now = time.monotonic()
+    agents: dict[str, Any] = {}
+
+    for agent in requested:
+        source = _MODEL_SOURCES.get(agent)
+        if not source:
+            continue
+        label, fetch = source
+
+        with _model_cache_lock:
+            cached = _model_cache.get(agent)
+        if cached and not refresh and (now - cached[0]) < MODEL_CACHE_TTL:
+            agents[agent] = {**cached[1], "cached": True}
+            continue
+
+        try:
+            models, error = fetch()
+        except subprocess.TimeoutExpired:
+            models, error = [], f"{label} timed out"
+        except Exception as exc:
+            models, error = [], f"{label} failed: {exc}"
+
+        for model in models:
+            model["family"] = _model_family(model["slug"])
+
+        entry = {
+            "agent": agent,
+            "source": label,
+            "models": models,
+            "count": len(models),
+            "error": error,
+            "families": sorted({m["family"] for m in models}),
+        }
+        if models:  # never cache a failure -- retry on the next call
+            with _model_cache_lock:
+                _model_cache[agent] = (now, entry)
+        agents[agent] = {**entry, "cached": False}
+
+    log_event("info", "Listed agent models",
+              agents={k: v["count"] for k, v in agents.items()}, refresh=refresh)
+    return {"ok": True, "agents": agents, "ttl_seconds": MODEL_CACHE_TTL}
+
+
+def clone_agent_repository(payload: dict[str, Any]) -> dict[str, Any]:
+    """Shallow-clone an allowlisted https git repo into ~/.specter/imports/.
+
+    The destination is always derived from the URL and sanitized -- never taken from
+    the caller -- so a hostile payload cannot choose where code lands on disk.
+    """
+    url = str(payload.get("repo_url") or "").strip()
+    if not url:
+        return {"ok": False, "message": "Repository URL is required."}
+
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https":
+        return {"ok": False, "message": "Only https:// git URLs are supported."}
+    host = (parsed.hostname or "").lower()
+    if host not in CLONE_ALLOWED_HOSTS:
+        return {"ok": False, "message": f"Host '{host or 'unknown'}' is not allowed. Allowed: {', '.join(sorted(CLONE_ALLOWED_HOSTS))}."}
+    if parsed.username or parsed.password:
+        return {"ok": False, "message": "Credentials in the URL are not supported."}
+
+    segments = [seg for seg in parsed.path.split("/") if seg not in ("", ".", "..")]
+    if len(segments) < 2:
+        return {"ok": False, "message": "URL must be of the form https://host/owner/repo."}
+    owner, repo = segments[0], segments[1]
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+
+    # A GitHub/GitLab "browse" URL carries the subdirectory the user was looking at:
+    #   https://host/owner/repo/tree/<ref>/<sub/path>
+    # Clone the whole repo (git can't clone a subdir), but return the subpath so the
+    # caller can scope the parse to it -- monorepos often keep agents under one package.
+    subpath = ""
+    if len(segments) > 3 and segments[2] in ("tree", "blob", "-"):
+        tail = segments[4:] if segments[2] == "-" and len(segments) > 4 else segments[4:]
+        subpath = "/".join(seg for seg in tail if seg not in ("", ".", ".."))
+    slug = re.sub(r"[^a-z0-9._-]", "-", f"{owner}-{repo}".lower()).strip("-.")
+    if not slug:
+        return {"ok": False, "message": "Could not derive a safe directory name from that URL."}
+
+    CLONE_ROOT.mkdir(parents=True, exist_ok=True)
+    dest = (CLONE_ROOT / slug).resolve()
+    if dest.parent != CLONE_ROOT.resolve():
+        return {"ok": False, "message": "Refusing to clone outside the imports directory."}
+
+    clean_url = urllib.parse.urlunsplit(("https", host, "/".join(segments[:2]), "", ""))
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true"}
+
+    if (dest / ".git").is_dir():
+        cmds = [
+            ["git", "-C", str(dest), "fetch", "--depth", "1", "origin", "HEAD"],
+            ["git", "-C", str(dest), "reset", "--hard", "FETCH_HEAD"],
+        ]
+        action = "updated"
+    else:
+        if dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+        cmds = [["git", "clone", "--depth", "1", "--no-tags", "--recurse-submodules=no", clean_url, str(dest)]]
+        action = "cloned"
+
+    for cmd in cmds:
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False, env=env)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "message": "git timed out after 120s."}
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip().splitlines()
+            return {"ok": False, "message": f"git failed: {detail[-1] if detail else 'unknown error'}"}
+
+    # Point the caller at the subdirectory when the URL named one and it exists.
+    scoped = dest
+    if subpath:
+        candidate = (dest / subpath).resolve()
+        # Never let a crafted URL walk outside the cloned repo.
+        if candidate.is_dir() and candidate.is_relative_to(dest):
+            scoped = candidate
+        else:
+            subpath = ""
+
+    log_event("info", f"Repository {action}", repo_url=clean_url, path=str(scoped))
+    return {
+        "ok": True, "path": str(scoped), "repo_root": str(dest), "subpath": subpath,
+        "name": repo, "repo_url": clean_url, "action": action,
+    }
+
+
 class HostRunnerHandler(BaseHTTPRequestHandler):
     server_version = "SpecterHostRunner/0.1"
 
@@ -2049,6 +3023,9 @@ class HostRunnerHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/version":
             self.write_json({"version": HOST_RUNNER_VERSION})
+            return
+        if self.path == "/telegram/config":
+            self.write_json(telegram_config_status())
             return
         if self.path == "/mode":
             self.write_json(runner_mode())
@@ -2155,6 +3132,21 @@ class HostRunnerHandler(BaseHTTPRequestHandler):
         if self.path == "/repositories/discover":
             self.write_json(discover_repositories(self.read_json()))
             return
+        if self.path == "/telegram/config":
+            self.write_json(save_telegram_config(self.read_json()))
+            return
+        if self.path == "/telegram/discover-chats":
+            self.write_json(telegram_discover_chats(self.read_json()))
+            return
+        if self.path == "/models":
+            self.write_json(list_agent_models(self.read_json()))
+            return
+        if self.path == "/repositories/parse":
+            self.write_json(parse_agent_repository(self.read_json()))
+            return
+        if self.path == "/repositories/clone":
+            self.write_json(clone_agent_repository(self.read_json()))
+            return
         if self.path.startswith("/mcp/add"):
             client = self._qs_param(self.path, "client", "codex")
             self.write_json(mcp_add(self.read_json(), client))
@@ -2211,13 +3203,532 @@ def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), HostRunnerHandler)
     mode = "maintenance" if maintenance_mode() else "safe"
     log_event("info", f"Specter Host Runner listening on http://{HOST}:{PORT}", mode=mode)
+
+    # The sbx daemon has no service of its own, so it neither survives a reboot nor
+    # recovers from a crash. This runner is already launchd-managed, so it adopts
+    # the daemon -- starting and supervising it here avoids a second launchd job.
+    threading.Thread(target=_ensure_sbx_daemon, daemon=True).start()
+
+    # Telegram trigger: no-op unless ~/.specter/telegram.json exists.
+    threading.Thread(target=_telegram_poll, daemon=True).start()
+
     server.serve_forever()
+
+
+SBX_SUPERVISE_INTERVAL = 30.0     # seconds between health checks
+SBX_SUPERVISE_BACKOFF_MAX = 8     # consecutive failures before backing off to ~5min
+
+
+TELEGRAM_CONFIG = Path.home() / ".specter" / "telegram.json"
+TELEGRAM_API = "https://api.telegram.org"
+
+
+def _telegram_config() -> dict[str, Any]:
+    """Read ~/.specter/telegram.json. Absent or malformed = feature off.
+
+    Shape: {"bot_token": "...", "allowed_chat_ids": [123], "backend_url": "...",
+            "api_token": "..."}
+
+    No workspace here: each workflow carries its own, so a trigger can never run
+    one workflow against another's repository.
+
+    Which workflow runs is decided by the graphs themselves: any workflow with a
+    trigger node whose source is "telegram" is eligible. workflow_id in the config
+    is an optional override for pinning a single one.
+    """
+    try:
+        cfg = json.loads(TELEGRAM_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return cfg if cfg.get("bot_token") and cfg.get("allowed_chat_ids") else {}
+
+
+def telegram_config_status(_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Config state for the UI. Never returns the bot token."""
+    cfg = {}
+    try:
+        cfg = json.loads(TELEGRAM_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        pass
+    token = str(cfg.get("bot_token") or "")
+    return {
+        "ok": True,
+        "configured": bool(token and cfg.get("allowed_chat_ids")),
+        "bot_token_set": bool(token),
+        "bot_token_hint": f"…{token[-4:]}" if len(token) > 4 else "",
+        "allowed_chat_ids": cfg.get("allowed_chat_ids") or [],
+        "backend_url": cfg.get("backend_url", ""),
+        "api_token_set": bool(cfg.get("api_token")),
+        "path": str(TELEGRAM_CONFIG),
+    }
+
+
+def save_telegram_config(payload: dict[str, Any]) -> dict[str, Any]:
+    """Write ~/.specter/telegram.json (0600). Blank secrets keep existing values."""
+    current: dict[str, Any] = {}
+    try:
+        current = json.loads(TELEGRAM_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    chat_ids = []
+    for raw in payload.get("allowed_chat_ids") or []:
+        try:
+            chat_ids.append(int(str(raw).strip()))
+        except (TypeError, ValueError):
+            return {"ok": False, "message": f"Chat id '{raw}' is not a number."}
+
+    merged = {
+        # Secrets: an empty field means "unchanged", so the UI never has to echo them back.
+        "bot_token": str(payload.get("bot_token") or "").strip() or current.get("bot_token", ""),
+        "api_token": str(payload.get("api_token") or "").strip() or current.get("api_token", ""),
+        "allowed_chat_ids": chat_ids,
+        "backend_url": str(payload.get("backend_url") or "").strip() or "http://127.0.0.1:8000",
+    }
+    if not merged["bot_token"]:
+        return {"ok": False, "message": "A bot token is required."}
+    if not chat_ids:
+        return {"ok": False, "message": "At least one allowed chat id is required."}
+
+    try:
+        TELEGRAM_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+        # Create 0600 up front: write-then-chmod leaves a window where the token
+        # is world-readable at the default umask.
+        fd = os.open(TELEGRAM_CONFIG, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(merged, fh, indent=2)
+        TELEGRAM_CONFIG.chmod(0o600)  # tighten if the file already existed
+    except OSError as exc:
+        return {"ok": False, "message": f"Could not write config: {exc}"}
+
+    log_event("info", "Telegram config saved", chat_ids=len(chat_ids))
+    return {**telegram_config_status(), "message": "Saved. The poller picks it up within a minute."}
+
+
+def telegram_discover_chats(payload: dict[str, Any]) -> dict[str, Any]:
+    """List chats that have messaged the bot, so the user never has to curl a
+    token-bearing URL by hand. Uses the saved token when the field is left blank."""
+    token = str(payload.get("bot_token") or "").strip()
+    if not token:
+        try:
+            token = json.loads(TELEGRAM_CONFIG.read_text(encoding="utf-8")).get("bot_token", "")
+        except (OSError, json.JSONDecodeError):
+            token = ""
+    if not token:
+        return {"ok": False, "message": "Enter a bot token first."}
+
+    try:
+        resp = _telegram_call(token, "getUpdates", {"timeout": 0}, timeout=15)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            return {"ok": False, "message": "Telegram rejected that token."}
+        return {"ok": False, "message": f"Telegram returned {exc.code}."}
+    except Exception:
+        return {"ok": False, "message": "Could not reach Telegram."}
+
+    chats: dict[int, str] = {}
+    for update in resp.get("result", []):
+        chat = ((update.get("message") or {}).get("chat")) or {}
+        if chat.get("id") is None:
+            continue
+        name = chat.get("username") or " ".join(
+            filter(None, [chat.get("first_name"), chat.get("last_name")])
+        ) or chat.get("title") or str(chat["id"])
+        chats[int(chat["id"])] = str(name)
+
+    return {
+        "ok": True,
+        "chats": [{"id": cid, "name": name} for cid, name in chats.items()],
+        "message": "" if chats else "No messages yet — send your bot a message, then retry.",
+    }
+
+
+def _telegram_call(token: str, method: str, payload: dict | None = None, timeout: float = 40) -> dict:
+    url = f"{TELEGRAM_API}/bot{token}/{method}"
+    data = json.dumps(payload or {}).encode()
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _telegram_targets(cfg: dict) -> list[dict]:
+    """Workflows with a telegram trigger node: [{id, name, field}].
+
+    Config `workflow_id` pins one workflow and skips discovery.
+    """
+    if cfg.get("workflow_id"):
+        return [{"id": cfg["workflow_id"], "name": "configured", "field": cfg.get("field", "topic")}]
+    req = urllib.request.Request(
+        f"{cfg['backend_url'].rstrip('/')}/api/workflows",
+        headers={"Authorization": f"Bearer {cfg['api_token']}"},
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        workflows = json.loads(resp.read().decode())
+
+    targets = []
+    for wf in workflows:
+        if wf.get("is_template"):
+            continue
+        for node in (wf.get("graph") or {}).get("nodes") or []:
+            data = node.get("data") or {}
+            if node.get("type") == "trigger" and str(data.get("source")) == "telegram":
+                targets.append({"id": wf["id"], "name": wf["name"],
+                                "field": str(data.get("fieldName") or "topic")})
+                break
+    return targets
+
+
+def _telegram_start_run(cfg: dict, target: dict, text: str) -> tuple[str, str]:
+    """Kick off a workflow run via the backend API. Returns a status line."""
+    body = json.dumps({
+        "workflow_id": target["id"],
+        "run_input": {target["field"]: text},
+        "trigger_type": "telegram",
+    }).encode()
+    req = urllib.request.Request(
+        f"{cfg['backend_url'].rstrip('/')}/api/workflow-runs",
+        data=body,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {cfg['api_token']}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            run = json.loads(resp.read().decode())
+        return f"Started {target['name']} — run {run['run_id'][:8]}", run["run_id"]
+    except urllib.error.HTTPError as exc:
+        return f"Could not start run: {exc.code} {exc.read()[:120].decode(errors='replace')}", ""
+    except Exception as exc:
+        return f"Could not start run: {exc}", ""
+
+
+def _md_to_telegram_html(text: str) -> str:
+    """Render agent markdown as Telegram HTML.
+
+    Telegram sends plain text by default, so `##` and `**` show up literally.
+    HTML rather than MarkdownV2: MarkdownV2 needs ~18 characters escaped and a
+    single miss 400s the whole message.
+    """
+    out = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    lines: list[str] = []
+    for line in out.split("\n"):
+        heading = re.match(r"^#{1,6}\s+(.*)$", line.strip())
+        if heading:
+            lines.append(f"<b>{heading.group(1)}</b>")
+            continue
+        lines.append(re.sub(r"^(\s*)[-*]\s+", r"\1• ", line))
+    out = "\n".join(lines)
+    out = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out, flags=re.S)
+    out = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", out)
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
+def _telegram_watch(cfg: dict, pending: dict[str, dict]) -> None:
+    """Track live progress for runs this poller started.
+
+    One message per run, edited in place as steps land -- 11 nodes would otherwise
+    mean 22 notifications, and nobody reads those. Step FAILURES get their own
+    message so they can't scroll past unnoticed.
+    """
+    for run_id, state in list(pending.items()):
+        try:
+            run = _api_get(cfg, f"/api/workflow-runs/{run_id}")
+            steps = _api_get(cfg, f"/api/workflow-runs/{run_id}/steps")
+        except Exception:
+            continue  # transient; retry next tick
+
+        status = str(run.get("status") or "")
+        icon = {"completed": "✅", "running": "🔄", "failed": "❌",
+                "waiting_approval": "⏸", "cancelled": "⏹"}
+
+        # A newly failed step is worth its own message.
+        for step in steps:
+            name = str(step.get("agent_name") or step.get("node_id"))
+            if step.get("status") == "failed" and name not in state["failed"]:
+                state["failed"].add(name)
+                detail = str(step.get("error") or step.get("summary") or "").strip()
+                text = f"<b>❌ {name} failed</b>"
+                if detail:
+                    text += "\n\n" + _md_to_telegram_html(detail[:1200])
+                _telegram_send(cfg, state["chat_id"], text)
+
+        lines = [f"<b>{icon.get(status, '🔄')} {state['name']} — run {run_id[:8]}</b>", ""]
+        for step in steps:
+            lines.append(f"{icon.get(str(step.get('status')), '　')} "
+                         f"{_md_to_telegram_html(str(step.get('agent_name') or step.get('node_id')))}")
+        body = "\n".join(lines)
+
+        if body != state.get("last_body"):
+            state["last_body"] = body
+            if state.get("message_id"):
+                _telegram_edit(cfg, state["chat_id"], state["message_id"], body)
+            else:
+                state["message_id"] = _telegram_send(cfg, state["chat_id"], body)
+
+        if status not in ("completed", "failed", "cancelled"):
+            continue
+        pending.pop(run_id, None)
+
+        summary = str(run.get("final_report") or "").strip()
+        if summary:
+            _telegram_send(cfg, state["chat_id"],
+                           f"<b>{icon.get(status, '')} Result</b>\n\n"
+                           + _md_to_telegram_html(summary[:3500]))
+
+
+def _api_get(cfg: dict, path: str):
+    req = urllib.request.Request(
+        f"{cfg['backend_url'].rstrip('/')}{path}",
+        headers={"Authorization": f"Bearer {cfg['api_token']}"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode())
+
+
+# Every reply ends with this so the workflow list is always one tap away.
+_TG_FOOTER = "\n\n<i>/list — show workflows</i>"
+
+
+def _telegram_send(cfg: dict, chat_id: int, text: str, footer: bool = True) -> int | None:
+    """Send an HTML message; returns its message_id so it can be edited later."""
+    if footer and "/list —" not in text:
+        text += _TG_FOOTER
+    try:
+        resp = _telegram_call(cfg["bot_token"], "sendMessage",
+                              {"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+                               "link_preview_options": {"is_disabled": True}}, timeout=15)
+        return (resp.get("result") or {}).get("message_id")
+    except Exception as exc:
+        log_event("warn", f"Telegram send failed: {exc}")
+        return None
+
+
+def _telegram_edit(cfg: dict, chat_id: int, message_id: int, text: str) -> None:
+    try:
+        _telegram_call(cfg["bot_token"], "editMessageText",
+                       {"chat_id": chat_id, "message_id": message_id, "text": text,
+                        "parse_mode": "HTML",
+                        "link_preview_options": {"is_disabled": True}}, timeout=15)
+    except Exception:
+        pass  # "message is not modified" and races are not worth surfacing
+
+
+def _telegram_poll() -> None:
+    """Long-poll Telegram and start a run per allowlisted message.
+
+    Long-poll, not webhook: no public URL, works behind NAT, and this process is
+    already launchd-supervised. Only chats in allowed_chat_ids may trigger a run --
+    this is an inbound execution path into the host.
+    """
+    offset = 0
+    failures = 0
+    pending: dict[str, dict] = {}   # run_id -> {chat_id, name, message_id, failed}
+    awaiting: dict[int, dict] = {}  # chat_id -> workflow chosen, waiting for its input
+    while True:
+        cfg = _telegram_config()
+        if not cfg:
+            time.sleep(60)  # not configured; re-check in case it appears
+            continue
+        try:
+            _telegram_watch(cfg, pending)
+            # Short poll while a run is in flight so the result lands promptly.
+            resp = _telegram_call(cfg["bot_token"], "getUpdates",
+                                  {"offset": offset, "timeout": 5 if pending else 30},
+                                  timeout=40)
+            failures = 0
+            for update in resp.get("result", []):
+                offset = update["update_id"] + 1
+                msg = update.get("message") or {}
+                chat_id = (msg.get("chat") or {}).get("id")
+                text = str(msg.get("text") or "").strip()
+                if not text:
+                    continue
+                if chat_id not in cfg["allowed_chat_ids"]:
+                    log_event("warn", "Telegram message from non-allowlisted chat rejected",
+                              chat_id=chat_id)
+                    continue
+                # A prior bare command is waiting for its input.
+                chosen = awaiting.pop(chat_id, None)
+                if chosen and not text.startswith("/"):
+                    reply, started_run = _telegram_start_run(cfg, chosen, text)
+                    if started_run:
+                        pending[started_run] = {"chat_id": chat_id, "name": chosen["name"],
+                                                "message_id": None, "failed": set(), "last_body": ""}
+                    _telegram_send(cfg, chat_id, reply)
+                    continue
+                if chosen and text.lower() == "/run":
+                    reply, started_run = _telegram_start_run(cfg, chosen, "")
+                    if started_run:
+                        pending[started_run] = {"chat_id": chat_id, "name": chosen["name"],
+                                                "message_id": None, "failed": set(), "last_body": ""}
+                    _telegram_send(cfg, chat_id, reply)
+                    continue
+
+                targets = _telegram_targets(cfg)
+
+                if text.lower() in ("/list", "/start", "/help"):
+                    if targets:
+                        rows = "\n".join(
+                            f"/{t['name'].replace(' ', '_')} — sets <code>{t['field']}</code>"
+                            for t in targets
+                        )
+                        body = f"<b>Workflows you can trigger</b>\n\n{rows}"
+                        if len(targets) == 1:
+                            body += "\n\nOnly one, so a plain message runs it."
+                    else:
+                        body = ("No workflow has a Telegram trigger node yet. "
+                                "Add one in the builder and save.")
+                    _telegram_send(cfg, chat_id, body)
+                    continue
+
+                if not targets:
+                    reply = "No workflow has a Telegram trigger node. Add one and save."
+                elif len(targets) > 1 and not text.startswith("/"):
+                    names = ", ".join(f"/{t['name'].replace(' ', '_')}" for t in targets[:8])
+                    reply = f"Several workflows accept Telegram input. Prefix with one of: {names}"
+                else:
+                    if text.startswith("/"):
+                        cmd, _, rest = text[1:].partition(" ")
+                        match = [t for t in targets if t["name"].replace(" ", "_").lower() == cmd.lower()]
+                        if not match:
+                            _telegram_send(cfg, chat_id, f"No Telegram workflow named <b>{cmd}</b>.")
+                            continue
+                        targets, text = match, rest.strip()
+                        if not text:
+                            # Bare command: ask rather than silently running with no
+                            # input, which reads as the workflow ignoring the user.
+                            awaiting[chat_id] = match[0]
+                            _telegram_send(
+                                cfg, chat_id,
+                                f"<b>{match[0]['name']}</b>\n\nSend the "
+                                f"<code>{match[0]['field']}</code> for this run, "
+                                "or <code>/run</code> to start with none.",
+                            )
+                            continue
+                    reply, started_run = _telegram_start_run(cfg, targets[0], text)
+                    if started_run:
+                        pending[started_run] = {"chat_id": chat_id, "name": targets[0]["name"],
+                                                "message_id": None, "failed": set(), "last_body": ""}
+                log_event("info", "Telegram trigger", chat_id=chat_id, result=reply)
+                try:
+                    _telegram_call(cfg["bot_token"], "sendMessage",
+                                   {"chat_id": chat_id, "text": reply}, timeout=15)
+                except Exception:
+                    pass  # reply is best-effort; the run already started
+        except Exception as exc:
+            failures += 1
+            log_event("warn", f"Telegram poll failed ({failures}): {exc}")
+            time.sleep(min(60, 5 * failures))
+
+
+def _ensure_sbx_daemon() -> None:
+    """Supervise the sbx daemon: start it at boot and restart it if it dies.
+
+    The daemon has no service of its own, so without this a crash leaves the
+    sandbox runtime down until someone notices. Backs off after repeated
+    failures so a genuinely broken install does not respawn in a tight loop.
+    """
+    failures = 0
+    while True:
+        try:
+            if not best_sbx_candidate()[0]:
+                return  # sbx not installed; nothing to supervise
+
+            if sbx_daemon_running():
+                if failures:
+                    log_event("info", "sbx daemon recovered")
+                failures = 0
+            else:
+                result = sbx_daemon_start()
+                if result.get("ok"):
+                    failures = 0
+                    log_event("info", f"sbx daemon started by supervisor: {result.get('message')}")
+                else:
+                    failures += 1
+                    log_event("warn", f"sbx daemon restart failed ({failures}): {result.get('message')}")
+        except Exception as exc:  # never take the runner down over this
+            failures += 1
+            log_event("warn", f"sbx daemon supervisor error: {exc}")
+
+        # Steady 30s polling; exponential backoff up to ~5min while it keeps failing.
+        delay = SBX_SUPERVISE_INTERVAL * (2 ** min(failures, SBX_SUPERVISE_BACKOFF_MAX))
+        time.sleep(min(delay, 300.0) if failures else SBX_SUPERVISE_INTERVAL)
 
 
 if __name__ == "__main__":
     import sys as _sys
     if len(_sys.argv) > 1 and _sys.argv[1] == "--version":
         print(HOST_RUNNER_VERSION)
+        raise SystemExit(0)
+    if len(_sys.argv) > 1 and _sys.argv[1] == "--self-check":
+        # Frontmatter parsing is the only non-obvious logic in the repo-import path.
+        # The hard case is a double-quoted description that spans lines and embeds an
+        # <example> block with literal \n escapes.
+        meta, body = _split_frontmatter(
+            '---\n'
+            'name: blog-writer\n'
+            'description: "Use this agent to draft a post.\\n\\n<example>\\n'
+            'user: \\"write a post\\"\\n'
+            '</example>"\n'
+            'color: blue\n'
+            '---\n'
+            '# Body\nInstructions here.\n'
+        )
+        assert meta["name"] == "blog-writer", meta
+        assert meta["color"] == "blue", meta
+        assert "</example>" in meta["description"], meta["description"]
+        assert body.startswith("# Body"), body
+
+        simple, simple_body = _split_frontmatter("---\nname: x\nclass: review\n---\nbody\n")
+        assert simple == {"name": "x", "class": "review"}, simple
+        assert simple_body == "body", simple_body
+        assert _split_frontmatter("no frontmatter here")[0] == {}
+
+        for bad_url in ("http://github.com/a/b", "https://evil.com/a/b", "https://github.com/onlyowner"):
+            assert clone_agent_repository({"repo_url": bad_url})["ok"] is False, bad_url
+
+        # Telegram config must be inert unless fully specified -- a half-written
+        # config must never enable an inbound execution path.
+        import tempfile as _tf
+        _orig = globals()["TELEGRAM_CONFIG"]
+        try:
+            for cfg, want in (
+                ({}, False),
+                ({"bot_token": "x"}, False),                      # no allowlist
+                ({"allowed_chat_ids": [1]}, False),               # no token
+                ({"bot_token": "x", "allowed_chat_ids": []}, False),  # empty allowlist
+                ({"bot_token": "x", "allowed_chat_ids": [1]}, True),
+            ):
+                with _tf.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+                    json.dump(cfg, fh)
+                    globals()["TELEGRAM_CONFIG"] = Path(fh.name)
+                assert bool(_telegram_config()) is want, cfg
+                Path(fh.name).unlink()
+            globals()["TELEGRAM_CONFIG"] = Path("/nonexistent/telegram.json")
+            assert _telegram_config() == {}
+        finally:
+            globals()["TELEGRAM_CONFIG"] = _orig
+
+        # Secrets must never survive into the HTTP-served log.
+        for secret, sample in (
+            ("111222333:AAEEabcdefghijklmnopqrstuvwxyz123456789",
+             "poll failed for 111222333:AAEEabcdefghijklmnopqrstuvwxyz123456789"),
+            ("Bearer U3e2uS0vVnz0KrM2ZKfLv7U0Hto",
+             "auth Bearer U3e2uS0vVnz0KrM2ZKfLv7U0Hto rejected"),
+            ("/bot999888:XYZ", "GET /bot999888:XYZ/getUpdates"),
+        ):
+            assert secret not in _scrub(sample), sample
+        assert _scrub("nothing secret here") == "nothing secret here"
+
+        html = _md_to_telegram_html(
+            "## Scoping Pass\n**Critical:** see `README.md`\n- first\n* second\n\n\n\nend <tag> & more"
+        )
+        assert "<b>Scoping Pass</b>" in html, html
+        assert "<b>Critical:</b>" in html, html
+        assert "<code>README.md</code>" in html, html
+        assert html.count("• ") == 2, html
+        assert "&lt;tag&gt;" in html and "&amp;" in html, html
+        assert "\n\n\n" not in html, html
+
+        print("self-check OK")
         raise SystemExit(0)
     if len(_sys.argv) > 1 and _sys.argv[1] == "--install-service":
         result = launchd_install()

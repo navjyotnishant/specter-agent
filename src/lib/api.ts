@@ -10,6 +10,10 @@ import type {
   MemoryEntry,
   ModelProvider,
   RepositoryDiscoveryResult,
+  ParsedRepository,
+  ClonedRepository,
+  AgentModelsResult,
+  TelegramConfig,
   RuntimeAdapterStatus,
   RuntimeHealth,
   RuntimeRun,
@@ -102,13 +106,13 @@ export const api = {
     }),
   workflows: (token: string) => request<Workflow[]>("/workflows", { headers: authHeaders(token) }),
   workflow: (token: string, id: string) => request<Workflow>(`/workflows/${id}`, { headers: authHeaders(token) }),
-  createWorkflow: (token: string, workflow: { name: string; description: string; graph: WorkflowGraph }) =>
+  createWorkflow: (token: string, workflow: { name: string; description: string; graph: WorkflowGraph; workspace_path?: string }) =>
     request<Workflow>("/workflows", {
       method: "POST",
       headers: authHeaders(token),
       body: JSON.stringify(workflow),
     }),
-  updateWorkflow: (token: string, id: string, workflow: { name: string; description: string; graph: WorkflowGraph }) =>
+  updateWorkflow: (token: string, id: string, workflow: { name: string; description: string; graph: WorkflowGraph; workspace_path?: string }) =>
     request<Workflow>(`/workflows/${id}`, {
       method: "PATCH",
       headers: authHeaders(token),
@@ -186,6 +190,35 @@ export const api = {
       headers: authHeaders(token),
       body: JSON.stringify(discovery),
     }),
+  agentModels: (token: string, refresh = false) =>
+    request<AgentModelsResult>(`/runtime-adapters/models${refresh ? "?refresh=true" : ""}`, {
+      headers: authHeaders(token),
+    }),
+  telegramConfig: (token: string) =>
+    request<TelegramConfig>("/runtime-adapters/telegram/config", { headers: authHeaders(token) }),
+  saveTelegramConfig: (token: string, payload: { bot_token?: string; allowed_chat_ids: string[] }) =>
+    request<TelegramConfig & { message?: string }>("/runtime-adapters/telegram/config", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(payload),
+    }),
+  discoverTelegramChats: (token: string, bot_token: string) =>
+    request<{ ok: boolean; chats?: { id: number; name: string }[]; message?: string }>(
+      "/runtime-adapters/telegram/discover-chats",
+      { method: "POST", headers: authHeaders(token), body: JSON.stringify({ bot_token, allowed_chat_ids: [] }) },
+    ),
+  parseRepository: (token: string, payload: { repo_path: string }) =>
+    request<ParsedRepository>("/runtime-adapters/repositories/parse", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(payload),
+    }),
+  cloneRepository: (token: string, payload: { repo_url: string }) =>
+    request<ClonedRepository>("/runtime-adapters/repositories/clone", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(payload),
+    }),
   codexRuntimeRuns: (token: string) => request<RuntimeRun[]>("/runtime-adapters/codex-cli/runs", { headers: authHeaders(token) }),
   createCodexRuntimeRun: (token: string, run: { workspace_id: string; prompt: string; mode: "read-only"; timeout_seconds: number; agent?: string; runtime?: "sandbox" | "direct" }) =>
     request<RuntimeRun>("/runtime-adapters/codex-cli/runs", {
@@ -225,7 +258,18 @@ export const api = {
       headers: authHeaders(token),
     }),
   skills: (token: string) => request<Skill[]>("/skills", { headers: authHeaders(token) }),
-  createSkill: (token: string, skill: { name: string; description: string; prompt_template: string; compatible_agent_roles: string[] }) =>
+  createSkill: (
+    token: string,
+    skill: {
+      name: string;
+      description: string;
+      prompt_template: string;
+      compatible_agent_roles: string[];
+      id?: string;
+      upsert?: boolean;
+      source_repo?: string;
+    },
+  ) =>
     request<Skill>("/skills", {
       method: "POST",
       headers: authHeaders(token),
@@ -239,7 +283,7 @@ export const api = {
     }),
   deleteSkill: (token: string, id: string) =>
     request<{ deleted: boolean; skill_id: string }>(`/skills/${id}`, { method: "DELETE", headers: authHeaders(token) }),
-  startRun: (token: string, payload: { workflow_id: string; workspace_path: string; graph?: WorkflowGraph }) =>
+  startRun: (token: string, payload: { workflow_id: string; workspace_path: string; graph?: WorkflowGraph; run_input?: Record<string, string>; trigger_type?: string }) =>
     request<{ run_id: string; status: string; workflow_id: string }>("/workflow-runs", {
       method: "POST", headers: authHeaders(token), body: JSON.stringify(payload),
     }),

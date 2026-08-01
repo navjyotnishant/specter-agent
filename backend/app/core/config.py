@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     artifacts_dir: Path = Path("/app/artifacts")
     database_path: Path = Path("/app/data/app.db")
     host_runner_url: str = "http://host.docker.internal:8765"
+    # How the host-side Telegram poller reaches this API (reverse of host_runner_url).
+    telegram_backend_url: str = "http://127.0.0.1:8000"
     host_runner_timeout_seconds: float = 2.0
     scheduler_enabled: bool = True
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]

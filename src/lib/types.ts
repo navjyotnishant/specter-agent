@@ -182,12 +182,146 @@ export type RepositoryDiscoveryResult = {
   message?: string;
 };
 
+export type AgentModel = {
+  slug: string;
+  display_name: string;
+  family: string;
+  description?: string;
+  efforts?: string[];
+  default_effort?: string;
+};
+
+export type AgentModelSet = {
+  agent: string;
+  source: string;
+  models: AgentModel[];
+  count: number;
+  error: string;
+  families: string[];
+  cached: boolean;
+};
+
+export type AgentModelsResult = {
+  ok: boolean;
+  agents: Record<string, AgentModelSet>;
+  ttl_seconds?: number;
+};
+
+export type TelegramConfig = {
+  ok: boolean;
+  configured: boolean;
+  bot_token_set: boolean;
+  bot_token_hint: string;
+  allowed_chat_ids: number[];
+  backend_url: string;
+  workspace_path: string;
+  api_token_set: boolean;
+  path: string;
+  message?: string;
+};
+
+export type ParsedRef = {
+  key: string;
+  kind: "agent" | "skill";
+};
+
+export type ParsedSkill = {
+  key: string;
+  name: string;
+  description: string;
+  body: string;
+  class?: string;
+  subclass?: string;
+  version?: string;
+  author?: string;
+  source_path: string;
+  spawns: ParsedRef[];
+  /** Whether the skill blocks on a human decision before acting. */
+  approval?: { required: boolean; reason: string; signals: string[] };
+  /** Execution order read out of the skill's prose. */
+  pipeline?: {
+    /** Ordered agent keys: a runs, then b, then c. */
+    chains: string[][];
+    /** The skill describes running branches in parallel. */
+    parallel: boolean;
+    /** Those parallel branches reconverge (converge / aggregate). */
+    fan_in: boolean;
+    /** Agents that must run last (publish, post, promote). */
+    terminal?: string[];
+    sequential_keys: string[];
+  };
+  error?: string;
+};
+
+export type ParsedAgent = {
+  key: string;
+  name: string;
+  description: string;
+  body: string;
+  color?: string;
+  author?: string;
+  source_path: string;
+  spawned_by: string[];
+  error?: string;
+};
+
+export type CompatCheck = {
+  id: string;
+  level: "error" | "warn" | "info";
+  ok: boolean;
+  message: string;
+  files: string[];
+};
+
+export type RepositoryCompat = {
+  score: number;
+  verdict: "compatible" | "partial" | "incompatible";
+  shape: string;
+  shape_confidence: string;
+  counts: {
+    skills: number;
+    agents: number;
+    refs: number;
+    orphan_agents: number;
+    dangling_refs: number;
+    leaf_skills: number;
+    importable: number;
+    excluded: number;
+  };
+  checks: CompatCheck[];
+};
+
+export type ParsedRepository = {
+  ok: boolean;
+  shape: string;
+  repo?: { name: string; path: string; remote_url?: string | null };
+  skills?: ParsedSkill[];
+  agents?: ParsedAgent[];
+  warnings?: string[];
+  compat?: RepositoryCompat;
+  message?: string;
+};
+
+export type ClonedRepository = {
+  ok: boolean;
+  path?: string;
+  /** Repo root, when `path` was scoped to a subdirectory from a /tree/ URL. */
+  repo_root?: string;
+  /** Subdirectory the scan was scoped to, or "" for the whole repo. */
+  subpath?: string;
+  name?: string;
+  repo_url?: string;
+  action?: string;
+  message?: string;
+};
+
 export type Skill = {
   id: string;
   name: string;
   description: string;
   prompt_template: string;
   compatible_agent_roles: string;
+  source_repo?: string;
   created_at: string;
 };
 
@@ -298,6 +432,7 @@ export type Workflow = {
   id: string;
   name: string;
   description: string;
+  workspace_path?: string;
   graph: WorkflowGraph;
   is_template: boolean;
   created_at: string;
