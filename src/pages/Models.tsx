@@ -90,7 +90,7 @@ export default function Models() {
   const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
   const [logSince, setLogSince] = useState(0);
   const [sandboxAgent, setSandboxAgent] = useState<string>(() => {
-    try { return localStorage.getItem("specter_sandbox_agent") ?? "codex"; } catch { return "codex"; }
+    try { return localStorage.getItem("specter_sandbox_agent") ?? "claude"; } catch { return "claude"; }
   });
   const [discoveryRoot, setDiscoveryRoot] = useState("/Users/navjyotnishant/Desktop/github");
   const [selectedDiscoveredPaths, setSelectedDiscoveredPaths] = useState<string[]>([]);
@@ -108,7 +108,7 @@ export default function Models() {
 
   // Direct CLI state
   const [cliAgent, setCliAgent] = useState<string>(() => {
-    try { return localStorage.getItem("specter_cli_agent") ?? "codex"; } catch { return "codex"; }
+    try { return localStorage.getItem("specter_cli_agent") ?? "claude"; } catch { return "claude"; }
   });
   const [cliActiveRunStartedAt, setCliActiveRunStartedAt] = useState<string | null>(null);
   const [cliOutputExpanded, setCliOutputExpanded] = useState(false);

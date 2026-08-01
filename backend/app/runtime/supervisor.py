@@ -29,7 +29,7 @@ class PlannerUnavailableError(RuntimeError):
 # ── CLI invocation ────────────────────────────────────────────────────────────
 
 def _run_planner_cli(prompt: str, runtime: str, agent: str, workspace_path: str, timeout_seconds: int) -> str:
-    agent = (agent or "codex").strip().lower()
+    agent = (agent or "claude").strip().lower()
     payload = {
         "agent": agent,
         "workspace_path": workspace_path,

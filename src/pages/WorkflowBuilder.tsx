@@ -92,11 +92,11 @@ const STANDARD_REPORT_FORMAT_SKILL_ID = "standard-report-format";
 
 // ── default data per node type ──────────────────────────────────────────────
 const nodeDefaults: Record<string, Record<string, unknown>> = {
-  supervisorAgent: { label: "Supervisor Agent", runtime: "direct", sandboxAgent: "codex", model: "", memoryScope: "team", maxIterations: 1, delegationStrategy: "sequential_delegation", objective: "", systemInstructions: "" },
-  specialistAgent: { label: "Specialist Agent", role: "", runtime: "direct", sandboxAgent: "codex", model: "", memoryScope: "workflow", maxIterations: 1, objective: "", systemInstructions: "" },
+  supervisorAgent: { label: "Supervisor Agent", runtime: "direct", sandboxAgent: "claude", model: "", memoryScope: "team", maxIterations: 1, delegationStrategy: "sequential_delegation", objective: "", systemInstructions: "" },
+  specialistAgent: { label: "Specialist Agent", role: "", runtime: "direct", sandboxAgent: "claude", model: "", memoryScope: "workflow", maxIterations: 1, objective: "", systemInstructions: "" },
   humanApproval: { label: "Human Approval", reason: "Requires manual approval before continuing.", timeoutHours: 24 },
   memory: { label: "Write Memory", scope: "workflow" },
-  conditional: { label: "Conditional", condition: "", runtime: "direct", sandboxAgent: "codex", model: "" },
+  conditional: { label: "Conditional", condition: "", runtime: "direct", sandboxAgent: "claude", model: "" },
   webhook: { label: "Webhook", url: "", method: "POST", payloadTemplate: "" },
   trigger: { label: "Topic", source: "manual", fieldName: "topic", placeholder: "What should this workflow work on?", required: true },
 };
@@ -517,7 +517,7 @@ function BuilderInner({
         objective: String(d.objective ?? ""),
         supervisor_node_id: sup.id,
         runtime: String(d.runtime ?? "sandbox"),
-        agent: String(d.sandboxAgent ?? d.agent ?? "codex"),
+        agent: String(d.sandboxAgent ?? d.agent ?? "claude"),
         workspace_path: selectedWorkspace.path,
         system_instructions: String(d.systemInstructions ?? ""),
         current_plan: feedback ? buildCurrentPlan(sup) : null,
@@ -584,7 +584,7 @@ function BuilderInner({
         },
         instruction,
         runtime: String(d.runtime ?? "sandbox"),
-        agent: String(d.sandboxAgent ?? d.agent ?? "codex"),
+        agent: String(d.sandboxAgent ?? d.agent ?? "claude"),
         workspace_path: selectedWorkspace.path,
       });
     },
@@ -897,7 +897,7 @@ function BuilderInner({
                     </button>
 
                     <p style={{ ...bulkHeading, borderTop: "1px solid #f1f5f9" }}>Agent</p>
-                    {[["codex", "Codex"], ["claude", "Claude Code"], ["cursor", "Cursor"]].map(([value, label]) => (
+                    {[["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"]].map(([value, label]) => (
                       <button
                         key={value}
                         style={bulkItem}

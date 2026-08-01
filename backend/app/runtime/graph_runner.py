@@ -135,7 +135,7 @@ def _write_step(run_id: str, node: dict, status: str, stdout: str = "", stderr: 
                 step_id, run_id, node["id"],
                 str(data.get("label") or node["id"]),
                 str(data.get("role") or node.get("type") or "agent"),
-                str(data.get("model") or f"{data.get('sandboxAgent') or 'codex'} (auto)"),
+                str(data.get("model") or f"{data.get('sandboxAgent') or 'claude'} (auto)"),
                 status, _now(), summary or None, error,
             ),
         )
@@ -430,7 +430,7 @@ def _evaluate_condition(node: dict, context: str, memory_context: str, workspace
         prompt_parts.append(f"\nPrevious step context:\n{step_context[-1500:]}")
     prompt = " ".join(prompt_parts)
 
-    agent = str(data.get("sandboxAgent") or "codex").strip().lower()
+    agent = str(data.get("sandboxAgent") or "claude").strip().lower()
     runtime = str(data.get("runtime") or "sandbox").strip().lower()
     model = str(data.get("model") or "").strip()
     host_path = "/runtimes/direct-cli/run" if runtime == "direct" else "/runtimes/docker-sandbox/run"
@@ -516,7 +516,7 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
     # agent nodes → dispatch to host runner (codex, claude, or cursor)
     memory_context = _memory_context_for_node(run_id, node)
     prompt = _build_prompt(node, context, memory_context)
-    agent = str(data.get("sandboxAgent") or data.get("agent") or "codex").strip().lower()
+    agent = str(data.get("sandboxAgent") or data.get("agent") or "claude").strip().lower()
     runtime = str(data.get("runtime") or "sandbox").strip().lower()
     model = str(data.get("model") or "").strip()
 

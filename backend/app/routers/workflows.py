@@ -21,7 +21,7 @@ class PlanRequest(BaseModel):
     objective: str = Field(min_length=1, max_length=4000)
     supervisor_node_id: str = Field(min_length=1)
     runtime: str = "sandbox"
-    agent: str = "codex"
+    agent: str = "claude"
     workspace_path: str = Field(min_length=1)
     system_instructions: str = ""
     current_plan: dict | None = None
@@ -32,7 +32,7 @@ class TuneNodeRequest(BaseModel):
     node_data: dict
     instruction: str = Field(min_length=1, max_length=2000)
     runtime: str = "sandbox"
-    agent: str = "codex"
+    agent: str = "claude"
     workspace_path: str = Field(min_length=1)
 
 

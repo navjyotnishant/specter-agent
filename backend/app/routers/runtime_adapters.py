@@ -56,7 +56,7 @@ class CodexRunRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     mode: str = "read-only"
     timeout_seconds: int = Field(default=180, ge=15, le=600)
-    agent: str = "codex"  # sandbox agent key: "codex" | "claude" | "cursor"
+    agent: str = "claude"  # sandbox agent key: "claude" | "codex" | "cursor"
     runtime: str = "sandbox"  # "sandbox" = Docker Sandbox, "direct" = Codex CLI on host
 
 
@@ -360,7 +360,7 @@ def create_codex_run(request: CodexRunRequest, user: dict = Depends(require_admi
             raise HTTPException(status_code=404, detail="Approved workspace not found.")
 
     _supported = {"codex", "claude", "cursor"}
-    agent = request.agent if request.agent in _supported else "codex"
+    agent = request.agent if request.agent in _supported else "claude"
     use_direct = request.runtime == "direct"
     run_id = str(uuid4())
     runtime_id = "codex-cli" if use_direct else "docker-sandbox"

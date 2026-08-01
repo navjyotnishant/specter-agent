@@ -378,18 +378,18 @@ export function AgentInspector({
             </Field>
             <Field label="Agent">
               <SelectField
-                value={String(d.sandboxAgent ?? "codex")}
+                value={String(d.sandboxAgent ?? "claude")}
                 onChange={(v) => patch({ sandboxAgent: v, model: "" })}
                 options={[
-                  { value: "codex",  label: "Codex" },
                   { value: "claude", label: "Claude Code" },
+                  { value: "codex",  label: "Codex" },
                   { value: "cursor", label: "Cursor" },
                 ]}
               />
             </Field>
             <Field label="Model">
               <ModelPicker
-                agent={String(d.sandboxAgent ?? "codex")}
+                agent={String(d.sandboxAgent ?? "claude")}
                 value={String(d.model ?? "")}
                 onChange={(v) => patch({ model: v })}
               />
@@ -620,18 +620,18 @@ export function AgentInspector({
             </Field>
             <Field label="Agent">
               <SelectField
-                value={String(d.sandboxAgent ?? "codex")}
+                value={String(d.sandboxAgent ?? "claude")}
                 onChange={(v) => patch({ sandboxAgent: v, model: "" })}
                 options={[
-                  { value: "codex",  label: "Codex" },
                   { value: "claude", label: "Claude Code" },
+                  { value: "codex",  label: "Codex" },
                   { value: "cursor", label: "Cursor" },
                 ]}
               />
             </Field>
             <Field label="Model">
               <ModelPicker
-                agent={String(d.sandboxAgent ?? "codex")}
+                agent={String(d.sandboxAgent ?? "claude")}
                 value={String(d.model ?? "")}
                 onChange={(v) => patch({ model: v })}
               />

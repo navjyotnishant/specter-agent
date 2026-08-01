@@ -9,7 +9,7 @@ export type ModelPreference = { agent: string; model: string };
 
 const STORAGE_KEY = "specter_default_model_v1";
 const EVENT = "specter:model-preference";
-const FALLBACK: ModelPreference = { agent: "codex", model: "" };
+const FALLBACK: ModelPreference = { agent: "claude", model: "" };
 
 export function readModelPreference(): ModelPreference {
   try {
