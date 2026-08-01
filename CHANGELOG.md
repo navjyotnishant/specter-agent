@@ -1,0 +1,88 @@
+# Changelog
+
+All notable changes to this project are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+This file starts from the current unreleased work. Earlier history lives in the
+git log — it was never recorded here, and reconstructing it after the fact would
+produce a commit list rather than a changelog.
+
+## [Unreleased]
+
+### Added
+
+- **Import an agentic-orchestrator repo into a workflow.** Point Specter at a
+  local path or a GitHub URL, review a compatibility report, pick which skills
+  and agents to bring in, and get real `skills` rows plus a laid-out graph on
+  the canvas. The parser is shape-agnostic — any markdown with `name` and
+  `description` frontmatter is a candidate — so a repo with a different layout
+  works without a code change. Pipeline order from the source prose is preserved,
+  including sequential chains, fan-out, and fan-in.
+- **Telegram trigger.** Send a topic or draft from an allowlisted Telegram chat
+  and it is delivered to the supervisor as the run's input. `/list` shows the
+  available workflows; a bare `/workflow_name` asks whether to supply input or
+  start with none. Step progress edits a single message in place rather than
+  posting one notification per step.
+- **Telegram credentials on the Users page.** A "My integrations" card shows the
+  signed-in user's own bot credential with connect, rotate, and disconnect.
+  Previously the only way to set one was to build a workflow and drag in a
+  trigger node. Credentials are stored per user and encrypted at rest; only a
+  last-four hint is ever returned to the browser.
+- **Model selection.** A selector in the top bar sets the default model, and each
+  workflow node can override it. The lists come from what the installed CLIs
+  actually report rather than a hardcoded set.
+- **Approval gates from imported skills.** A skill that requires human input
+  imports as an approval gate. This can be waived per workflow, with the warning
+  shown before the import runs.
+
+### Changed
+
+- New agent nodes default to Claude instead of Codex, in the palette, on
+  imported nodes, and wherever a node carries no explicit agent.
+- Returning from a run view goes back to wherever the run was started — the
+  workflows list or the builder — instead of always the builder.
+- Skill and workflow names must now be unique, compared case-insensitively.
+  Re-importing a skill overwrites it with the latest copy; a hand-written or
+  seeded skill of the same name is kept separate rather than silently replaced.
+
+### Fixed
+
+- Opening a saved workflow no longer resets its name and description to a
+  template's, which auto-save then persisted over the real values.
+- Clicking a node during a run now shows its prompt and instructions. Previously
+  nothing appeared until the run reached that step, and then only its output.
+- Deleting a workflow removes its run history, logs, agent messages, memory
+  entries, and approval requests. They were previously orphaned in the database
+  with no way to reach them.
+- Deleting a workflow asks for confirmation first.
+- The builder warns before you navigate away with unsaved changes.
+- Bulk edits in the builder apply to every selected node, not only sandbox ones.
+- Signing in no longer falls back to a fabricated admin session when the backend
+  is unreachable — the dev server now proxies `/api` correctly, and the preview
+  mode that masked the failure has been removed.
+
+### Removed
+
+- The two seeded workflow templates ("Security Review Team" and "Claude Code
+  Review"). They were the source of the fabricated defaults that overwrote saved
+  workflow names.
+- The welcome page. The app is a login page plus the main application.
+
+### Security
+
+- Integration credentials are encrypted at rest with Fernet
+  (`cryptography`), keyed from `secrets/integration_secret.key` (mode 0600,
+  gitignored). The database is the source of truth; the host runner holds a
+  working copy only because it is the process that polls Telegram. Losing the
+  key file means credentials must be re-entered — back it up alongside the
+  database.
+- Disconnecting a Telegram bot clears the stored credential **and** stops the
+  host-side poller. Clearing only the stored record would have left the bot
+  accepting messages after the UI reported it disconnected.
+- Repo cloning is restricted to `github.com` and `gitlab.com` over HTTPS, always
+  lands under `~/.specter/imports/` with a sanitized directory name, and runs
+  with credential prompts disabled.
+- Logs served over HTTP are scrubbed for tokens and other secrets before leaving
+  the host runner.
