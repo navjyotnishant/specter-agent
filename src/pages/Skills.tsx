@@ -12,6 +12,11 @@ import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 import type { Skill } from "@/lib/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -143,7 +148,12 @@ type SkillDraft = {
   name: string;
   description: string;
   promptTemplate: string;
+  compatibleAgentRoles: string[];
 };
+
+/** Roles a skill can be marked compatible with. Matches the node types that
+ *  accept skills in the Workflow Builder. */
+const AGENT_ROLES = ["supervisor", "specialist", "reviewer", "writer", "aggregator"];
 
 function parseMetadata(value: string) {
   return value
@@ -159,11 +169,13 @@ function draftFromSkill(skill: Skill): SkillDraft {
     name: skill.name,
     description: skill.description,
     promptTemplate: skill.prompt_template,
+    // The backend stores this as Python's str(list), e.g. "['reviewer']".
+    compatibleAgentRoles: parseMetadata(String(skill.compatible_agent_roles ?? "")),
   };
 }
 
-function metadataFromDraft(_draft: SkillDraft) {
-  return [];
+function metadataFromDraft(draft: SkillDraft) {
+  return draft.compatibleAgentRoles;
 }
 
 export default function Skills() {
@@ -269,6 +281,7 @@ export default function Skills() {
     setDraft({
       name: template.label,
       description: template.description,
+      compatibleAgentRoles: [],
       promptTemplate: promptByTemplate[template.value],
     });
   };
@@ -362,17 +375,39 @@ export default function Skills() {
                     New
                   </Button>
                   {selectedSaved && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      disabled={remove.isPending}
-                      onClick={() => remove.mutate(selectedSkill.id)}
-                      className="h-9 w-9 rounded-xl border-red-200 text-red-600 hover:bg-red-50"
-                      aria-label="Delete skill"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          disabled={remove.isPending}
+                          className="h-9 w-9 rounded-xl border-red-200 text-red-600 hover:bg-red-50"
+                          aria-label="Delete skill"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete "{selectedSkill.name}"?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Any workflow node that attached this skill will stop receiving its
+                            instructions. Built-in skills are seeded only when missing, so a
+                            deleted one does not come back on restart.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => remove.mutate(selectedSkill.id)}
+                            className="bg-red-600 text-white hover:bg-red-700"
+                          >
+                            Delete skill
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   )}
                   <Button
                     type="button"
@@ -480,6 +515,38 @@ function SkillEditor({ draft, onChange }: { draft: SkillDraft; onChange: (draft:
           <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Description</Label>
           <Input className="h-9 rounded-xl text-sm" value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} />
         </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Compatible agent roles</Label>
+        <div className="flex flex-wrap gap-2">
+          {AGENT_ROLES.map((role) => {
+            const on = draft.compatibleAgentRoles.includes(role);
+            return (
+              <button
+                key={role}
+                type="button"
+                onClick={() =>
+                  onChange({
+                    ...draft,
+                    compatibleAgentRoles: on
+                      ? draft.compatibleAgentRoles.filter((r) => r !== role)
+                      : [...draft.compatibleAgentRoles, role],
+                  })
+                }
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  on
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                }`}
+              >
+                {role}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-slate-400">
+          Leave empty to offer this skill to every agent node.
+        </p>
       </div>
       <div className="space-y-1.5">
         <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Skill instructions</Label>
