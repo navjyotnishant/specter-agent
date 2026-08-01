@@ -429,25 +429,25 @@ export default function Models() {
         </div>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
           {/* Host runner status */}
-          <div className={`rounded-2xl border px-4 py-3 text-center shadow-sm ${hostRunnerOffline ? "border-slate-200 bg-slate-100 text-slate-800" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
+          <div className={`rounded-[8px] border px-4 py-3 text-center shadow-sm ${hostRunnerOffline ? "border-slate-200 bg-slate-100 text-slate-800" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
             <p className="text-xl font-black">{hostRunnerOffline ? "Offline" : "Online"}</p>
             <p className={`text-xs font-bold uppercase ${hostRunnerOffline ? "text-slate-500" : "text-emerald-700"}`}>Host Runner</p>
           </div>
           {/* Docker Sandbox status */}
-          <div className={`rounded-2xl border px-4 py-3 text-center shadow-sm ${sandboxReady ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          <div className={`rounded-[8px] border px-4 py-3 text-center shadow-sm ${sandboxReady ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
             <p className="text-xl font-black">{sandboxReady ? "Ready" : "Setup"}</p>
             <p className={`text-xs font-bold uppercase ${sandboxReady ? "text-emerald-700" : "text-amber-700"}`}>Sandbox</p>
           </div>
           {/* Direct CLI status */}
-          <div className={`rounded-2xl border px-4 py-3 text-center shadow-sm ${directCliRuntime?.available ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          <div className={`rounded-[8px] border px-4 py-3 text-center shadow-sm ${directCliRuntime?.available ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
             <p className="text-xl font-black">{directCliRuntime?.available ? "Ready" : "Setup"}</p>
             <p className={`text-xs font-bold uppercase ${directCliRuntime?.available ? "text-emerald-700" : "text-amber-700"}`}>Direct CLI</p>
           </div>
-          <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-center shadow-sm text-slate-950">
+          <div className="rounded-[8px] border border-slate-100 bg-white px-4 py-3 text-center shadow-sm text-slate-950">
             <p className="text-xl font-black">{activeRuntimeWorkspaces.length}</p>
             <p className="text-xs font-bold uppercase text-slate-500">Repos</p>
           </div>
-          <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-center shadow-sm text-slate-950">
+          <div className="rounded-[8px] border border-slate-100 bg-white px-4 py-3 text-center shadow-sm text-slate-950">
             <p className="text-xl font-black">{completedRuntimeRuns}</p>
             <p className="text-xs font-bold uppercase text-slate-500">Runs</p>
           </div>
@@ -455,17 +455,17 @@ export default function Models() {
       </div>
 
       {error && (
-        <Alert variant="destructive" className="rounded-2xl">
+        <Alert variant="destructive" className="rounded-[8px]">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
       <Tabs defaultValue="infrastructure">
-        <TabsList className="rounded-2xl bg-slate-100 p-1">
-          <TabsTrigger value="infrastructure" className="rounded-xl px-5 font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+        <TabsList className="rounded-[8px] bg-slate-100 p-1">
+          <TabsTrigger value="infrastructure" className="rounded-[6px] px-5 font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm">
             Infrastructure
           </TabsTrigger>
-          <TabsTrigger value="logs" className="rounded-xl px-5 font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+          <TabsTrigger value="logs" className="rounded-[6px] px-5 font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm">
             <span className="flex items-center gap-2">
               Logs
               {!hostRunnerOffline && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
@@ -485,7 +485,7 @@ export default function Models() {
             {/* Header */}
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-800">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[8px] bg-emerald-100 text-emerald-800">
                   <Box className="h-6 w-6" />
                 </span>
                 <div>
@@ -503,7 +503,7 @@ export default function Models() {
                 </div>
               </div>
               <Button
-                type="button" size="sm" variant="outline" className="rounded-xl bg-white shrink-0"
+                type="button" size="sm" variant="outline" className="rounded-[6px] bg-white shrink-0"
                 disabled={!canUseBackend || sandboxRuntimeLoading}
                 onClick={() => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "docker-sandbox"] })}
               >
@@ -513,11 +513,11 @@ export default function Models() {
 
             {/* Daemon unavailable banner */}
             {dockerSandboxRuntime?.sandbox_health_status === "daemon_unavailable" && (
-              <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5">
+              <div className="mt-4 flex items-center justify-between gap-3 rounded-[8px] border border-amber-100 bg-amber-50 px-3 py-2.5">
                 <p className="text-xs font-semibold text-amber-800">
                   {startSandboxDaemon.data?.message ?? "sbx daemon is not running."}
                 </p>
-                <Button size="sm" variant="outline" className="rounded-xl bg-white text-xs shrink-0"
+                <Button size="sm" variant="outline" className="rounded-[6px] bg-white text-xs shrink-0"
                   disabled={!canUseBackend || hostRunnerOffline || startSandboxDaemon.isPending}
                   onClick={() => startSandboxDaemon.mutate()}
                 >
@@ -531,7 +531,7 @@ export default function Models() {
             {(() => {
               const agentAuth: { key: string; authenticated: boolean }[] = (dockerSandboxRuntime as any)?.agent_auth ?? [];
               return (
-                <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 overflow-hidden">
+                <div className="mt-4 rounded-[8px] border border-slate-100 bg-slate-50 overflow-hidden">
                   {Object.entries(SANDBOX_AGENTS).map(([key, ag], idx) => {
                     const auth = agentAuth.find(a => a.key === key);
                     const authenticated = auth?.authenticated ?? false;
@@ -573,7 +573,7 @@ export default function Models() {
                 onValueChange={(value) => setSandboxPolicy.mutate(value as "allow-all" | "balanced" | "deny-all")}
                 disabled={!canUseBackend || !sandboxReady || setSandboxPolicy.isPending}
               >
-                <SelectTrigger className="h-7 w-36 rounded-xl bg-white text-xs">
+                <SelectTrigger className="h-7 w-36 rounded-[6px] bg-white text-xs">
                   <SelectValue placeholder="Network policy" />
                 </SelectTrigger>
                 <SelectContent>
@@ -587,9 +587,9 @@ export default function Models() {
             <div className="mt-4 flex flex-wrap gap-2">
               <Dialog>
                 <DialogTrigger asChild>
-                  <Button type="button" variant="outline" className="rounded-2xl bg-white">Setup</Button>
+                  <Button type="button" variant="outline" className="rounded-[8px] bg-white">Setup</Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-2xl rounded-3xl">
+                <DialogContent className="max-w-2xl rounded-[10px]">
                   <DialogHeader>
                     <DialogTitle>Docker Sandbox Setup</DialogTitle>
                     <DialogDescription>
@@ -630,7 +630,7 @@ export default function Models() {
                             const instructions = agentInstructions[key];
                             const authenticated = auth?.authenticated ?? false;
                             return (
-                              <div key={key} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 space-y-2">
+                              <div key={key} className="rounded-[8px] border border-slate-100 bg-slate-50 p-3 space-y-2">
                                 <div className="flex items-center gap-2">
                                   <span className={`text-sm ${authenticated ? "text-emerald-500" : "text-amber-400"}`}>
                                     {authenticated ? "✓" : "○"}
@@ -664,7 +664,7 @@ export default function Models() {
           <CardContent className="p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-800">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[8px] bg-amber-100 text-amber-800">
                   <TerminalSquare className="h-6 w-6" />
                 </span>
                 <div>
@@ -679,7 +679,7 @@ export default function Models() {
                 </div>
               </div>
               <Button
-                type="button" size="sm" variant="outline" className="rounded-xl bg-white shrink-0"
+                type="button" size="sm" variant="outline" className="rounded-[6px] bg-white shrink-0"
                 disabled={!canUseBackend || directCliLoading}
                 onClick={() => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "direct-cli"] })}
               >
@@ -688,7 +688,7 @@ export default function Models() {
             </div>
 
             {/* Agent status table */}
-            <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 overflow-hidden">
+            <div className="mt-4 rounded-[8px] border border-slate-100 bg-slate-50 overflow-hidden">
               {(directCliRuntime?.agent_status ?? []).length === 0 && (
                 <p className="px-3 py-3 text-sm font-semibold text-slate-500">Start the host runner to see agent status.</p>
               )}
@@ -720,9 +720,9 @@ export default function Models() {
             <div className="mt-4 flex flex-wrap gap-2">
               <Dialog>
                 <DialogTrigger asChild>
-                  <Button type="button" variant="outline" className="rounded-2xl bg-white">Setup</Button>
+                  <Button type="button" variant="outline" className="rounded-[8px] bg-white">Setup</Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-2xl rounded-3xl">
+                <DialogContent className="max-w-2xl rounded-[10px]">
                   <DialogHeader>
                     <DialogTitle>Direct CLI Setup</DialogTitle>
                     <DialogDescription>Install each agent CLI and authenticate once. Agents run directly on your host machine.</DialogDescription>
@@ -736,7 +736,7 @@ export default function Models() {
                       };
                       const instr = authInstructions[ag.key];
                       return (
-                        <div key={ag.key} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 space-y-2">
+                        <div key={ag.key} className="rounded-[8px] border border-slate-100 bg-slate-50 p-3 space-y-2">
                           <div className="flex items-center gap-2">
                             <span className={`text-sm ${ag.authenticated ? "text-emerald-500" : ag.installed ? "text-amber-400" : "text-red-400"}`}>
                               {ag.authenticated ? "✓" : ag.installed ? "○" : "✕"}
@@ -772,11 +772,11 @@ export default function Models() {
       <div className="grid gap-4 xl:grid-cols-3">
 
         {/* ── Host Runner ── */}
-        <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
+        <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-900">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-slate-100 text-slate-900">
                   <TerminalSquare className="h-5 w-5" />
                 </span>
                 <div>
@@ -793,9 +793,9 @@ export default function Models() {
               </div>
               <Dialog>
                 <DialogTrigger asChild>
-                  <Button type="button" size="sm" variant="outline" className="rounded-xl bg-white text-xs">Start</Button>
+                  <Button type="button" size="sm" variant="outline" className="rounded-[6px] bg-white text-xs">Start</Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-lg rounded-3xl">
+                <DialogContent className="max-w-lg rounded-[10px]">
                   <DialogHeader>
                     <DialogTitle>Start Host Runner</DialogTitle>
                     <DialogDescription>Run once in your terminal from the repo directory.</DialogDescription>
@@ -805,7 +805,7 @@ export default function Models() {
                 </DialogContent>
               </Dialog>
             </div>
-            <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+            <div className="mt-3 rounded-[8px] border border-slate-100 bg-slate-50 p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5">
                   <div className={`h-2 w-2 rounded-full ${launchdSvc?.running ? "bg-emerald-500" : "bg-slate-300"}`} />
@@ -820,9 +820,9 @@ export default function Models() {
                   {!launchdSvc?.installed ? (
                     <Dialog>
                       <DialogTrigger asChild>
-                        <Button type="button" size="sm" className="rounded-xl bg-slate-900 text-xs hover:bg-slate-800">Install</Button>
+                        <Button type="button" size="sm" className="rounded-[6px] bg-slate-900 text-xs hover:bg-slate-800">Install</Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-lg rounded-3xl">
+                      <DialogContent className="max-w-lg rounded-[10px]">
                         <DialogHeader>
                           <DialogTitle>Install auto-start service</DialogTitle>
                           <DialogDescription>Starts automatically on login and restarts on crash.</DialogDescription>
@@ -832,11 +832,11 @@ export default function Models() {
                     </Dialog>
                   ) : (
                     <>
-                      <Button type="button" size="sm" variant="outline" className="rounded-xl bg-white text-xs"
+                      <Button type="button" size="sm" variant="outline" className="rounded-[6px] bg-white text-xs"
                         disabled={!canUseBackend || restartLaunchd.isPending} onClick={() => restartLaunchd.mutate()}>
                         {restartLaunchd.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
                       </Button>
-                      <Button type="button" size="sm" variant="outline" className="rounded-xl bg-white text-xs text-red-600"
+                      <Button type="button" size="sm" variant="outline" className="rounded-[6px] bg-white text-xs text-red-600"
                         disabled={!canUseBackend || uninstallLaunchd.isPending} onClick={() => uninstallLaunchd.mutate()}>
                         Remove
                       </Button>
@@ -849,11 +849,11 @@ export default function Models() {
         </Card>
 
         {/* ── Directory Scan ── */}
-        <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
+        <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
           <CardContent className="p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-800">
+                <span className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-cyan-100 text-cyan-800">
                   <FolderSearch className="h-5 w-5" />
                 </span>
                 <div>
@@ -861,7 +861,7 @@ export default function Models() {
                   <p className="text-xs font-semibold text-slate-500">Discover repositories</p>
                 </div>
               </div>
-              <Button type="button" variant="outline" className="w-fit rounded-2xl bg-white" onClick={() => setDirectoryScanOpen((open) => !open)}>
+              <Button type="button" variant="outline" className="w-fit rounded-[8px] bg-white" onClick={() => setDirectoryScanOpen((open) => !open)}>
                 {directoryScanOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
                 {directoryScanOpen ? "Hide" : "Show"}
               </Button>
@@ -869,22 +869,22 @@ export default function Models() {
             {directoryScanOpen && (
               <>
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                  <Input className="rounded-2xl bg-white" value={discoveryRoot} onChange={(event) => setDiscoveryRoot(event.target.value)} placeholder="Absolute path to scan, e.g. ~/code or /Users/you/projects" />
-                  <Button type="button" disabled={!canUseBackend || !discoveryRoot.trim() || discoverRepositories.isPending || hostRunnerOffline} onClick={() => discoverRepositories.mutate()} className="rounded-2xl bg-cyan-800 hover:bg-cyan-900">
+                  <Input className="rounded-[8px] bg-white" value={discoveryRoot} onChange={(event) => setDiscoveryRoot(event.target.value)} placeholder="Absolute path to scan, e.g. ~/code or /Users/you/projects" />
+                  <Button type="button" disabled={!canUseBackend || !discoveryRoot.trim() || discoverRepositories.isPending || hostRunnerOffline} onClick={() => discoverRepositories.mutate()} className="rounded-[8px] bg-cyan-800 hover:bg-cyan-900">
                     {discoverRepositories.isPending && <Loader2 className="mr-2 h-4 w-4" />}
                     {discoverRepositories.isPending ? "Scanning" : "Scan"}
                   </Button>
                 </div>
                 {discoverRepositories.data && (
-                  <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                  <div className="mt-4 rounded-[8px] border border-slate-100 bg-slate-50 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-black text-slate-950">{discoveredRepositories.length} found</p>
                       <div className="flex flex-wrap gap-2">
-                        <Button size="sm" disabled={!selectableDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths(selectableDiscoveredPaths)} variant="outline" className="rounded-xl bg-white">Select all</Button>
-                        <Button size="sm" disabled={!selectedDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths([])} variant="outline" className="rounded-xl bg-white">Deselect</Button>
+                        <Button size="sm" disabled={!selectableDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths(selectableDiscoveredPaths)} variant="outline" className="rounded-[6px] bg-white">Select all</Button>
+                        <Button size="sm" disabled={!selectedDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths([])} variant="outline" className="rounded-[6px] bg-white">Deselect</Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button size="sm" disabled={!selectedDiscoveredPaths.length || approveSelectedRepositories.isPending} className="rounded-xl bg-slate-900 hover:bg-slate-800">
+                            <Button size="sm" disabled={!selectedDiscoveredPaths.length || approveSelectedRepositories.isPending} className="rounded-[6px] bg-slate-900 hover:bg-slate-800">
                               Grant access…
                             </Button>
                           </AlertDialogTrigger>
@@ -902,7 +902,7 @@ export default function Models() {
                                     client work. In <strong>Direct CLI</strong> mode agents also execute
                                     on this host with no isolation.
                                   </p>
-                                  <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700">
+                                  <div className="max-h-40 overflow-y-auto rounded-[6px] border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700">
                                     {selectedDiscoveredPaths.map((path) => <div key={path}>{path}</div>)}
                                   </div>
                                   <p>Approve only repositories you would hand to a contractor.</p>
@@ -924,7 +924,7 @@ export default function Models() {
                         const approved = approvedWorkspacePaths.has(repo.path);
                         const checked = selectedDiscoveredPaths.includes(repo.path);
                         return (
-                          <label key={repo.path} className="flex cursor-pointer gap-3 rounded-2xl bg-white p-3">
+                          <label key={repo.path} className="flex cursor-pointer gap-3 rounded-[8px] bg-white p-3">
                             <Checkbox checked={approved || checked} disabled={approved}
                               onCheckedChange={(value) => setSelectedDiscoveredPaths((paths) => value ? [...new Set([...paths, repo.path])] : paths.filter((path) => path !== repo.path))} />
                             <div className="min-w-0">
@@ -946,11 +946,11 @@ export default function Models() {
         </Card>
 
         {/* ── Approved ── */}
-        <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
+        <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-900">
+                <span className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-slate-100 text-slate-900">
                   <ShieldCheck className="h-5 w-5" />
                 </span>
                 <div>
@@ -958,7 +958,7 @@ export default function Models() {
                   <p className="text-xs font-semibold text-slate-500">{activeRuntimeWorkspaces.length} repositories</p>
                 </div>
               </div>
-              <Button type="button" variant="outline" className="rounded-2xl bg-white" onClick={() => setApprovedOpen((open) => !open)}>
+              <Button type="button" variant="outline" className="rounded-[8px] bg-white" onClick={() => setApprovedOpen((open) => !open)}>
                 {approvedOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
                 {approvedOpen ? "Hide" : "Show"}
               </Button>
@@ -966,16 +966,16 @@ export default function Models() {
             {approvedOpen && (
               <div className="mt-4 max-h-72 space-y-2 overflow-auto pr-1">
                 {activeRuntimeWorkspaces.length ? activeRuntimeWorkspaces.map((workspace) => (
-                  <div key={workspace.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                  <div key={workspace.id} className="rounded-[8px] border border-slate-100 bg-slate-50 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-black text-slate-950">{workspace.name}</p>
                         <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{workspace.path}</p>
                       </div>
-                      <Button type="button" size="sm" variant="outline" disabled={deleteWorkspace.isPending} onClick={() => deleteWorkspace.mutate(workspace.id)} className="rounded-xl bg-white">Remove</Button>
+                      <Button type="button" size="sm" variant="outline" disabled={deleteWorkspace.isPending} onClick={() => deleteWorkspace.mutate(workspace.id)} className="rounded-[6px] bg-white">Remove</Button>
                     </div>
                   </div>
-                )) : <p className="rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">No approved repositories.</p>}
+                )) : <p className="rounded-[8px] bg-slate-50 p-3 text-sm font-semibold text-slate-500">No approved repositories.</p>}
               </div>
             )}
           </CardContent>
@@ -1003,7 +1003,7 @@ export default function Models() {
           : Boolean(selectedWorkspaceId && runtimePrompt.trim() && canUseBackend && directCliRuntime?.available && !createCliRuntimeRun.isPending);
 
         return (
-          <Card className="rounded-[1.5rem] border-white/80 bg-white/85 shadow-sm">
+          <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
             <CardContent className="p-5">
               {/* Header */}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1014,7 +1014,7 @@ export default function Models() {
                     {" · "}{agentLabel}
                   </p>
                 </div>
-                <Button type="button" variant="outline" className="w-fit rounded-2xl bg-white" onClick={() => setTestOpen((o) => !o)}>
+                <Button type="button" variant="outline" className="w-fit rounded-[8px] bg-white" onClick={() => setTestOpen((o) => !o)}>
                   {testOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
                   {testOpen ? "Hide" : "Show"}
                 </Button>
@@ -1026,18 +1026,18 @@ export default function Models() {
                     {/* Runtime + agent selector row */}
                     <div className="flex gap-2">
                       {/* Runtime toggle */}
-                      <div className="flex rounded-2xl border border-slate-200 bg-slate-50 p-0.5 gap-0.5">
+                      <div className="flex rounded-[8px] border border-slate-200 bg-slate-50 p-0.5 gap-0.5">
                         <button
                           type="button"
                           onClick={() => setTestRuntime("sandbox")}
-                          className={`rounded-xl px-3 py-1.5 text-xs font-black transition-colors ${isSandbox ? "bg-white shadow-sm text-slate-950" : "text-slate-500 hover:text-slate-700"}`}
+                          className={`rounded-[6px] px-3 py-1.5 text-xs font-black transition-colors ${isSandbox ? "bg-white shadow-sm text-slate-950" : "text-slate-500 hover:text-slate-700"}`}
                         >
                           Sandbox
                         </button>
                         <button
                           type="button"
                           onClick={() => setTestRuntime("direct")}
-                          className={`rounded-xl px-3 py-1.5 text-xs font-black transition-colors ${!isSandbox ? "bg-white shadow-sm text-slate-950" : "text-slate-500 hover:text-slate-700"}`}
+                          className={`rounded-[6px] px-3 py-1.5 text-xs font-black transition-colors ${!isSandbox ? "bg-white shadow-sm text-slate-950" : "text-slate-500 hover:text-slate-700"}`}
                         >
                           Direct CLI
                         </button>
@@ -1045,7 +1045,7 @@ export default function Models() {
                       {/* Agent selector */}
                       {isSandbox ? (
                         <Select value={sandboxAgent} onValueChange={setSandboxAgent}>
-                          <SelectTrigger className="rounded-2xl h-9 text-xs flex-1">
+                          <SelectTrigger className="rounded-[8px] h-9 text-xs flex-1">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1056,7 +1056,7 @@ export default function Models() {
                         </Select>
                       ) : (
                         <Select value={cliAgent} onValueChange={(v) => { setCliAgent(v); try { localStorage.setItem("specter_cli_agent", v); } catch {} }}>
-                          <SelectTrigger className="rounded-2xl h-9 text-xs flex-1">
+                          <SelectTrigger className="rounded-[8px] h-9 text-xs flex-1">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1074,7 +1074,7 @@ export default function Models() {
                     <div className="space-y-2">
                       <Label>Workspace</Label>
                       <Select value={selectedWorkspaceId} onValueChange={setSelectedWorkspaceId}>
-                        <SelectTrigger className="rounded-2xl">
+                        <SelectTrigger className="rounded-[8px]">
                           <SelectValue placeholder="Select repository" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1088,7 +1088,7 @@ export default function Models() {
                     {/* Prompt */}
                     <div className="space-y-2">
                       <Label>Prompt</Label>
-                      <Textarea className="min-h-24 rounded-2xl" value={runtimePrompt} onChange={(e) => setRuntimePrompt(e.target.value)} />
+                      <Textarea className="min-h-24 rounded-[8px]" value={runtimePrompt} onChange={(e) => setRuntimePrompt(e.target.value)} />
                     </div>
 
                     {/* Run button */}
@@ -1096,7 +1096,7 @@ export default function Models() {
                       type="button"
                       disabled={!canRun}
                       onClick={() => isSandbox ? createRuntimeRun.mutate() : createCliRuntimeRun.mutate()}
-                      className={`rounded-2xl ${isSandbox ? "bg-emerald-700 hover:bg-emerald-800" : "bg-amber-700 hover:bg-amber-800"}`}
+                      className={`rounded-[8px] ${isSandbox ? "bg-emerald-700 hover:bg-emerald-800" : "bg-amber-700 hover:bg-amber-800"}`}
                     >
                       {(isSandbox ? createRuntimeRun.isPending : createCliRuntimeRun.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       {(isSandbox ? createRuntimeRun.isPending : createCliRuntimeRun.isPending) ? "Running…" : `Run with ${agentLabel}`}
@@ -1104,7 +1104,7 @@ export default function Models() {
                   </div>
 
                   {/* Output panel */}
-                  <div className={isExpanded ? "fixed inset-0 z-50 flex flex-col bg-slate-950 text-white" : "mt-4 rounded-2xl border border-slate-100 bg-slate-950 p-4 text-white"}>
+                  <div className={isExpanded ? "fixed inset-0 z-50 flex flex-col bg-slate-950 text-white" : "mt-4 rounded-[8px] border border-slate-100 bg-slate-950 p-4 text-white"}>
                     <div className={`flex flex-wrap items-center justify-between gap-2 ${isExpanded ? "px-5 pt-5 pb-3 border-b border-white/10" : "mb-2"}`}>
                       <div className="flex items-center gap-2">
                         <p className="text-xs font-black uppercase text-slate-300">
@@ -1128,7 +1128,7 @@ export default function Models() {
                     </div>
                     <div className={isExpanded ? "flex-1 overflow-auto px-5 py-4" : ""}>
                       {isRunning ? (
-                        <div className={isExpanded ? "h-full" : "rounded-2xl bg-emerald-500/10 p-3"}>
+                        <div className={isExpanded ? "h-full" : "rounded-[8px] bg-emerald-500/10 p-3"}>
                           {isExpanded && <p className="text-xs font-semibold text-emerald-400 mb-3">Started {startedAt ?? "now"}</p>}
                           <pre ref={liveRef} className={isExpanded ? "h-full overflow-auto whitespace-pre-wrap text-sm leading-6 text-emerald-100/90 font-mono" : "max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-5 text-emerald-100/80 font-mono"}>
                             {liveLines.join("\n") || "Starting…"}
@@ -1145,12 +1145,12 @@ export default function Models() {
                             )}
                           </div>
                           {rawMode || !latestRun.summary ? (
-                            <pre className={`overflow-auto whitespace-pre-wrap rounded-2xl bg-white/5 p-3 text-xs leading-5 text-slate-300 font-mono ${isExpanded ? "h-full" : "max-h-60"}`}>
+                            <pre className={`overflow-auto whitespace-pre-wrap rounded-[8px] bg-white/5 p-3 text-xs leading-5 text-slate-300 font-mono ${isExpanded ? "h-full" : "max-h-60"}`}>
                               {latestRun.summary || latestRun.stderr || latestRun.error || "No output captured."}
                             </pre>
                           ) : (
                             <div
-                              className={`overflow-auto rounded-2xl bg-white/5 p-4 prose prose-invert prose-sm max-w-none
+                              className={`overflow-auto rounded-[8px] bg-white/5 p-4 prose prose-invert prose-sm max-w-none
                                 prose-headings:text-slate-100 prose-headings:font-black
                                 prose-p:text-slate-300 prose-p:leading-6
                                 prose-code:text-emerald-300 prose-code:bg-white/10 prose-code:rounded prose-code:px-1 prose-code:text-xs
@@ -1176,7 +1176,7 @@ export default function Models() {
         </TabsContent>
 
         <TabsContent value="logs" className="mt-4">
-          <div className="rounded-2xl bg-slate-950 text-white">
+          <div className="rounded-[8px] bg-slate-950 text-white">
             {/* toolbar */}
             <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-2.5">
               <div className="flex items-center gap-3">
@@ -1267,9 +1267,9 @@ function CommandCopy({
   onCopy: (command: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-slate-950 p-4 text-white sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 rounded-[8px] bg-slate-950 p-4 text-white sm:flex-row sm:items-center sm:justify-between">
       <code className="break-all text-sm font-bold">{command}</code>
-      <Button type="button" onClick={() => onCopy(command)} variant="outline" className="rounded-2xl border-white/20 bg-white text-slate-950 hover:bg-slate-100">
+      <Button type="button" onClick={() => onCopy(command)} variant="outline" className="rounded-[8px] border-white/20 bg-white text-slate-950 hover:bg-slate-100">
         {copiedCommand === command ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
         {copiedCommand === command ? "Copied" : "Copy"}
       </Button>

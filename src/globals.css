@@ -32,7 +32,7 @@
     --input: 213 34% 88%;
     --ring: 239 84% 67%;
 
-    --radius: 1.25rem;
+    --radius: 0.375rem; /* 6px — direction C. Was 1.25rem, which made every shadcn control pill-shaped. */
 
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 222 47% 11%;

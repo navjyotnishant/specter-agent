@@ -108,7 +108,7 @@ const toneClasses: Record<Tone, { text: string; bg: string; border: string; chip
   amber: { text: "text-amber-900", bg: "bg-amber-50", border: "border-amber-200", chip: "bg-amber-100 text-amber-900", dot: "bg-amber-500" },
   red: { text: "text-red-800", bg: "bg-red-50", border: "border-red-200", chip: "bg-red-100 text-red-800", dot: "bg-red-500" },
   slate: { text: "text-slate-700", bg: "bg-slate-50", border: "border-slate-200", chip: "bg-slate-100 text-slate-700", dot: "bg-slate-400" },
-  indigo: { text: "text-indigo-800", bg: "bg-indigo-50", border: "border-indigo-200", chip: "bg-indigo-100 text-indigo-800", dot: "bg-indigo-500" },
+  indigo: { text: "text-[#c92a2a]", bg: "bg-indigo-50", border: "border-indigo-200", chip: "bg-[#fff4e6] text-[#c92a2a]", dot: "bg-indigo-500" },
 };
 
 function statusTone(status: string): Tone {
@@ -137,7 +137,7 @@ function StatusPill({ status }: { status: string }) {
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
+    <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
       <p className="text-sm font-bold text-slate-800">{title}</p>
       <p className="mt-1 text-sm text-slate-500">{detail}</p>
     </div>
@@ -410,10 +410,10 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5">
-      <section className={`rounded-2xl border px-5 py-4 ${attentionTone.border} ${attentionTone.bg}`}>
+      <section className={`rounded-[8px] border px-5 py-4 ${attentionTone.border} ${attentionTone.bg}`}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${attentionTone.chip}`}>
+            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[6px] ${attentionTone.chip}`}>
               <AttentionIcon className="h-5 w-5" />
             </div>
             <div className="min-w-0">
@@ -422,7 +422,7 @@ export default function Dashboard() {
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{attention.detail}</p>
             </div>
           </div>
-          <Button asChild className="h-10 rounded-xl bg-slate-950 px-4 text-white hover:bg-slate-800">
+          <Button asChild className="h-10 rounded-[6px] bg-slate-950 px-4 text-white hover:bg-slate-800">
             <Link to={attention.href}>
               {attention.action}
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -437,7 +437,7 @@ export default function Dashboard() {
           const tone = toneClasses[metric.tone];
           return (
             <Link key={metric.label} to={metric.href} className="group">
-              <Card className="rounded-2xl border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
+              <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -445,7 +445,7 @@ export default function Dashboard() {
                       <p className="mt-2 text-3xl font-black text-slate-950">{metric.value}</p>
                       <p className="mt-1 truncate text-xs font-semibold text-slate-500">{metric.detail}</p>
                     </div>
-                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone.chip}`}>
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[6px] ${tone.chip}`}>
                       <Icon className="h-5 w-5" />
                     </div>
                   </div>
@@ -457,13 +457,13 @@ export default function Dashboard() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.55fr)]">
-        <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+        <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
             <div>
               <CardTitle className="text-lg font-black text-slate-950">Work queue</CardTitle>
               <p className="mt-1 text-sm text-slate-500">Active gates, failed evidence, and recent workflow outcomes.</p>
             </div>
-            <Button asChild variant="outline" className="h-9 rounded-xl border-slate-200 bg-white px-3 text-sm">
+            <Button asChild variant="outline" className="h-9 rounded-[6px] border-slate-200 bg-white px-3 text-sm">
               <Link to="/workflows">
                 View all
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -485,7 +485,7 @@ export default function Dashboard() {
                     <Link
                       key={run.id}
                       to={runUrl(run)}
-                      className={`flex flex-col gap-3 rounded-xl border px-4 py-3 transition hover:border-indigo-200 hover:bg-indigo-50/30 sm:flex-row sm:items-center sm:justify-between ${
+                      className={`flex flex-col gap-3 rounded-[6px] border px-4 py-3 transition hover:border-indigo-200 hover:bg-indigo-50/30 sm:flex-row sm:items-center sm:justify-between ${
                         isPriority ? `${tone.border} ${tone.bg}` : "border-slate-100 bg-white"
                       }`}
                     >
@@ -511,7 +511,7 @@ export default function Dashboard() {
         </Card>
 
         <div className="space-y-5">
-          <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+          <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
             <CardHeader className="border-b border-slate-100 px-5 py-4">
               <CardTitle className="flex items-center gap-2 text-lg font-black text-slate-950">
                 <ShieldCheck className="h-5 w-5 text-indigo-600" />
@@ -523,7 +523,7 @@ export default function Dashboard() {
               {postureItems.map((item) => {
                 const tone = toneClasses[item.tone];
                 return (
-                  <div key={item.label} className={`rounded-xl border px-3 py-3 ${tone.border} ${tone.bg}`}>
+                  <div key={item.label} className={`rounded-[6px] border px-3 py-3 ${tone.border} ${tone.bg}`}>
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">{item.label}</p>
                       <span className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} />
@@ -533,7 +533,7 @@ export default function Dashboard() {
                   </div>
                 );
               })}
-              <Button asChild variant="outline" className="h-9 w-full rounded-xl border-slate-200 bg-white">
+              <Button asChild variant="outline" className="h-9 w-full rounded-[6px] border-slate-200 bg-white">
                 <Link to="/settings/models">
                   <LockKeyhole className="mr-2 h-4 w-4" />
                   Runtime posture
@@ -542,7 +542,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+          <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
             <CardHeader className="border-b border-slate-100 px-5 py-4">
               <CardTitle className="flex items-center gap-2 text-lg font-black text-slate-950">
                 <Activity className="h-5 w-5 text-indigo-600" />
@@ -555,8 +555,8 @@ export default function Dashboard() {
                 const Icon = item.icon;
                 const tone = toneClasses[item.tone];
                 return (
-                  <div key={item.label} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
-                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${tone.chip}`}>
+                  <div key={item.label} className="flex items-center gap-3 rounded-[6px] border border-slate-100 bg-slate-50 px-3 py-3">
+                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] ${tone.chip}`}>
                       <Icon className="h-4 w-4" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -576,7 +576,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+          <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
             <CardHeader className="border-b border-slate-100 px-5 py-4">
               <CardTitle className="flex items-center gap-2 text-lg font-black text-slate-950">
                 <SquareTerminal className="h-5 w-5 text-indigo-600" />
@@ -584,19 +584,19 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2 p-4">
-              <Button asChild className="h-10 justify-start rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">
+              <Button asChild className="h-10 justify-start rounded-[6px] bg-[#ff6d5a] text-white hover:bg-[#f95f4b]">
                 <Link to="/workflows">
                   <PlayCircle className="mr-2 h-4 w-4" />
                   Run workflow
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="h-10 justify-start rounded-xl border-slate-200 bg-white">
+              <Button asChild variant="outline" className="h-10 justify-start rounded-[6px] border-slate-200 bg-white">
                 <Link to="/workflows">
                   <GitBranch className="mr-2 h-4 w-4" />
                   Build workflow
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="h-10 justify-start rounded-xl border-slate-200 bg-white">
+              <Button asChild variant="outline" className="h-10 justify-start rounded-[6px] border-slate-200 bg-white">
                 <Link to="/skills">
                   <Sparkles className="mr-2 h-4 w-4" />
                   Manage skills
@@ -608,7 +608,7 @@ export default function Dashboard() {
       </section>
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+        <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-center gap-3">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" />
@@ -624,7 +624,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+        <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-center gap-3">
               <Clock3 className="h-5 w-5 text-slate-500" />

@@ -432,7 +432,7 @@ function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBac
         onMouseLeave={(e) => { if (!expanded) e.currentTarget.style.background = "white"; }}
       >
         {/* chevron + name */}
-        <td style={{ padding: "11px 20px" }}>
+        <td style={{ padding: "12px 16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ color: "#94a3b8", flexShrink: 0, display: "flex" }}>
               {expanded
@@ -462,13 +462,13 @@ function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBac
         </td>
 
         {/* nodes */}
-        <td style={{ padding: "11px 8px", fontSize: 12, color: "#6b7280", fontFamily: "ui-monospace, monospace" }}>
+        <td style={{ padding: "12px 8px", fontSize: 13, color: "#6b7280", fontFamily: "ui-monospace, monospace" }}>
           {nodeCount} nodes
         </td>
 
         {/* last run — only for custom workflows, not templates */}
         {!isTemplate && (
-          <td style={{ padding: "11px 8px" }}>
+          <td style={{ padding: "12px 8px" }}>
             {runsLoading
               ? <Loader2 style={{ width: 11, height: 11, color: "#d1d5db", animation: "wf-spin 1s linear infinite" }} />
               : activeRun
@@ -1092,8 +1092,8 @@ export default function Workflows() {
                     <tr style={{ borderBottom: "1px solid #f8fafc", background: "#fafafa" }}>
                       {["Workflow", "Nodes", "Last run", ""].map((h, i) => (
                         <th key={h} style={{
-                          padding: "8px " + (i === 0 ? "20px" : i === 3 ? "20px 20px 8px 8px" : "8px"),
-                          fontSize: 9, fontWeight: 800, color: "#94a3b8",
+                          padding: "9px " + (i === 0 ? "16px" : i === 3 ? "16px 16px 9px 8px" : "8px"),
+                          fontSize: 11, fontWeight: 700, color: "#8b95a3",
                           textTransform: "uppercase", letterSpacing: "0.08em",
                           textAlign: i === 3 ? "right" : "left", whiteSpace: "nowrap",
                         }}>{h}</th>

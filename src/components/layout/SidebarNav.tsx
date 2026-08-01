@@ -61,14 +61,14 @@ export function SidebarNav() {
       <div className={`flex-1 overflow-hidden ${collapsed ? "px-2 py-5" : "p-5"}`}>
         {/* logo */}
         {collapsed ? (
-          <NavLink to="/dashboard" className="mb-6 flex items-center justify-center rounded-2xl bg-slate-950 p-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-400 text-slate-950">
+          <NavLink to="/dashboard" className="mb-6 flex items-center justify-center rounded-[8px] bg-slate-950 p-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-[6px] bg-cyan-400 text-slate-950">
               <ShieldCheck className="h-5 w-5" />
             </span>
           </NavLink>
         ) : (
-          <NavLink to="/dashboard" className="mb-8 flex items-center gap-3 rounded-3xl bg-slate-950 p-3 text-white shadow-lg shadow-slate-200">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-400 text-slate-950">
+          <NavLink to="/dashboard" className="mb-8 flex items-center gap-3 rounded-[10px] bg-slate-950 p-3 text-white shadow-lg shadow-slate-200">
+            <span className="flex h-11 w-11 items-center justify-center rounded-[8px] bg-cyan-400 text-slate-950">
               <ShieldCheck className="h-6 w-6" />
             </span>
             <span>
@@ -80,7 +80,7 @@ export function SidebarNav() {
 
         {/* governed workspace card — hidden when collapsed */}
         {!collapsed && (
-          <div className="mb-5 rounded-3xl border border-cyan-100 bg-cyan-50/80 p-4 text-sm text-cyan-950">
+          <div className="mb-5 rounded-[10px] border border-cyan-100 bg-cyan-50/80 p-4 text-sm text-cyan-950">
             <div className="flex items-center gap-2 font-semibold">
               <ShieldCheck className="h-4 w-4" /> Governed workspace
             </div>
@@ -98,12 +98,12 @@ export function SidebarNav() {
                 to={item.href}
                 title={collapsed ? item.label : undefined}
                 className={({ isActive }) =>
-                  `flex items-center rounded-2xl transition ${
+                  `flex items-center rounded-[8px] transition ${
                     collapsed ? "justify-center px-2 py-3" : "gap-3 px-4 py-3"
                   } text-sm font-semibold ${
                     isActive
-                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-100"
-                      : "text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
+                      ? "bg-[#ff6d5a] text-white shadow-lg shadow-indigo-100"
+                      : "text-slate-600 hover:bg-[#fff5f2] hover:text-[#e8590c]"
                   }`
                 }
               >
@@ -116,7 +116,7 @@ export function SidebarNav() {
 
         {/* safety defaults — hidden when collapsed */}
         {!collapsed && (
-          <div className="mt-8 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+          <div className="mt-8 rounded-[10px] border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
               <Settings2 className="h-4 w-4" /> Agent safety defaults
             </div>
@@ -132,13 +132,13 @@ export function SidebarNav() {
                 type="button"
                 onClick={handleLogout}
                 title="Logout"
-                className="flex w-full items-center justify-center rounded-2xl py-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                className="flex w-full items-center justify-center rounded-[8px] py-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 <LogOut className="h-4 w-4" />
               </button>
             ) : (
-              <div className="flex items-center gap-3 rounded-2xl p-2">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-sm font-black text-indigo-700">
+              <div className="flex items-center gap-3 rounded-[8px] p-2">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] bg-indigo-100 text-sm font-black text-[#e8590c]">
                   {user.email[0].toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -149,7 +149,7 @@ export function SidebarNav() {
                   type="button"
                   onClick={handleLogout}
                   title="Logout"
-                  className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  className="rounded-[6px] p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 >
                   <LogOut className="h-4 w-4" />
                 </button>

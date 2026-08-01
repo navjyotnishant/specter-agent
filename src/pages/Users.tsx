@@ -61,14 +61,14 @@ export default function Users() {
 
   return (
     <div className="space-y-6">
-      <Card className="rounded-[2rem] border-white/80 bg-white/85 shadow-sm backdrop-blur-xl">
+      <Card className="rounded-[10px] border-[#dfe3e8] bg-white shadow-sm ">
         <CardContent className="p-6 sm:p-8">
           <div className="flex items-center gap-4">
-            <span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-indigo-600 text-white">
+            <span className="flex h-16 w-16 items-center justify-center rounded-[10px] bg-[#ff6d5a] text-white">
               <UsersIcon className="h-8 w-8" />
             </span>
             <div>
-              <Badge className="mb-2 rounded-full bg-indigo-100 text-indigo-800 hover:bg-indigo-100">Local accounts</Badge>
+              <Badge className="mb-2 rounded-full bg-[#fff4e6] text-[#c92a2a] hover:bg-[#fff4e6]">Local accounts</Badge>
               <h2 className="text-3xl font-black text-slate-950">Users and roles</h2>
               <p className="mt-2 text-slate-600">Manage administrator and operator access for Specter Agent.</p>
             </div>
@@ -80,10 +80,10 @@ export default function Users() {
           who filled them in and got a raw backend error -- the page's own copy
           already said "Admins can create operators or additional admins". */}
       {isAdmin && (
-      <Card className="rounded-[2rem] border-white/80 bg-white/80 shadow-sm">
+      <Card className="rounded-[10px] border-[#dfe3e8] bg-white shadow-sm">
         <CardContent className="p-5 sm:p-6">
           <div className="mb-5 flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-800"><UserPlus className="h-5 w-5" /></span>
+            <span className="flex h-11 w-11 items-center justify-center rounded-[8px] bg-cyan-100 text-cyan-800"><UserPlus className="h-5 w-5" /></span>
             <div>
               <h3 className="text-xl font-black text-slate-950">Create local user</h3>
               <p className="text-sm text-slate-600">Admins can create operators or additional admins.</p>
@@ -92,23 +92,23 @@ export default function Users() {
           <form onSubmit={onSubmit} className="grid gap-3 lg:grid-cols-[1fr_1fr_180px_auto] lg:items-end">
             <div className="space-y-2">
               <Label>Email</Label>
-              <Input type="email" className="rounded-2xl" value={email} onChange={(event) => setEmail(event.target.value)} required />
+              <Input type="email" className="rounded-[8px]" value={email} onChange={(event) => setEmail(event.target.value)} required />
             </div>
             <div className="space-y-2">
               <Label>Password</Label>
-              <Input type="password" className="rounded-2xl" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} maxLength={72} required />
+              <Input type="password" className="rounded-[8px]" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} maxLength={72} required />
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
               <Select value={role} onValueChange={(value: "admin" | "operator") => setRole(value)}>
-                <SelectTrigger className="rounded-2xl"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="rounded-[8px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="operator">Operator</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <Button disabled={create.isPending} className="rounded-2xl bg-indigo-600 hover:bg-indigo-700">
+            <Button disabled={create.isPending} className="rounded-[8px] bg-[#ff6d5a] hover:bg-[#f95f4b]">
               {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Create
             </Button>
           </form>
@@ -118,12 +118,12 @@ export default function Users() {
       )}
 
       {/* Outside the admin gate: delete errors must reach every viewer. */}
-      {error && <Alert variant="destructive" className="rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
+      {error && <Alert variant="destructive" className="rounded-[8px]"><AlertDescription>{error}</AlertDescription></Alert>}
 
-      <Card className="rounded-[2rem] border-white/80 bg-white/80 shadow-sm">
+      <Card className="rounded-[10px] border-[#dfe3e8] bg-white shadow-sm">
         <CardContent className="p-5 sm:p-6">
           <div className="mb-5 flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-100 text-sky-800"><Send className="h-5 w-5" /></span>
+            <span className="flex h-11 w-11 items-center justify-center rounded-[8px] bg-sky-100 text-sky-800"><Send className="h-5 w-5" /></span>
             <div>
               <h3 className="text-lg font-black text-slate-950">My integrations</h3>
               <p className="text-sm text-slate-600">Credentials for your account, shared by every workflow you run.</p>
@@ -138,7 +138,7 @@ export default function Users() {
       <div className="grid gap-4">
         {usersQuery.isLoading && <p className="text-sm text-slate-500">Loading accounts…</p>}
         {usersQuery.isError && (
-          <Alert variant="destructive" className="rounded-2xl">
+          <Alert variant="destructive" className="rounded-[8px]">
             <AlertDescription>
               Couldn't load accounts — the list below may be incomplete.{" "}
               {usersQuery.error instanceof Error ? usersQuery.error.message : ""}
@@ -146,10 +146,10 @@ export default function Users() {
           </Alert>
         )}
         {accounts.map((account) => (
-          <Card key={account.id} className="rounded-3xl border-white/80 bg-white/80">
+          <Card key={account.id} className="rounded-[10px] border-[#dfe3e8] bg-white">
             <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-4">
-                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-800">
+                <span className="flex h-12 w-12 items-center justify-center rounded-[8px] bg-cyan-100 text-cyan-800">
                   <Shield className="h-6 w-6" />
                 </span>
                 <div>
@@ -163,7 +163,7 @@ export default function Users() {
               {isAdmin && account.id !== user?.id && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button disabled={remove.isPending} variant="outline" className="rounded-2xl border-red-200 bg-white text-red-700 hover:bg-red-50">
+                    <Button disabled={remove.isPending} variant="outline" className="rounded-[8px] border-red-200 bg-white text-red-700 hover:bg-red-50">
                       <Trash2 className="mr-2 h-4 w-4" /> Delete
                     </Button>
                   </AlertDialogTrigger>

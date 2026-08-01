@@ -455,10 +455,10 @@ export default function Skills() {
 export type SkillOrigin = "builtin" | "imported" | "own" | "unsaved";
 
 const ORIGIN_BADGE: Record<SkillOrigin, { label: string; className: string }> = {
-  builtin:  { label: "built-in",     className: "bg-slate-100 text-slate-500" },
-  imported: { label: "imported",     className: "bg-indigo-50 text-indigo-600" },
-  own:      { label: "hand-written", className: "bg-emerald-50 text-emerald-700" },
-  unsaved:  { label: "not saved",    className: "bg-amber-50 text-amber-700" },
+  builtin:  { label: "built-in",     className: "sp-src sp-src-seed" },
+  imported: { label: "imported",     className: "sp-src sp-src-repo" },
+  own:      { label: "hand-written", className: "sp-src sp-src-mine" },
+  unsaved:  { label: "not saved",    className: "sp-src sp-src-unsaved" },
 };
 
 /** Ids seeded by backend/app/runtime/skill_seeds.py. Listed explicitly rather
@@ -485,17 +485,15 @@ function SkillBtn({ skill, selected, origin, onSelect }: {
     <button
       type="button"
       onClick={() => onSelect(skill)}
-      className={`w-full rounded-[4px] px-3 py-[7px] text-left transition-colors ${
-        selected ? "bg-indigo-50" : "hover:bg-slate-50"
-      }`}
+      className={`sp-it ${selected ? "sp-it-on" : ""}`}
     >
-      <div className="flex items-center gap-1.5">
-        <p className={`min-w-0 flex-1 truncate text-[12px] font-semibold ${selected ? "text-indigo-800" : "text-slate-800"}`}>{skill.name}</p>
-        <span className={`shrink-0 rounded-[3px] px-[5px] py-[1.5px] text-[8.5px] font-extrabold uppercase tracking-[0.05em] ${badge.className}`}>
+      <div className="sp-it-n">
+        <p className="min-w-0 flex-1 truncate">{skill.name}</p>
+        <span className={badge.className}>
           {badge.label}
         </span>
       </div>
-      <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-[1.35] text-[#94a3b8]">
+      <p className="sp-it-d line-clamp-2">
         {skill.description || "No description provided."}
       </p>
     </button>
@@ -543,9 +541,9 @@ function SkillList({ skills, savedSkills, selectedSkillId, onSelect }: {
       {sorted.map(([label, items], i) => (
         <div key={label}>
           {i > 0 && <div className="my-2 border-t border-slate-100" />}
-          <div className="flex items-center gap-2 px-2 pb-1 pt-2">
-            <span className="text-[9px] font-extrabold uppercase tracking-[0.09em] text-[#9aa5b4]">{label}</span>
-            <span className="text-[10px] font-semibold text-slate-300">{items.length}</span>
+          <div className="sp-grp">
+            <span>{label}</span>
+            <span className="sp-grp-ct">{items.length}</span>
             {label === "Starting points" && (
               <span className="text-[9px] text-slate-400">not saved yet</span>
             )}
@@ -573,7 +571,7 @@ function SkillEditor({ draft, onChange, origin, sourceRepo }: {
   }[origin];
   return (
     <div className="grid gap-4">
-      <div className="rounded-[7px] border border-[#eef2f6] bg-[#f8fafc] px-3 py-2.5 text-[11px] leading-[1.5] text-[#64748b]">
+      <div className="sp-meta">
         {note}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">

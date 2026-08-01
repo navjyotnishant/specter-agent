@@ -59,7 +59,7 @@ export function TopBar() {
   return (
     <header className="sticky top-0 z-20 border-b border-white/70 bg-[#f7fbff]/85 px-4 py-4 backdrop-blur-xl sm:px-6">
       <div className="flex items-center gap-3">
-        <Button variant="outline" size="icon" className="rounded-2xl border-slate-200 bg-white lg:hidden">
+        <Button variant="outline" size="icon" className="rounded-[8px] border-slate-200 bg-white lg:hidden">
           <Menu className="h-4 w-4" />
         </Button>
         <div>
