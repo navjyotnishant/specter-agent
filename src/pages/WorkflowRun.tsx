@@ -209,61 +209,69 @@ function Markdown({ text, accent }: { text: string; accent: string }) {
 }
 
 // ── exec canvas node ──────────────────────────────────────────────────────────
+/** Elapsed for a step. Measures to now while running, so a live node shows real
+ *  elapsed time rather than a dash. */
+function runDuration(startedAt: string, completedAt: string | null): string {
+  if (!startedAt) return "";
+  const start = parseUTC(startedAt).getTime();
+  const end = completedAt ? parseUTC(completedAt).getTime() : Date.now();
+  const secs = Math.max(0, Math.round((end - start) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  return m < 60 ? `${m}m ${secs % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
 function ExecNode({ data }: { data: Record<string, unknown> }) {
   const status   = String(data.execStatus ?? "queued");
-  const s        = sc(status);
   const isRun    = status === "running";
   const isDone   = status === "completed";
   const isFailed = status === "failed";
   const isSkipped= status === "skipped";
+  const isWait   = status === "waiting_approval";
   const nodeType = String(data.nodeType ?? "");
   const role     = String(data.role ?? "");
   const { Icon, label: typeLabel } = nodeVisual(nodeType, role);
-  const accent   = String(data.laneColor ?? "#94a3b8");
-  const nodeAccent = isDone ? "#10b981" : isFailed ? "#dc2626" : isSkipped ? "#7c3aed" : isRun ? accent : "#94a3b8";
+  const accent   = String(data.laneColor ?? "#8b95a3");
+  const tile = isDone ? "#12b886" : isFailed ? "#e03131" : isSkipped ? "#7950f2"
+             : isWait ? "#f59f00" : isRun ? accent : "#8b95a3";
+
+  // The output strip: this node's own run state, on the card. Reading a run
+  // means reading the canvas rather than opening a panel per node.
+  const dur = String(data.duration ?? "");
+  const out = isRun     ? <span className="rn">▶ running{dur ? ` · ${dur}` : "…"}</span>
+            : isDone    ? <span className="ok">✓ {dur || "completed"}</span>
+            : isFailed  ? <span className="er">✕ {String(data.error ?? "failed")}</span>
+            : isSkipped ? <span style={{ color: "#7950f2" }}>⤳ skipped</span>
+            : isWait    ? <span style={{ color: "#f59f00" }}>⏸ waiting for approval</span>
+            : <span style={{ color: "#8b95a3" }}>· queued</span>;
 
   return (
     <>
-      <Handle type="target" position={Position.Left}  style={{ background: nodeAccent, border: "2px solid white", width: 8, height: 8 }} />
-      <div style={{
-        width: 220, background: "white",
-        border: `1.5px solid ${isRun ? nodeAccent : isDone ? "#a7f3d0" : isFailed ? "#fecaca" : isSkipped ? "#ddd6fe" : "#e2e8f0"}`,
-        borderRadius: 10, fontFamily: "system-ui, -apple-system, sans-serif",
-        boxShadow: isRun ? `0 0 0 3px ${nodeAccent}25, 0 4px 16px ${nodeAccent}20` : isDone ? `0 0 0 1px #a7f3d050` : "0 1px 3px rgba(0,0,0,0.08)",
-        transition: "all 0.4s ease", overflow: "hidden", position: "relative",
-      }}>
-        {/* color accent bar on left edge */}
-        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: isDone ? "#10b981" : isFailed ? "#dc2626" : isSkipped ? "#7c3aed" : accent, borderRadius: "10px 0 0 10px" }} />
-
-        {isRun && <div style={{ position:"absolute",top:0,left:3,right:0,height:2,background:`linear-gradient(90deg,transparent,${accent},transparent)`,animation:"scanline 1.8s linear infinite" }} />}
-
-        <div style={{ padding: "8px 12px 8px 15px", borderBottom:`1px solid ${isRun?`${nodeAccent}25`:"#f1f5f9"}`, display:"flex",alignItems:"center",gap:8, background: isRun?`${nodeAccent}08`:isDone?"#f0fdf4":isFailed?"#fef2f2":isSkipped?"#f5f3ff":"#fafafa" }}>
-          <div style={{ width:28,height:28,borderRadius:6,background:`${nodeAccent}15`,border:`1px solid ${nodeAccent}30`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-            {isRun ? <Loader2 style={{width:13,height:13,color:nodeAccent,animation:"spin 1s linear infinite"}} />
-              : isDone ? <CheckCircle2 style={{width:13,height:13,color:nodeAccent}} />
-              : isFailed ? <AlertTriangle style={{width:13,height:13,color:nodeAccent}} />
-              : isSkipped ? <SkipForward style={{width:13,height:13,color:nodeAccent}} />
-              : status==="waiting_approval" ? <OctagonAlert style={{width:13,height:13,color:nodeAccent}} />
-              : <Icon style={{width:13,height:13,color:nodeAccent}} />}
-          </div>
-          <div style={{ flex:1,minWidth:0 }}>
-            <div style={{ fontSize:8,fontWeight:800,letterSpacing:"0.1em",color:`${nodeAccent}cc`,textTransform:"uppercase" }}>{typeLabel}</div>
-            <div style={{ fontSize:11,fontWeight:700,color:"#0f172a",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{String(data.label??data.nodeId)}</div>
-          </div>
-          <div style={{ fontSize:8,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:s.badge,border:`1px solid ${s.border}`,padding:"2px 6px",borderRadius:4,background:s.bg,flexShrink:0 }}>{s.label}</div>
+      <Handle type="target" position={Position.Left} className={`sp-port ${status !== "queued" ? "sp-port-on" : ""}`} />
+      <div className={`sp-node ${isFailed ? "bad" : ""}`} style={isRun ? { borderColor: accent } : undefined}>
+        <div className="sp-node-hd">
+          <span className="sp-node-ic" style={{ background: tile }}>
+            {isRun ? <Loader2 className="h-[15px] w-[15px] animate-spin" />
+              : isDone ? <CheckCircle2 className="h-[15px] w-[15px]" />
+              : isFailed ? <AlertTriangle className="h-[15px] w-[15px]" />
+              : isSkipped ? <SkipForward className="h-[15px] w-[15px]" />
+              : isWait ? <OctagonAlert className="h-[15px] w-[15px]" />
+              : <Icon className="h-[15px] w-[15px]" />}
+          </span>
+          <span className="min-w-0">
+            <span className="sp-node-tt truncate">{String(data.label ?? data.nodeId)}</span>
+            <span className="sp-node-sb truncate">{typeLabel}</span>
+          </span>
         </div>
-
-        <div style={{ padding:"8px 12px 8px 15px" }}>
-          {isRun && <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}><div style={{display:"flex",gap:3}}>{[0,1,2].map((idx)=><div key={idx} style={{width:4,height:4,borderRadius:"50%",background:nodeAccent,animation:`dotBounce 1s ease-in-out ${idx*0.2}s infinite`}}/>)}</div><span style={{fontSize:9,color:s.text}}>Executing…</span></div>}
-          {data.summary
-            ? <p style={{fontSize:10,color:isDone?"#374151":"#6b7280",margin:0,lineHeight:1.6,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{String(data.summary)}</p>
-            : <p style={{fontSize:10,color:"#d1d5db",margin:0,fontStyle:"italic"}}>{status==="queued"?"Waiting to start…":""}</p>}
-        </div>
-
-        {isRun && <div style={{height:2,background:"#f1f5f9"}}><div style={{height:"100%",background:`linear-gradient(90deg,${nodeAccent},${nodeAccent}80)`,animation:"progressBar 2s ease-in-out infinite"}}/></div>}
-        {isDone && <div style={{height:2,background:"linear-gradient(90deg,#10b981,#059669)"}}/>}
+        <div className="sp-node-out">{out}</div>
+        {data.summary ? (
+          <div className="border-t border-[#eef1f4] px-3 py-2 text-[11.5px] leading-[1.5] text-[#5c6673]"
+               style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+            {String(data.summary)}
+          </div>
+        ) : null}
       </div>
-      <Handle type="source" position={Position.Right} style={{ background: nodeAccent, border: "2px solid white", width: 8, height: 8 }} />
+      <Handle type="source" position={Position.Right} className={`sp-port ${isDone ? "sp-port-on" : ""}`} />
     </>
   );
 }
@@ -538,6 +546,8 @@ function RunCanvas({ graphNodes, graphEdges, steps, onNodeSelect, colMap }: {
           role: (n.data as Record<string,unknown>)?.role ?? "",
           execStatus: step?.status ?? "queued",
           summary: step?.summary ?? null,
+          duration: step ? runDuration(step.started_at, step.completed_at) : "",
+          error: step?.error ?? null,
           laneColor: laneColor(col),
         },
         draggable: false, selectable: !!step,
