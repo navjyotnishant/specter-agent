@@ -404,7 +404,7 @@ function BuilderInner({
         run_input: runInput,
       });
     },
-    onSuccess: (data) => navigate(`/workflows/${workflowId}/run/${data.run_id}`),
+    onSuccess: (data) => navigate(`/workflows/${workflowId}/run/${data.run_id}`, { state: { from: `/workflows/${workflowId}/builder` } }),
     onError: (err) => setStatusMessage(err instanceof Error ? err.message : "Failed to start run."),
   });
 

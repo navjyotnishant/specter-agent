@@ -431,7 +431,7 @@ function WorkflowRow({ workflow, token, canUseBackend, onDelete, isDeleting, onC
       setRunModal(false);
       queryClient.invalidateQueries({ queryKey: ["runs", workflow.id] });
       queryClient.invalidateQueries({ queryKey: ["all-runs"] });
-      navigate(`/workflows/${data.workflow_id}/run/${data.run_id}`);
+      navigate(`/workflows/${data.workflow_id}/run/${data.run_id}`, { state: { from: "/workflows" } });
     },
   });
 
@@ -698,7 +698,7 @@ function WorkflowRow({ workflow, token, canUseBackend, onDelete, isDeleting, onC
                           <RunHistoryRow
                             key={run.id}
                             run={run}
-                            onClick={() => navigate(`/workflows/${workflow.id}/run/${run.id}`)}
+                            onClick={() => navigate(`/workflows/${workflow.id}/run/${run.id}`, { state: { from: "/workflows" } })}
                           />
                         ))}
                       </tbody>

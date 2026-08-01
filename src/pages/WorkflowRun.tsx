@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ReactFlow,
@@ -283,8 +283,9 @@ function fmtDeadline(value: string | null) {
   return parseUTC(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
-function LogDrawer({ step, token, runId, onClose, approval, gateConfig, onApprove, onReject, onRevise, laneColor: accent }: {
+function LogDrawer({ step, token, runId, onClose, approval, gateConfig, nodeConfig, onApprove, onReject, onRevise, laneColor: accent }: {
   step: RunStep; token: string; runId: string; onClose: () => void;
+  nodeConfig?: { role?: string; objective?: string; systemInstructions?: string };
   approval?: RunApproval | null;
   gateConfig?: ApprovalGateConfig;
   onApprove?: (note: string) => void;
@@ -292,9 +293,11 @@ function LogDrawer({ step, token, runId, onClose, approval, gateConfig, onApprov
   onRevise?: (note: string) => void;
   laneColor: string;
 }) {
+  const isPending = step.id.startsWith("pending:");
   const messagesQuery = useQuery({
     queryKey: ["step-messages", runId, step.id],
     queryFn: () => api.getStepMessages(token, runId, step.id),
+    enabled: !isPending,
     refetchInterval: step.status === "running" ? 2000 : false,
   });
   const displayStatus = approval?.status && approval.status !== "pending" ? approval.status : step.status;
@@ -318,7 +321,7 @@ function LogDrawer({ step, token, runId, onClose, approval, gateConfig, onApprov
           <Icon style={{ width:16,height:16,color:accent }} />
         </div>
         <div style={{ flex:1,minWidth:0 }}>
-          <p style={{ fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:"#94a3b8",margin:0,textTransform:"uppercase" }}>{step.node_type} · output</p>
+          <p style={{ fontSize:9,fontWeight:700,letterSpacing:"0.1em",color:"#94a3b8",margin:0,textTransform:"uppercase" }}>{step.node_type}{isPending ? "" : " · output"}</p>
           <p style={{ fontSize:14,fontWeight:700,color:"#0f172a",margin:"3px 0 0" }}>{step.agent_name}</p>
           <span style={{ display:"inline-block",marginTop:6,fontSize:8,fontWeight:800,letterSpacing:"0.08em",textTransform:"uppercase",border:`1px solid ${s.border}`,padding:"2px 8px",borderRadius:4,color:s.badge,background:s.bg }}>{s.label}</span>
         </div>
@@ -326,6 +329,26 @@ function LogDrawer({ step, token, runId, onClose, approval, gateConfig, onApprov
           <X style={{ width:14,height:14 }} />
         </button>
       </div>
+
+      {(nodeConfig?.objective || nodeConfig?.systemInstructions || nodeConfig?.role) && (
+        <div style={{ padding:"14px 18px",borderBottom:"1px solid #f1f5f9",background:"white",flexShrink:0,maxHeight:260,overflowY:"auto" }}>
+          {nodeConfig.role && (
+            <p style={{ fontSize:11,color:"#475569",margin:"0 0 10px",lineHeight:1.6 }}>{nodeConfig.role}</p>
+          )}
+          {nodeConfig.objective && (
+            <>
+              <p style={{ fontSize:9,fontWeight:700,letterSpacing:"0.08em",color:"#94a3b8",margin:"0 0 4px",textTransform:"uppercase" }}>Prompt</p>
+              <p style={{ fontSize:11,color:"#0f172a",margin:"0 0 12px",lineHeight:1.6,whiteSpace:"pre-wrap" }}>{nodeConfig.objective}</p>
+            </>
+          )}
+          {nodeConfig.systemInstructions && (
+            <>
+              <p style={{ fontSize:9,fontWeight:700,letterSpacing:"0.08em",color:"#94a3b8",margin:"0 0 4px",textTransform:"uppercase" }}>Instructions</p>
+              <p style={{ fontSize:11,color:"#475569",margin:0,lineHeight:1.6,whiteSpace:"pre-wrap" }}>{nodeConfig.systemInstructions}</p>
+            </>
+          )}
+        </div>
+      )}
 
       {step.status === "waiting_approval" && approval?.status === "pending" && (
         <div style={{ padding:"16px 18px",borderBottom:"1px solid #fde68a",background:"#fffbeb",flexShrink:0 }}>
@@ -416,7 +439,7 @@ function LogDrawer({ step, token, runId, onClose, approval, gateConfig, onApprov
             <Markdown text={msg.content} accent={accent} />
           </div>
         ))}
-        {!messagesQuery.isLoading && !messagesQuery.data?.length && <p style={{fontSize:11,color:"#cbd5e1",fontStyle:"italic"}}>No output yet.</p>}
+        {!messagesQuery.isLoading && !messagesQuery.data?.length && <p style={{fontSize:11,color:"#cbd5e1",fontStyle:"italic"}}>{isPending ? "Not started yet — this step runs once the ones before it finish." : "No output yet."}</p>}
         <div ref={logEndRef} />
       </div>
     </div>
@@ -537,7 +560,21 @@ function RunCanvas({ graphNodes, graphEdges, steps, onNodeSelect, colMap }: {
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     const step = stepByNodeId[node.id];
-    if (step) onNodeSelect(step);
+    if (step) { onNodeSelect(step); return; }
+    // A node the run has not reached yet has no step row. Synthesize a pending
+    // one so its configuration is still inspectable -- clicking a card and
+    // getting nothing until the run finishes is the worse outcome.
+    const d = (node.data ?? {}) as Record<string, unknown>;
+    onNodeSelect({
+      id: `pending:${node.id}`,
+      node_id: node.id,
+      node_type: node.type ?? "specialistAgent",
+      agent_name: String(d.label ?? node.id),
+      agent_role: String(d.role ?? ""),
+      status: "pending",
+      summary: null, error: null,
+      started_at: "", completed_at: null,
+    });
   }, [stepByNodeId, onNodeSelect]);
 
   return (
@@ -656,6 +693,14 @@ function RunLogPanel({ logs, colMap, stepByNodeId }: {
 function RunViewInner() {
   const { workflowId = "", runId = "" } = useParams();
   const navigate = useNavigate();
+  // Go back where the user came from, not always the builder: a run opened from
+  // the workflows list should return there. Falls back to the list rather than
+  // the builder for deep links -- landing in an editor you never opened is worse
+  // than landing on the list.
+  const location = useLocation();
+  const cameFrom = (location.state as { from?: string } | null)?.from;
+  const backTarget = cameFrom ?? "/workflows";
+  const backLabel = backTarget.endsWith("/builder") ? "Builder" : "Workflows";
   const token = getStoredToken() ?? "";
   const queryClient = useQueryClient();
   const [selectedStep, setSelectedStep] = useState<RunStep | null>(null);
@@ -764,6 +809,11 @@ function RunViewInner() {
   }, [steps]);
 
   // lane color for selected step's right drawer
+  // The prompt/instructions live in the saved graph, not on the step row.
+  const selectedNodeConfig = selectedStep
+    ? ((savedGraph.nodes ?? []).find((n: Node) => n.id === selectedStep.node_id)?.data ?? {}) as
+        { role?: string; objective?: string; systemInstructions?: string }
+    : undefined;
   const selectedStepColor = selectedStep ? laneColor(colMap[selectedStep.node_id] ?? 0) : "#4f46e5";
 
   const [elapsed, setElapsed] = useState(0);
@@ -780,8 +830,8 @@ function RunViewInner() {
 
       {/* top bar */}
       <div style={{ display:"flex",alignItems:"center",gap:14,padding:"0 20px",height:52,background:"white",borderBottom:"1px solid #e2e8f0",flexShrink:0 }}>
-        <button onClick={() => navigate(`/workflows/${workflowId}/builder`)} style={{ display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#374151",background:"#f9fafb",border:"1px solid #e5e7eb",padding:"5px 12px",cursor:"pointer",fontFamily:"inherit",borderRadius:6,fontWeight:500 }}>
-          <ArrowLeft style={{width:12,height:12}}/> Builder
+        <button onClick={() => navigate(backTarget)} style={{ display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#374151",background:"#f9fafb",border:"1px solid #e5e7eb",padding:"5px 12px",cursor:"pointer",fontFamily:"inherit",borderRadius:6,fontWeight:500 }}>
+          <ArrowLeft style={{width:12,height:12}}/> {backLabel}
         </button>
         <div style={{width:1,height:22,background:"#e2e8f0"}}/>
         <div style={{ display:"flex",alignItems:"center",gap:7,border:`1px solid ${rs.border}`,padding:"4px 12px",borderRadius:20,background:rs.bg }}>
@@ -914,6 +964,7 @@ function RunViewInner() {
                   onClose={()=>{setSelectedStep(null);selectedStepIdRef.current=null;}}
                   approval={selectedStepApproval}
                   gateConfig={selectedGateConfig}
+                  nodeConfig={selectedNodeConfig}
                   onApprove={(note)=>selectedStepApproval?.status==="pending"&&approveMutation.mutate({id:selectedStepApproval.id,note})}
                   onReject={(note)=>selectedStepApproval?.status==="pending"&&rejectMutation.mutate({id:selectedStepApproval.id,note})}
                   onRevise={(note)=>selectedStepApproval?.status==="pending"&&reviseMutation.mutate({id:selectedStepApproval.id,note})}
