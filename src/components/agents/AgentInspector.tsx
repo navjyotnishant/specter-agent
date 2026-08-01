@@ -32,7 +32,7 @@ function Field({ label, required, empty, children }: { label: string; required?:
 function TextInput({ value, onChange, placeholder, error }: { value: string; onChange: (v: string) => void; placeholder?: string; error?: boolean }) {
   return (
     <input
-      className={`w-full border bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151] ${error ? "border-red-300" : "border-[#e5e7eb]"}`}
+      className={`w-full border bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151] ${error ? "border-red-300" : "border-[#dde3ea]"}`}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -54,7 +54,7 @@ function TextArea({ value, onChange, rows = 3, placeholder, error }: { value: st
     <textarea
       ref={ref}
       rows={rows}
-      className={`w-full resize-none overflow-y-auto border bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151] placeholder:text-[#c7ccd4] ${error ? "border-red-300" : "border-[#e5e7eb]"}`}
+      className={`w-full resize-y overflow-y-auto rounded-[6px] border bg-white px-2.5 py-[6px] text-[11px] text-[#111827] outline-none focus:border-[#374151] placeholder:text-[#c7ccd4] ${error ? "border-red-300" : "border-[#dde3ea]"}`}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -65,7 +65,7 @@ function TextArea({ value, onChange, rows = 3, placeholder, error }: { value: st
 function SelectField({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
   return (
     <select
-      className="w-full border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]"
+      className="w-full rounded-[6px] border border-[#dde3ea] bg-white px-2.5 py-[6px] text-[11px] text-[#111827] outline-none focus:border-[#374151]"
       value={value}
       onChange={(e) => onChange(e.target.value)}
     >
@@ -82,7 +82,7 @@ function NumericField({ value, onChange, min = 1, max = 20 }: { value: number; o
       type="number"
       min={min}
       max={max}
-      className="w-full border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]"
+      className="w-full rounded-[6px] border border-[#dde3ea] bg-white px-2.5 py-[6px] text-[11px] text-[#111827] outline-none focus:border-[#374151]"
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
     />

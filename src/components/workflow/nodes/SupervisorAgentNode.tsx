@@ -23,11 +23,12 @@ export function SupervisorAgentNode({ data, selected }: NodeProps) {
         </span>
       )}
       <div
-      className={`w-[220px] border bg-[#0f1117] text-white ${
-        isPlanning ? "specter-supervisor-planning border-[#4f8ef7]" : selected ? "border-[#4f8ef7]" : "border-[#2a2d36]"
+      className={`w-[220px] overflow-hidden rounded-[8px] border bg-[#0f1117] text-white shadow-[0_1px_3px_rgba(15,23,42,0.18)] ${
+        isPlanning ? "specter-supervisor-planning border-[#4f8ef7]"
+        : selected ? "border-[#4f8ef7] ring-2 ring-[#4f8ef7]/25" : "border-[#2a2d36]"
       }`}
     >
-      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !rounded-none !border-0 !bg-[#4f8ef7]" />
+      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !rounded-full !border-2 !border-[#0f1117] !bg-[#4f8ef7]" />
 
       <div className="flex items-center gap-2 border-b border-[#2a2d36] px-3 py-2">
         <Crown className="h-3.5 w-3.5 shrink-0 text-[#4f8ef7]" />
@@ -80,7 +81,7 @@ export function SupervisorAgentNode({ data, selected }: NodeProps) {
         </div>
       </div>
 
-      <Handle type="source" position={Position.Right} className="!h-2 !w-2 !rounded-none !border-0 !bg-[#4f8ef7]" />
+      <Handle type="source" position={Position.Right} className="!h-2 !w-2 !rounded-full !border-2 !border-[#0f1117] !bg-[#4f8ef7]" />
     </div>
     </div>
   );

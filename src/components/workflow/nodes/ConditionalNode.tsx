@@ -20,7 +20,7 @@ export function ConditionalNode({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Left}
-        className="!h-2 !w-2 !rounded-none !border-0 !bg-[#7c3aed]"
+        className="!h-2 !w-2 !rounded-full !border-2 !border-white !bg-[#7c3aed]"
       />
 
       {/* header — violet left-border accent */}
@@ -55,14 +55,14 @@ export function ConditionalNode({ data, selected }: NodeProps) {
         type="source"
         position={Position.Right}
         style={{ top: "35%" }}
-        className="!h-2 !w-2 !rounded-none !border-0 !bg-[#059669]"
+        className="!h-2 !w-2 !rounded-full !border-2 !border-white !bg-[#059669]"
       />
       <Handle
         id="false"
         type="source"
         position={Position.Right}
         style={{ top: "65%" }}
-        className="!h-2 !w-2 !rounded-none !border-0 !bg-[#dc2626]"
+        className="!h-2 !w-2 !rounded-full !border-2 !border-white !bg-[#dc2626]"
       />
     </div>
     </div>

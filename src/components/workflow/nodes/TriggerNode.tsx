@@ -56,7 +56,7 @@ export function TriggerNode({ data, selected }: NodeProps) {
       <Handle
         type="source"
         position={Position.Right}
-        className="!h-2 !w-2 !rounded-none !border-0 !bg-[#059669]"
+        className="!h-2 !w-2 !rounded-full !border-2 !border-white !bg-[#059669]"
       />
     </div>
     </div>

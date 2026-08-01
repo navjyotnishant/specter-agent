@@ -24,7 +24,7 @@ export function WebhookNode({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Left}
-        className="!h-2 !w-2 !rounded-none !border-0 !bg-[#0891b2]"
+        className="!h-2 !w-2 !rounded-full !border-2 !border-white !bg-[#0891b2]"
       />
 
       {/* header — cyan left-border accent */}
@@ -53,7 +53,7 @@ export function WebhookNode({ data, selected }: NodeProps) {
       <Handle
         type="source"
         position={Position.Right}
-        className="!h-2 !w-2 !rounded-none !border-0 !bg-[#0891b2]"
+        className="!h-2 !w-2 !rounded-full !border-2 !border-white !bg-[#0891b2]"
       />
     </div>
     </div>

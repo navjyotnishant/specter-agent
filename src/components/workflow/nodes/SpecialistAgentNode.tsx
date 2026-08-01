@@ -32,10 +32,12 @@ export function SpecialistAgentNode({ data, selected }: NodeProps) {
         </span>
       )}
       <div
-      className={`w-[220px] bg-white ${selected ? "border-2 border-[#0f1117]" : "border border-[#d1d5db]"}`}
-      style={{ borderLeft: `3px solid ${color}` }}
+      className={`w-[220px] overflow-hidden rounded-[8px] bg-white shadow-[0_1px_3px_rgba(15,23,42,0.07)] ${
+        selected ? "border border-[#4f46e5] ring-2 ring-[#4f46e5]/20" : "border border-[#dde3ea]"
+      }`}
     >
-      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !rounded-none !border-0" style={{ background: color }} />
+      <div className="h-[3px] w-full" style={{ background: color }} />
+      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !rounded-full !border-2 !border-white" style={{ background: color }} />
 
       {/* header — role-coloured */}
       <div className="flex items-center gap-2 border-b border-[#e5e7eb] px-3 py-2" style={{ background: bg }}>
@@ -86,7 +88,7 @@ export function SpecialistAgentNode({ data, selected }: NodeProps) {
         </div>
       </div>
 
-      <Handle type="source" position={Position.Right} className="!h-2 !w-2 !rounded-none !border-0" style={{ background: color }} />
+      <Handle type="source" position={Position.Right} className="!h-2 !w-2 !rounded-full !border-2 !border-white" style={{ background: color }} />
     </div>
     </div>
   );

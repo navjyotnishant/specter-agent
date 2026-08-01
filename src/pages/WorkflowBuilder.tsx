@@ -930,18 +930,23 @@ function BuilderInner({
     <div className="flex h-full flex-col" onKeyDown={onKeyDown} tabIndex={-1}>
 
       {/* ── top bar ── */}
-      <div className="flex items-start justify-between gap-4 border-b border-[#e5e7eb] bg-white px-5 py-3">
+      <div className="flex items-start justify-between gap-4 border-b border-[#e8ecf1] bg-white px-6 py-3.5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <nav className="mr-1 flex items-center gap-1 text-[11px] text-[#9ca3af]">
+            <nav className="mr-1 flex items-center gap-1 text-[10px] uppercase tracking-[0.09em] text-[#94a3b8]">
               <Link to="/workflows" className="hover:text-[#374151]">Workflows</Link>
               <ChevronRight className="h-3 w-3" />
               <span className="max-w-[240px] truncate text-[#374151]">{workflowName || "Untitled"}</span>
             </nav>
-            <span className="border border-[#e5e7eb] px-1.5 py-[2px] text-[10px] font-semibold uppercase tracking-widest text-[#6b7280]">
+            <span className="rounded-full bg-[#f1f5f9] px-2.5 py-[3px] text-[9.5px] font-extrabold uppercase tracking-[0.07em] text-[#64748b]">
               {isNew ? "unsaved" : workflowQuery.data?.is_template ? "template" : "editable"}
             </span>
-            <span className="border px-1.5 py-[2px] text-[10px] font-semibold uppercase tracking-widest"
+            {isDirty && (
+              <span className="rounded-full bg-[#fef3c7] px-2.5 py-[3px] text-[9.5px] font-extrabold uppercase tracking-[0.07em] text-[#92400e]">
+                ● unsaved changes
+              </span>
+            )}
+            <span className="rounded-full px-2.5 py-[3px] text-[9.5px] font-extrabold uppercase tracking-[0.07em]"
               style={executionReady ? { borderColor: "#6ee7b7", color: "#065f46", background: "#ecfdf5" } : { borderColor: "#fcd34d", color: "#92400e", background: "#fffbeb" }}>
               {executionReady ? "ready" : "select repository"}
             </span>
@@ -953,7 +958,7 @@ function BuilderInner({
           </div>
           <div className="mt-2 flex items-center gap-1">
             <input
-              className={`block w-full max-w-xl rounded bg-transparent text-[15px] font-semibold text-[#0f1117] outline-none ring-0 transition hover:bg-[#f1f5f9] focus:bg-white focus:px-2 focus:ring-1 ${
+              className={`block w-full max-w-xl rounded bg-transparent text-[17px] font-extrabold tracking-[-0.01em] text-[#0f172a] outline-none ring-0 transition hover:bg-[#f1f5f9] focus:bg-white focus:px-2 focus:ring-1 ${
                 nameTouched && !workflowName.trim() ? "focus:ring-red-400" : "focus:ring-indigo-300"
               }`}
               value={workflowName}
@@ -982,13 +987,25 @@ function BuilderInner({
         <div className="flex shrink-0 items-center gap-2 pt-1">
           {/* Bulk edit: applies to every agent-bearing node so you don't have to
               open the inspector once per node on an imported graph. */}
+          <Button onClick={doUndo} disabled={!canUndo(history.current)} variant="outline"
+            className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Undo (⌘Z)">
+            <Undo2 className="mr-1.5 h-3 w-3" /> Undo
+          </Button>
+          <Button onClick={doRedo} disabled={!canRedo(history.current)} variant="outline"
+            className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Redo (⇧⌘Z)">
+            <Redo2 className="mr-1.5 h-3 w-3" /> Redo
+          </Button>
+          <Button onClick={duplicateSelection} disabled={!hasSelection} variant="outline"
+            className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Duplicate selection (⌘D)">
+            <CopyPlus className="mr-1.5 h-3 w-3" /> Duplicate
+          </Button>
           {agentNodeCount > 0 && (
             <div style={{ position: "relative" }}>
               <Button
                 variant="outline"
                 onClick={() => setBulkMenuOpen((v) => !v)}
                 title="Apply a setting to every agent node on this canvas"
-                className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb]"
+                className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
               >
                 <Layers className="mr-1.5 h-3 w-3" /> Apply to all
                 <ChevronDown className="ml-1.5 h-3 w-3" />
@@ -1038,20 +1055,8 @@ function BuilderInner({
               )}
             </div>
           )}
-          <Button onClick={doUndo} disabled={!canUndo(history.current)} variant="outline"
-            className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:opacity-35" title="Undo (⌘Z)">
-            <Undo2 className="h-3 w-3" />
-          </Button>
-          <Button onClick={doRedo} disabled={!canRedo(history.current)} variant="outline"
-            className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:opacity-35" title="Redo (⇧⌘Z)">
-            <Redo2 className="h-3 w-3" />
-          </Button>
-          <Button onClick={duplicateSelection} disabled={!hasSelection} variant="outline"
-            className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:opacity-35" title="Duplicate selection (⌘D)">
-            <CopyPlus className="mr-1.5 h-3 w-3" /> Duplicate
-          </Button>
           <Button onClick={tidyLayout} variant="outline"
-            className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb]"
+            className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
             title="Auto-arrange nodes into topological columns">
             <LayoutGrid className="mr-1.5 h-3 w-3" /> Tidy layout
           </Button>
@@ -1061,7 +1066,7 @@ function BuilderInner({
               <Button
                 variant="outline"
                 onClick={() => setTemplateMenuOpen((v) => !v)}
-                className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb]"
+                className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
                
               >
                 <Copy className="mr-1.5 h-3 w-3" />
@@ -1104,7 +1109,7 @@ function BuilderInner({
           <button
             onClick={toggleAutoSaveDb}
             title={autoSaveDb ? "Auto-save is on — changes are saved as you edit" : "Auto-save is off — edits stay in draft until you save"}
-            className={`flex h-8 items-center gap-1.5 border px-2.5 text-[10px] font-medium transition-colors ${
+            className={`flex h-[30px] items-center gap-1.5 rounded-[6px] border px-2.5 text-[10px] font-semibold transition-colors ${
               autoSaveDb ? "border-[#6ee7b7] bg-[#ecfdf5] text-[#065f46]" : "border-[#d1d5db] bg-white text-[#6b7280] hover:bg-[#f9fafb]"
             }`}
            
@@ -1121,7 +1126,7 @@ function BuilderInner({
             Auto-save
           </button>
           <Button onClick={() => void saveGraph().catch(() => {})} disabled={saveMutation.isPending} variant="outline"
-            className={`h-8 rounded-none px-3 text-[11px] font-medium transition-colors ${
+            className={`h-[30px] rounded-[6px] px-3 text-[11px] font-semibold transition-colors ${
               saveStatus === "saved" ? "border-[#6ee7b7] bg-[#ecfdf5] text-[#065f46]" :
               saveStatus === "error" ? "border-[#fca5a5] bg-[#fef2f2] text-[#dc2626]" :
               "border-[#d1d5db] bg-white text-[#374151] hover:bg-[#f9fafb]"
@@ -1135,7 +1140,7 @@ function BuilderInner({
           <Button
             disabled={isNew || !executionReady || runMutation.isPending}
             onClick={() => (triggerNodes.length ? setRunInputOpen(true) : runMutation.mutate({}))}
-            className="h-8 rounded-none bg-[#0f1117] px-3 text-[11px] font-medium text-white hover:bg-[#1f2937] disabled:opacity-40"
+            className="h-[30px] rounded-[6px] bg-[#0f1117] px-3.5 text-[11px] font-bold text-white hover:bg-[#1f2937] disabled:opacity-35"
             title={
               isNew ? "Save the workflow first before running"
               : !selectedWorkspace ? "Select a repository first"
@@ -1149,7 +1154,7 @@ function BuilderInner({
           <Button
             onClick={() => guardedNavigate("/runs")}
             variant="outline"
-            className="h-8 rounded-none border-[#d1d5db] px-3 text-[11px] font-medium text-[#6b7280] hover:bg-[#f9fafb]">
+            className="h-[30px] rounded-[6px] border-[#d3dae3] px-3 text-[11px] font-semibold text-[#64748b] hover:bg-[#f8fafc]">
             <History className="mr-1.5 h-3 w-3" />
             Run history
           </Button>
@@ -1157,7 +1162,7 @@ function BuilderInner({
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline"
-                  className="h-8 rounded-none border-[#fca5a5] bg-white px-3 text-[11px] font-medium text-[#dc2626] hover:bg-[#fef2f2]">
+                  className="h-[30px] rounded-[6px] border-[#fca5a5] bg-white px-3 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]">
                   <Trash2 className="mr-1.5 h-3 w-3" /> Delete
                 </Button>
               </AlertDialogTrigger>
@@ -1181,7 +1186,7 @@ function BuilderInner({
       </div>
 
       {/* ── workflow status strip (repo + gates — applies to the whole workflow, not a selected node) ── */}
-      <div className="border-b border-[#e5e7eb] bg-[#fafafa]">
+      <div className="border-b border-[#e8ecf1] bg-[#fbfcfd]">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-5 py-2">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] uppercase tracking-widest text-[#9ca3af]">repo</span>
@@ -1241,7 +1246,7 @@ function BuilderInner({
                 setNodes((cur) => cur.map((n) => ({ ...n, selected: n.id === issue.nodeId })));
                 setRightCollapsed(false);
               }}
-              className="border border-[#fcd34d] bg-white px-2 py-[3px] text-[10.5px] text-[#92400e] hover:bg-[#fffbeb]"
+              className="rounded-[5px] border border-[#fcd34d] bg-white px-2.5 py-[3px] text-[10.5px] text-[#92400e] hover:bg-[#fffbeb]"
               title="Select this node"
             >
               <b className="border-b border-dotted border-[#b45309] font-semibold">{issue.label}</b> {issue.reason}
@@ -1258,8 +1263,8 @@ function BuilderInner({
 
         {/* ── palette ── */}
         <div
-          className="relative shrink-0 border-r border-[#e5e7eb] bg-white transition-all duration-200 overflow-hidden"
-          style={{ width: paletteCollapsed ? 28 : 180 }}
+          className="relative shrink-0 border-r border-[#e8ecf1] bg-[#fcfdfe] transition-all duration-200 overflow-hidden"
+          style={{ width: paletteCollapsed ? 28 : 190 }}
         >
           {/* collapse toggle */}
           <button
@@ -1273,7 +1278,7 @@ function BuilderInner({
           {!paletteCollapsed && (
             <>
               <div className="border-b border-[#e5e7eb] px-3 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#6b7280]">Palette</p>
+                <p className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-[#64748b]">Palette</p>
                 <p className="text-[10px] text-[#9ca3af]">Drag, or click + to add</p>
               </div>
               <div className="relative px-2 py-2">
@@ -1297,7 +1302,7 @@ function BuilderInner({
                   .filter((group) => group.items.length > 0)
                   .map((group) => (
                   <div key={group.category} className="border-b border-[#f3f4f6] last:border-b-0">
-                    <p className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-widest text-[#9ca3af]">
+                    <p className="px-3 pb-1 pt-2.5 text-[9px] font-extrabold uppercase tracking-[0.1em] text-[#9aa5b4]">
                       {group.category}
                     </p>
                     {group.items.map(({ icon: Icon, label, nodeType, presetKey, description }) => (
@@ -1306,13 +1311,20 @@ function BuilderInner({
                         draggable
                         onDragStart={(e) => onDragStart(e, nodeType, label, presetKey)}
                         title={description}
-                        className="flex cursor-grab items-start gap-1.5 px-3 py-1.5 hover:bg-[#f9fafb] active:cursor-grabbing select-none"
+                        className="flex cursor-grab items-start gap-2 px-3 py-[7px] hover:bg-[#f1f5f9] active:cursor-grabbing select-none"
                        
                       >
-                        <Icon className="mt-0.5 h-3 w-3 shrink-0 text-[#9ca3af]" />
+                        <span
+                          className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-[2px]"
+                          style={{ background: ({
+                            trigger: "#0891b2", supervisorAgent: "#0f1117", specialistAgent: "#4f46e5",
+                            humanApproval: "#d97706", conditional: "#6366f1", memory: "#0891b2",
+                            webhook: "#059669",
+                          } as Record<string, string>)[nodeType] ?? "#94a3b8" }}
+                        />
                         <span className="min-w-0 flex-1">
-                          <span className="block text-[10px] text-[#374151]">{label}</span>
-                          <span className="block text-[10px] leading-tight text-[#9ca3af]">{description}</span>
+                          <span className="block text-[11px] font-medium text-[#334155]">{label}</span>
+                          <span className="block text-[9.5px] leading-[1.35] text-[#94a3b8]">{description}</span>
                         </span>
                         <button
                           onClick={(ev) => { ev.stopPropagation(); addNodeFromPalette(nodeType, label, presetKey); }}
@@ -1341,7 +1353,7 @@ function BuilderInner({
         {/* ── canvas ── */}
         <div
           ref={canvasRef}
-          className="flex-1 overflow-hidden border-r border-[#e5e7eb] bg-[#f9fafb]"
+          className="flex-1 overflow-hidden border-r border-[#e8ecf1] bg-[#f8fafc]"
           onDragOver={onDragOver}
           onDrop={onDrop}
         >
@@ -1361,7 +1373,7 @@ function BuilderInner({
             deleteKeyCode={null}
             defaultEdgeOptions={{ style: { stroke: "#9ca3af", strokeWidth: 1 } }}
           >
-            <Background color="#d1d5db" gap={24} size={1} />
+            <Background color="#dde3ea" gap={22} size={1} />
             <MiniMap pannable zoomable nodeStrokeWidth={0}
               nodeColor={(n) => ({
                 trigger: "#0891b2", supervisorAgent: "#0f1117", specialistAgent: "#4f46e5",
@@ -1401,7 +1413,7 @@ function BuilderInner({
             <TabsList className="grid h-7 w-full grid-cols-2 rounded-none border-b border-[#e5e7eb] bg-white p-0">
               {["agent", "memory"].map((tab) => (
                 <TabsTrigger key={tab} value={tab}
-                  className="h-full rounded-none border-r border-[#e5e7eb] text-[10px] font-semibold uppercase tracking-widest text-[#9ca3af] last:border-r-0 data-[state=active]:bg-[#f9fafb] data-[state=active]:text-[#0f1117] data-[state=active]:shadow-none"
+                  className="h-full rounded-none border-r border-[#e8ecf1] text-[9.5px] font-extrabold uppercase tracking-[0.09em] text-[#94a3b8] last:border-r-0 data-[state=active]:bg-[#f8fafc] data-[state=active]:text-[#0f1117] data-[state=active]:shadow-[inset_0_-2px_0_#4f46e5]"
                  >
                   {tab}
                 </TabsTrigger>
