@@ -1,26 +1,9 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  Code2,
-  Copy,
-  FolderGit2,
-  FolderOpen,
-  GitBranch,
-  Loader2,
-  OctagonAlert,
-  Play,
-  Plus,
-  Trash2,
-  Workflow as WorkflowIcon,
-  X,
-  XCircle,
+  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, Copy, FolderGit2, FolderOpen, GitBranch, Loader2, OctagonAlert, Play, Plus, Search, Trash2, Workflow as WorkflowIcon, X, XCircle,
 } from "lucide-react";
 import { ReactFlow, Background, ReactFlowProvider } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -403,8 +386,8 @@ function RunHistoryRow({ run, onClick }: { run: WorkflowRun; onClick: () => void
 
 // ── workflow row ──────────────────────────────────────────────────────────────
 // colSpan matches table: templates=3, custom workflows=4 (no "Type" col in separate sections)
-function WorkflowRow({ workflow, token, canUseBackend, onDelete, isDeleting, onCopyTemplate, onPublish, isPublishing, onUnpublish, isUnpublishing }: {
-  workflow: Workflow; token: string; canUseBackend: boolean;
+function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBackend, onDelete, isDeleting, onCopyTemplate, onPublish, isPublishing, onUnpublish, isUnpublishing }: {
+  workflow: Workflow; runs: WorkflowRun[]; runsLoading: boolean; token: string; canUseBackend: boolean;
   onDelete: (id: string) => void; isDeleting: boolean;
   onCopyTemplate: (workflow: Workflow, name: string, description: string) => void;
   onPublish: (id: string) => void; isPublishing: boolean;
@@ -416,13 +399,6 @@ function WorkflowRow({ workflow, token, canUseBackend, onDelete, isDeleting, onC
   const [runModal, setRunModal] = useState(false);
   const [templateModal, setTemplateModal] = useState(false);
 
-  // Always fetch runs (not gated on expand) so Last Run column shows correct data
-  const runsQuery = useQuery({
-    queryKey: ["runs", workflow.id],
-    queryFn: () => api.listRuns(token, workflow.id),
-    enabled: canUseBackend,
-    refetchInterval: 8000,
-  });
 
   const runMutation = useMutation({
     mutationFn: (workspacePath: string) =>
@@ -435,7 +411,7 @@ function WorkflowRow({ workflow, token, canUseBackend, onDelete, isDeleting, onC
     },
   });
 
-  const runs: WorkflowRun[] = runsQuery.data ?? [];
+  const runs: WorkflowRun[] = sharedRuns;
   const lastRun = runs[0];
   const activeRun = runs.find((r) => ["running", "queued", "waiting_approval"].includes(r.status));
   const nodeCount = workflow.graph?.nodes?.length ?? 0;
@@ -493,7 +469,7 @@ function WorkflowRow({ workflow, token, canUseBackend, onDelete, isDeleting, onC
         {/* last run — only for custom workflows, not templates */}
         {!isTemplate && (
           <td style={{ padding: "13px 8px" }}>
-            {runsQuery.isLoading
+            {runsLoading
               ? <Loader2 style={{ width: 11, height: 11, color: "#d1d5db", animation: "wf-spin 1s linear infinite" }} />
               : activeRun
               ? <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -669,13 +645,13 @@ function WorkflowRow({ workflow, token, canUseBackend, onDelete, isDeleting, onC
                     Run history · {runs.length} runs
                   </p>
 
-                  {runsQuery.isLoading && (
+                  {runsLoading && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#94a3b8", padding: "6px 0 10px" }}>
                       <Loader2 style={{ width: 12, height: 12, animation: "wf-spin 1s linear infinite" }} /> Loading…
                     </div>
                   )}
 
-                  {!runsQuery.isLoading && runs.length === 0 && (
+                  {!runsLoading && runs.length === 0 && (
                     <p style={{ fontSize: 12, color: "#cbd5e1", fontStyle: "italic", padding: "4px 0 8px" }}>No runs yet.</p>
                   )}
 
@@ -759,12 +735,42 @@ export default function Workflows() {
     retry: false,
   });
 
-  const { data = [], isLoading } = useQuery({
+  const workflowsQuery = useQuery({
     queryKey: ["workflows"],
     queryFn: () => api.workflows(token),
     enabled: canUseBackend,
     retry: false,
   });
+  const { data = [], isLoading } = workflowsQuery;
+
+  // Filter/sort state. The list previously rendered in whatever order the API
+  // returned, with no way to find one workflow among fifty.
+  // One shared runs query instead of one per row. Each WorkflowRow used to mount
+  // its own 8s poll, so 50 workflows meant 50 requests every 8 seconds forever --
+  // and the parent had no run data, so it could not filter on status.
+  const allRunsQuery = useQuery({
+    queryKey: ["all-runs"],
+    queryFn: () => api.listRuns(token),
+    enabled: canUseBackend,
+    retry: false,
+    refetchInterval: (q) => {
+      const rs = (q.state.data ?? []) as WorkflowRun[];
+      // Poll quickly only while something is in flight; idle otherwise.
+      return rs.some((r) => ["running", "queued", "waiting_approval"].includes(r.status)) ? 5000 : 30000;
+    },
+    refetchIntervalInBackground: false,
+  });
+  const runsByWorkflow = useMemo(() => {
+    const m = new Map<string, WorkflowRun[]>();
+    for (const r of allRunsQuery.data ?? []) {
+      if (!m.has(r.workflow_id)) m.set(r.workflow_id, []);
+      m.get(r.workflow_id)!.push(r);
+    }
+    return m;
+  }, [allRunsQuery.data]);
+
+  const [listQuery, setListQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "failing" | "running" | "never">("all");
 
   const workflows = data;
 
@@ -891,7 +897,19 @@ export default function Workflows() {
   };
 
   const [activeTab, setActiveTab] = useState<"workflows" | "templates">("workflows");
-  const myWorkflows = workflows.filter((w) => !w.is_template);
+  const myWorkflows = workflows
+    .filter((w) => !w.is_template)
+    .filter((w) => {
+      const q = listQuery.trim().toLowerCase();
+      return !q || w.name.toLowerCase().includes(q) || (w.description ?? "").toLowerCase().includes(q);
+    })
+    .filter((w) => {
+      if (statusFilter === "all") return true;
+      const rs = runsByWorkflow.get(w.id) ?? [];
+      if (statusFilter === "never") return rs.length === 0;
+      if (statusFilter === "running") return rs.some((r) => ["running", "queued", "waiting_approval"].includes(r.status));
+      return rs[0]?.status === "failed";
+    });
   const templates = workflows.filter((w) => w.is_template);
 
   return (
@@ -1022,9 +1040,60 @@ export default function Workflows() {
           })}
         </div>
 
+        {/* Filter + status chips. None of this existed: the list rendered in API
+            order, and descriptions are clipped so even Cmd-F missed them. */}
+        {activeTab === "workflows" && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 9, padding: "10px 20px",
+            borderBottom: "1px solid #e8ecf1", background: "#fbfcfd", flexWrap: "wrap",
+          }}>
+            <div style={{ position: "relative", flex: 1, minWidth: 220, maxWidth: 340 }}>
+              <Search style={{ position: "absolute", left: 9, top: 8, width: 12, height: 12, color: "#94a3b8" }} />
+              <input
+                value={listQuery}
+                onChange={(e) => setListQuery(e.target.value)}
+                placeholder="Filter by name or description…"
+                style={{
+                  width: "100%", height: 29, border: "1px solid #dde3ea", borderRadius: 6,
+                  padding: "0 10px 0 27px", fontSize: 11.5, fontFamily: "inherit", outline: "none",
+                }}
+              />
+            </div>
+            {([["all", "All"], ["failing", "Failing"], ["running", "Running"], ["never", "Never run"]] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setStatusFilter(key)}
+                style={{
+                  fontSize: 11, padding: "4px 10px", borderRadius: 999, cursor: "pointer",
+                  border: `1px solid ${statusFilter === key ? "#0f1117" : "#dde3ea"}`,
+                  background: statusFilter === key ? "#0f1117" : "#fff",
+                  color: statusFilter === key ? "#fff" : "#475569",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+            {listQuery.trim() && (
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                {myWorkflows.length} match{myWorkflows.length === 1 ? "" : "es"}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* ── My Workflows tab ── */}
         {activeTab === "workflows" && (
           <>
+            {workflowsQuery.isError && (
+              <div style={{
+                margin: "12px 20px", padding: "10px 14px", borderRadius: 8,
+                background: "#fef2f2", border: "1px solid #fecaca", fontSize: 12, color: "#991b1b",
+              }}>
+                <strong>Couldn't reach the backend.</strong> This list may be incomplete or stale —
+                it is not a sign that your workflows were deleted.{" "}
+                {workflowsQuery.error instanceof Error ? workflowsQuery.error.message : ""}
+              </div>
+            )}
             {isLoading && canUseBackend && (
               <div className="flex items-center justify-center gap-3 py-12 text-slate-400">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1051,6 +1120,8 @@ export default function Workflows() {
                       <WorkflowRow
                         key={workflow.id}
                         workflow={workflow}
+                        runs={runsByWorkflow.get(workflow.id) ?? []}
+                        runsLoading={allRunsQuery.isLoading}
                         token={token}
                         canUseBackend={canUseBackend}
                         onDelete={(id) => setPendingDelete(workflows.find((w) => w.id === id) ?? null)}
@@ -1066,7 +1137,25 @@ export default function Workflows() {
                 </table>
               </div>
             )}
-            {!isLoading && myWorkflows.length === 0 && (
+            {/* A filtered-empty list is not an empty account -- saying "no workflows
+                yet" here is the same lie as rendering it on a failed fetch. */}
+            {!isLoading && myWorkflows.length === 0 && (listQuery.trim() || statusFilter !== "all") && (
+              <div style={{ padding: "48px 24px", textAlign: "center" }}>
+                <Search style={{ width: 26, height: 26, color: "#e2e8f0", margin: "0 auto 10px" }} />
+                <p style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>No workflows match</p>
+                <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+                  {listQuery.trim() ? <>Nothing matches "<strong>{listQuery}</strong>"</> : "Nothing in this status"}
+                  {" — "}
+                  <button
+                    onClick={() => { setListQuery(""); setStatusFilter("all"); }}
+                    style={{ color: "#4f46e5", background: "none", border: "none", cursor: "pointer", fontSize: 12, padding: 0, textDecoration: "underline" }}
+                  >
+                    clear filters
+                  </button>
+                </p>
+              </div>
+            )}
+            {!isLoading && myWorkflows.length === 0 && !listQuery.trim() && statusFilter === "all" && (
               <div style={{ padding: "48px 24px", textAlign: "center" }}>
                 <WorkflowIcon style={{ width: 28, height: 28, color: "#e2e8f0", margin: "0 auto 10px" }} />
                 <p style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>No workflows yet</p>
@@ -1119,6 +1208,8 @@ export default function Workflows() {
                       <WorkflowRow
                         key={workflow.id}
                         workflow={workflow}
+                        runs={runsByWorkflow.get(workflow.id) ?? []}
+                        runsLoading={allRunsQuery.isLoading}
                         token={token}
                         canUseBackend={canUseBackend}
                         onDelete={(id) => setPendingDelete(workflows.find((w) => w.id === id) ?? null)}
