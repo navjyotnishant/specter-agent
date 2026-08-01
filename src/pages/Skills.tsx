@@ -436,7 +436,12 @@ export default function Skills() {
             )}
 
             <div className="p-5">
-              <SkillEditor draft={draft} onChange={setDraft} />
+              <SkillEditor
+                draft={draft}
+                onChange={setDraft}
+                origin={selectedSkill ? originOf(selectedSkill, savedSkills.some((x) => x.id === selectedSkill.id)) : "unsaved"}
+                sourceRepo={selectedSkill ? String((selectedSkill as Skill & { source_repo?: string }).source_repo ?? "") : ""}
+              />
             </div>
           </CardContent>
         </Card>
@@ -480,17 +485,17 @@ function SkillBtn({ skill, selected, origin, onSelect }: {
     <button
       type="button"
       onClick={() => onSelect(skill)}
-      className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
+      className={`w-full rounded-[6px] px-3 py-2 text-left transition-colors ${
         selected ? "bg-indigo-50" : "hover:bg-slate-50"
       }`}
     >
       <div className="flex items-center gap-1.5">
-        <p className={`min-w-0 flex-1 truncate text-sm font-semibold ${selected ? "text-indigo-800" : "text-slate-800"}`}>{skill.name}</p>
+        <p className={`min-w-0 flex-1 truncate text-[12px] font-semibold ${selected ? "text-indigo-800" : "text-slate-800"}`}>{skill.name}</p>
         <span className={`shrink-0 rounded px-1.5 py-[1px] text-[8.5px] font-extrabold uppercase tracking-[0.05em] ${badge.className}`}>
           {badge.label}
         </span>
       </div>
-      <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400">
+      <p className="mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-slate-400">
         {skill.description || "No description provided."}
       </p>
     </button>
@@ -518,14 +523,17 @@ function SkillList({ skills, savedSkills, selectedSkillId, onSelect }: {
   for (const skill of skills) {
     const isSaved = savedSet.has(skill.id);
     const src = String((skill as Skill & { source_repo?: string }).source_repo ?? "");
-    const key = !isSaved ? "Starting points"
-      : src ? `From ${repoName(src)}`
-      : "Your skills";
+    const origin = originOf(skill, isSaved);
+    const key = origin === "unsaved" ? "Starting points"
+      : origin === "builtin" ? "Built-in"
+      : origin === "imported" ? `From ${repoName(src)}`
+      : "Mine";
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(skill);
   }
   // Own skills first, then imports, then unsaved templates.
-  const order = (k: string) => (k === "Your skills" ? 0 : k === "Starting points" ? 2 : 1);
+  // Mockup order: Built-in, then each source repo, then Mine, then unsaved.
+  const order = (k: string) => (k === "Built-in" ? 0 : k === "Starting points" ? 3 : k === "Mine" ? 2 : 1);
   const sorted = [...groups.entries()].sort((a, b) => order(a[0]) - order(b[0]) || a[0].localeCompare(b[0]));
   const noResults = skills.length === 0;
 
@@ -536,7 +544,7 @@ function SkillList({ skills, savedSkills, selectedSkillId, onSelect }: {
         <div key={label}>
           {i > 0 && <div className="my-2 border-t border-slate-100" />}
           <div className="flex items-center gap-2 px-2 pb-1 pt-2">
-            <span className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">{label}</span>
+            <span className="text-[9.5px] font-extrabold uppercase tracking-[0.08em] text-slate-400">{label}</span>
             <span className="text-[10px] font-semibold text-slate-300">{items.length}</span>
             {label === "Starting points" && (
               <span className="text-[9px] text-slate-400">not saved yet</span>
@@ -551,9 +559,23 @@ function SkillList({ skills, savedSkills, selectedSkillId, onSelect }: {
   );
 }
 
-function SkillEditor({ draft, onChange }: { draft: SkillDraft; onChange: (draft: SkillDraft) => void }) {
+function SkillEditor({ draft, onChange, origin, sourceRepo }: {
+  draft: SkillDraft; onChange: (draft: SkillDraft) => void;
+  origin: SkillOrigin; sourceRepo?: string;
+}) {
+  // Says what kind of skill this is before you edit it. Without it, nothing
+  // distinguishes editing a seeded skill (restorable) from your own (not).
+  const note = {
+    builtin: <><b>Built-in skill.</b> Seeded by Specter. Editing it changes the copy in your library — use <b>Restore built-ins</b> to bring the original back.</>,
+    imported: <><b>Imported skill.</b> Came from <code>{sourceRepo?.split("/").filter(Boolean).pop() ?? "a repository"}</code>. Re-importing that repo overwrites your edits.</>,
+    own: <><b>Your skill.</b> Hand-written — nothing else will overwrite it.</>,
+    unsaved: <><b>Starting point.</b> Not in your library yet. Save it before attaching it to a workflow node.</>,
+  }[origin];
   return (
     <div className="grid gap-4">
+      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-500">
+        {note}
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-1.5">
           <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Name</Label>
@@ -597,13 +619,16 @@ function SkillEditor({ draft, onChange }: { draft: SkillDraft; onChange: (draft:
         </p>
       </div>
       <div className="space-y-1.5">
-        <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Skill instructions</Label>
+        <Label className="text-xs font-semibold uppercase tracking-widest text-slate-400">Prompt template</Label>
         <RichTextEditor
           value={draft.promptTemplate}
           onChange={(md) => onChange({ ...draft, promptTemplate: md })}
           placeholder="Write skill instructions using headings, lists, and code blocks…"
           minHeight="430px"
         />
+        <p className="text-xs text-slate-400">
+          Applied to the agent's prompt before its System Instructions.
+        </p>
       </div>
     </div>
   );

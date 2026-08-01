@@ -1054,8 +1054,8 @@ export default function Workflows() {
                 onChange={(e) => setListQuery(e.target.value)}
                 placeholder="Filter by name or description…"
                 style={{
-                  width: "100%", height: 29, border: "1px solid #dde3ea", borderRadius: 6,
-                  padding: "0 10px 0 27px", fontSize: 11.5, fontFamily: "inherit", outline: "none",
+                  width: "100%", height: 30, border: "1px solid #d3dae3", borderRadius: 6,
+                  padding: "0 10px 0 27px", fontSize: 11, fontFamily: "inherit", outline: "none",
                 }}
               />
             </div>
@@ -1064,8 +1064,8 @@ export default function Workflows() {
                 key={key}
                 onClick={() => setStatusFilter(key)}
                 style={{
-                  fontSize: 11, padding: "4px 10px", borderRadius: 999, cursor: "pointer",
-                  border: `1px solid ${statusFilter === key ? "#0f1117" : "#dde3ea"}`,
+                  fontSize: 11, fontWeight: 600, padding: "5px 11px", borderRadius: 6, cursor: "pointer",
+                  border: `1px solid ${statusFilter === key ? "#0f1117" : "#d3dae3"}`,
                   background: statusFilter === key ? "#0f1117" : "#fff",
                   color: statusFilter === key ? "#fff" : "#475569",
                 }}

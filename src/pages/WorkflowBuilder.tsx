@@ -36,6 +36,7 @@ import { layoutGeneratedSubgraph, topoLayout } from "@/lib/graph-layout";
 import { useModelPreference } from "@/lib/model-preference";
 import { newNodeId, snapshotOf as snapshotOfGraph, structureOf } from "@/lib/workflow-persistence";
 import { canConnect, graphIssues } from "@/lib/graph-validation";
+import { btn, nodeAccent } from "@/lib/ui-tokens";
 import { canRedo, canUndo, commit as commitHistory, initHistory, redo as redoHistory, undo as undoHistory } from "@/lib/graph-history";
 import type { WorkflowGraph } from "@/lib/types";
 import {
@@ -1316,11 +1317,7 @@ function BuilderInner({
                       >
                         <span
                           className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-[2px]"
-                          style={{ background: ({
-                            trigger: "#0891b2", supervisorAgent: "#0f1117", specialistAgent: "#4f46e5",
-                            humanApproval: "#d97706", conditional: "#6366f1", memory: "#0891b2",
-                            webhook: "#059669",
-                          } as Record<string, string>)[nodeType] ?? "#94a3b8" }}
+                          style={{ background: nodeAccent(nodeType) }}
                         />
                         <span className="min-w-0 flex-1">
                           <span className="block text-[11px] font-medium text-[#334155]">{label}</span>
@@ -1375,11 +1372,7 @@ function BuilderInner({
           >
             <Background color="#dde3ea" gap={22} size={1} />
             <MiniMap pannable zoomable nodeStrokeWidth={0}
-              nodeColor={(n) => ({
-                trigger: "#0891b2", supervisorAgent: "#0f1117", specialistAgent: "#4f46e5",
-                humanApproval: "#d97706", conditional: "#6366f1", memory: "#0891b2",
-                webhook: "#059669",
-              } as Record<string, string>)[String(n.type)] ?? "#94a3b8"}
+              nodeColor={(n) => nodeAccent(n.type)}
               style={{ background: "#f9fafb", border: "1px solid #e5e7eb" }}
               className="!rounded-none" />
             <Controls className="!rounded-none !border !border-[#e5e7eb] !bg-white [&>button]:!rounded-none [&>button]:!border-[#e5e7eb]" />
