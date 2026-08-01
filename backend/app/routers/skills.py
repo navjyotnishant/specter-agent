@@ -14,6 +14,25 @@ class SkillRequest(BaseModel):
     description: str = ""
     prompt_template: str = ""
     compatible_agent_roles: list[str] = []
+    # Repo import supplies a slug id so an imported skill resolves by the same key the
+    # source repo uses, and upserts so a re-import updates in place instead of duplicating.
+    id: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9._-]{1,79}$")
+    upsert: bool = False
+    source_repo: str = ""
+
+
+def _reject_duplicate_name(db, name: str, skill_id: str) -> None:
+    """Names are how a skill is picked in the builder, so two skills called the
+    same thing are indistinguishable there. Compared case-insensitively and
+    excluding the row being written, so a rename to its own name is fine."""
+    clash = db.execute(
+        "SELECT id FROM skills WHERE LOWER(name) = LOWER(?) AND id != ?", (name.strip(), skill_id)
+    ).fetchone()
+    if clash:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A skill named '{name.strip()}' already exists (id '{clash['id']}').",
+        )
 
 
 @router.get("")
@@ -34,15 +53,35 @@ def get_skill(skill_id: str, _: dict = Depends(require_user)) -> dict:
 
 @router.post("")
 def create_skill(request: SkillRequest, _: dict = Depends(require_user)) -> dict:
-    skill_id = str(uuid4())
+    skill_id = request.id or str(uuid4())
     with db_session() as db:
-        db.execute(
-            """
-            INSERT INTO skills (id, name, description, prompt_template, compatible_agent_roles)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (skill_id, request.name, request.description, request.prompt_template, str(request.compatible_agent_roles)),
-        )
+        _reject_duplicate_name(db, request.name, skill_id)
+        existing = db.execute("SELECT id FROM skills WHERE id = ?", (skill_id,)).fetchone()
+        if existing and not request.upsert:
+            raise HTTPException(status_code=409, detail=f"Skill '{skill_id}' already exists.")
+        if existing:
+            db.execute(
+                """
+                UPDATE skills
+                SET name = ?, description = ?, prompt_template = ?, compatible_agent_roles = ?, source_repo = ?
+                WHERE id = ?
+                """,
+                (
+                    request.name, request.description, request.prompt_template,
+                    str(request.compatible_agent_roles), request.source_repo, skill_id,
+                ),
+            )
+        else:
+            db.execute(
+                """
+                INSERT INTO skills (id, name, description, prompt_template, compatible_agent_roles, source_repo)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    skill_id, request.name, request.description, request.prompt_template,
+                    str(request.compatible_agent_roles), request.source_repo,
+                ),
+            )
         row = db.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone()
         return dict(row)
 
@@ -50,6 +89,7 @@ def create_skill(request: SkillRequest, _: dict = Depends(require_user)) -> dict
 @router.patch("/{skill_id}")
 def update_skill(skill_id: str, request: SkillRequest, _: dict = Depends(require_user)) -> dict:
     with db_session() as db:
+        _reject_duplicate_name(db, request.name, skill_id)
         db.execute(
             """
             UPDATE skills
