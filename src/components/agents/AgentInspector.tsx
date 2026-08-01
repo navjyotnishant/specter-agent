@@ -1,34 +1,10 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Node } from "@xyflow/react";
 import { Loader2, Sparkles } from "lucide-react";
+import { ModelPicker } from "@/components/agents/ModelPicker";
+import { TelegramConfigForm } from "@/components/agents/TelegramConfigForm";
 import type { McpServer, Skill } from "@/lib/types";
 
-
-// Model options per CLI agent. Verified against each CLI's own model list
-// (`codex exec --help`, `claude --help`, `cursor-agent models`) — update here
-// if a CLI ships new model names.
-const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
-  codex: [
-    { value: "", label: "Auto (Codex default)" },
-    { value: "gpt-5.3-codex", label: "Codex 5.3" },
-    { value: "gpt-5.3-codex-high", label: "Codex 5.3 High" },
-    { value: "gpt-5.3-codex-xhigh", label: "Codex 5.3 Extra High" },
-    { value: "gpt-5.2-codex", label: "Codex 5.2" },
-    { value: "gpt-5.2", label: "GPT-5.2" },
-  ],
-  claude: [
-    { value: "", label: "Auto (Claude Code default)" },
-    { value: "sonnet", label: "Claude Sonnet (latest)" },
-    { value: "opus", label: "Claude Opus (latest)" },
-    { value: "haiku", label: "Claude Haiku (latest)" },
-    { value: "fable", label: "Claude Fable (latest)" },
-  ],
-  cursor: [
-    { value: "", label: "Auto (Cursor default)" },
-    { value: "gpt-5", label: "GPT-5" },
-    { value: "sonnet-4-thinking", label: "Sonnet 4 (thinking)" },
-  ],
-};
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
@@ -213,6 +189,7 @@ export function AgentInspector({
   hasGeneratedPlan = false,
   onTuneNode,
   tunePending = false,
+  planError = null,
 }: {
   node: Node | null;
   onChange: (updated: Node) => void;
@@ -222,6 +199,7 @@ export function AgentInspector({
   planPending?: boolean;
   hasGeneratedPlan?: boolean;
   onTuneNode?: (node: Node, instruction: string) => void;
+  planError?: string | null;
   tunePending?: boolean;
 }) {
   const [planFeedback, setPlanFeedback] = useState("");
@@ -236,6 +214,7 @@ export function AgentInspector({
   }
 
   const d = node.data as NodeData;
+  const isTrigger = node.type === "trigger";
   const isApproval = node.type === "humanApproval";
   const isMemory = node.type === "memory";
   const isConditional = node.type === "conditional";
@@ -333,6 +312,51 @@ export function AgentInspector({
           </>
         )}
 
+        {/* ── trigger node fields ── */}
+        {isTrigger && (
+          <>
+            <SectionHeader>Trigger</SectionHeader>
+            <Field label="Source">
+              <SelectField
+                value={String(d.source ?? "manual")}
+                onChange={(v) => patch({ source: v })}
+                options={[
+                  { value: "manual", label: "Manual — entered when you click Run" },
+                  { value: "telegram", label: "Telegram — an allowlisted chat message" },
+                ]}
+              />
+              {String(d.source) === "telegram" && <TelegramConfigForm />}
+            </Field>
+            <Field label="Prompt shown at run time" required empty={!String(d.label ?? "").trim()}>
+              <TextInput value={String(d.label ?? "")} onChange={(v) => patch({ label: v })} placeholder="Topic" />
+            </Field>
+            <Field label="Field name" required empty={!String(d.fieldName ?? "").trim()}>
+              <TextInput
+                value={String(d.fieldName ?? "")}
+                onChange={(v) => patch({ fieldName: v.replace(/[^a-zA-Z0-9_]/g, "_") })}
+                placeholder="topic"
+              />
+              <p className="mt-1 text-[10px] text-[#9ca3af]">
+                Identifies this value when the run is started.
+              </p>
+            </Field>
+            <Field label="Placeholder">
+              <TextInput
+                value={String(d.placeholder ?? "")}
+                onChange={(v) => patch({ placeholder: v })}
+                placeholder="What should this workflow work on?"
+              />
+            </Field>
+            <Field label="Required">
+              <SelectField
+                value={d.required === false ? "no" : "yes"}
+                onChange={(v) => patch({ required: v === "yes" })}
+                options={[{ value: "yes", label: "Required" }, { value: "no", label: "Optional" }]}
+              />
+            </Field>
+          </>
+        )}
+
         {/* ── runtime ── */}
         {isAgent && (
           <>
@@ -364,10 +388,10 @@ export function AgentInspector({
               />
             </Field>
             <Field label="Model">
-              <SelectField
+              <ModelPicker
+                agent={String(d.sandboxAgent ?? "codex")}
                 value={String(d.model ?? "")}
                 onChange={(v) => patch({ model: v })}
-                options={MODEL_OPTIONS[String(d.sandboxAgent ?? "codex")] ?? MODEL_OPTIONS.codex}
               />
             </Field>
             <Field label="Memory scope">
@@ -426,6 +450,11 @@ export function AgentInspector({
             <p className="text-[10px] leading-relaxed text-[#9ca3af]">
               Breaks the objective into specialist sub-agents and adds them to the canvas. Review and edit before running.
             </p>
+            {!planPending && planError && (
+              <p className="border border-[#fecaca] bg-[#fef2f2] px-2 py-1.5 text-[10px] leading-relaxed text-[#b91c1c]">
+                {planError}
+              </p>
+            )}
             {hasGeneratedPlan && (
               <Field label="Refine plan with feedback">
                 <TextArea value={planFeedback} onChange={setPlanFeedback} rows={2} />
@@ -601,10 +630,10 @@ export function AgentInspector({
               />
             </Field>
             <Field label="Model">
-              <SelectField
+              <ModelPicker
+                agent={String(d.sandboxAgent ?? "codex")}
                 value={String(d.model ?? "")}
                 onChange={(v) => patch({ model: v })}
-                options={MODEL_OPTIONS[String(d.sandboxAgent ?? "codex")] ?? MODEL_OPTIONS.codex}
               />
             </Field>
           </>

@@ -54,24 +54,149 @@ def _run_planner_cli(prompt: str, runtime: str, agent: str, workspace_path: str,
 
 # ── plan parsing / validation ─────────────────────────────────────────────────
 
+def _find_matching_brace(text: str, start: int) -> int:
+    """Return the index just past the closing '}' that matches the '{' at
+    `start`, skipping over braces inside strings. -1 if unbalanced."""
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return -1
+
+
+def _iter_top_level_objects(text: str):
+    """Yield every balanced top-level {...} substring found in `text`, in order."""
+    i = 0
+    while True:
+        start = text.find("{", i)
+        if start == -1:
+            return
+        end = _find_matching_brace(text, start)
+        if end == -1:
+            return
+        yield text[start:end]
+        i = end
+
+
+_MISSING_OBJECT_BRACE = re.compile(r"(\[\s*|\}\s*,\s*)(?=\"[^\"]+\"\s*:)")
+
+
+def _find_matching_bracket(text: str, start: int) -> int:
+    """Same as _find_matching_brace but for a '[' at `start`. -1 if unbalanced."""
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return -1
+
+
+def _repair_missing_array_element_braces(candidate: str) -> str:
+    """Some CLI agents occasionally drop the opening '{' of each object inside
+    the 'subtasks' array while keeping the closing '}' (e.g.
+    `[\"id\": \"a\", ...}, \"id\": \"b\", ...}]`). Insert the missing '{' only at true
+    element boundaries — right after '[' or after a '},' — and only within the
+    'subtasks' array span, so unrelated top-level keys after the array (e.g.
+    'approval_gate', 'memory_synthesis') are never touched. No-op on
+    well-formed JSON or if no 'subtasks' array is found."""
+    match = re.search(r'"subtasks"\s*:\s*\[', candidate)
+    if not match:
+        return candidate
+    arr_start = match.end() - 1
+    arr_end = _find_matching_bracket(candidate, arr_start)
+    if arr_end == -1:
+        return candidate
+    array_span = candidate[arr_start:arr_end]
+    repaired_span = _MISSING_OBJECT_BRACE.sub(lambda m: m.group(1) + "{", array_span)
+    return candidate[:arr_start] + repaired_span + candidate[arr_end:]
+
+
+def _repair_missing_outer_brace(candidate: str) -> str:
+    """The same brace-dropping slip can also eat the outermost '{', leaving the
+    response starting directly with `"subtasks": [...`. The trailing '}' that
+    was meant to close that (never-opened) object is still present, so just
+    prepend '{' — no-op if it already starts with '{' or doesn't look like a
+    bare top-level key."""
+    stripped = candidate.strip()
+    if stripped.startswith("{") or not re.match(r'^"[^"]+"\s*:', stripped):
+        return candidate
+    return "{" + stripped
+
+
 def _extract_plan_json(text: str) -> dict:
-    candidate = text.strip()
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", candidate, re.DOTALL)
-    if fenced:
-        candidate = fenced.group(1).strip()
-    try:
-        parsed = json.loads(candidate)
-    except json.JSONDecodeError:
-        start, end = candidate.find("{"), candidate.rfind("}")
-        if start == -1 or end <= start:
-            raise ValueError("Planner did not return JSON. Try re-running the plan.")
-        try:
-            parsed = json.loads(candidate[start : end + 1])
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Planner returned malformed JSON: {exc}") from exc
-    if not isinstance(parsed, dict):
-        raise ValueError("Planner JSON must be an object with a 'subtasks' list.")
-    return parsed
+    raw = text.strip()
+
+    # Prefer the LAST fenced ```json block — CLI output often prepends
+    # unrelated sandbox/bootstrap noise before the agent's real answer.
+    fences = re.findall(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL)
+    candidates = [fences[-1].strip()] if fences else []
+    candidates.append(raw)
+
+    last_error: json.JSONDecodeError | None = None
+    for candidate in candidates:
+        elem_repaired = _repair_missing_array_element_braces(candidate)
+        variants = (
+            candidate,
+            elem_repaired,
+            _repair_missing_outer_brace(candidate),
+            _repair_missing_outer_brace(elem_repaired),
+        )
+        for text_variant in variants:
+            try:
+                parsed = json.loads(text_variant)
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                parsed = None
+            if isinstance(parsed, dict) and isinstance(parsed.get("subtasks"), list):
+                return parsed
+
+            # Scan for any balanced {...} substring that actually looks like a plan
+            # (has a 'subtasks' list) rather than assuming the first/last brace pair
+            # in the raw text is the answer — bootstrap/log noise can contain braces.
+            for obj_text in _iter_top_level_objects(text_variant):
+                try:
+                    obj = json.loads(obj_text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict) and isinstance(obj.get("subtasks"), list):
+                    return obj
+
+    if last_error is not None:
+        raise ValueError(f"Planner returned malformed JSON: {last_error}")
+    raise ValueError("Planner did not return JSON. Try re-running the plan.")
 
 
 def _validate_plan(plan: dict) -> None:

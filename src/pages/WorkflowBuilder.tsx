@@ -30,6 +30,7 @@ import {
   GitBranch,
   GitMerge,
   History,
+  Layers,
   LayoutGrid,
   Loader2,
   Play,
@@ -38,6 +39,8 @@ import {
   Sparkles,
   Trash2,
   Webhook,
+  Send,
+  Zap,
 } from "lucide-react";
 import type { McpServer } from "@/lib/types";
 import { AgentInspector } from "@/components/agents/AgentInspector";
@@ -46,10 +49,12 @@ import { HumanApprovalNode } from "@/components/workflow/nodes/HumanApprovalNode
 import { MemoryNode } from "@/components/workflow/nodes/MemoryNode";
 import { SpecialistAgentNode } from "@/components/workflow/nodes/SpecialistAgentNode";
 import { SupervisorAgentNode } from "@/components/workflow/nodes/SupervisorAgentNode";
+import { TriggerNode } from "@/components/workflow/nodes/TriggerNode";
 import { WebhookNode } from "@/components/workflow/nodes/WebhookNode";
 import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { layoutGeneratedSubgraph, topoLayout } from "@/lib/graph-layout";
+import { useModelPreference } from "@/lib/model-preference";
 import type { WorkflowGraph } from "@/lib/types";
 import {
   AlertDialog,
@@ -68,6 +73,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // ── node type registry ──────────────────────────────────────────────────────
 const nodeTypes = {
+  trigger: TriggerNode,
   supervisorAgent: SupervisorAgentNode,
   specialistAgent: SpecialistAgentNode,
   humanApproval: HumanApprovalNode,
@@ -76,17 +82,23 @@ const nodeTypes = {
   webhook: WebhookNode,
 };
 
+// Node types that run an agent, and so accept a bulk agent/model/runtime edit.
+// Keyed on TYPE, not on a data field: nodes from older templates and imports may
+// not carry `sandboxAgent` yet, and those are exactly the ones a bulk edit must reach.
+const AGENT_NODE_TYPES = new Set(["supervisorAgent", "specialistAgent", "conditional"]);
+
 // id of the seeded "Standard Report Format" skill (backend/app/runtime/skill_seeds.py)
 const STANDARD_REPORT_FORMAT_SKILL_ID = "standard-report-format";
 
 // ── default data per node type ──────────────────────────────────────────────
 const nodeDefaults: Record<string, Record<string, unknown>> = {
-  supervisorAgent: { label: "Supervisor Agent", sandboxAgent: "codex", model: "", memoryScope: "team", maxIterations: 1, delegationStrategy: "sequential_delegation", objective: "", systemInstructions: "" },
-  specialistAgent: { label: "Specialist Agent", role: "", sandboxAgent: "codex", model: "", memoryScope: "workflow", maxIterations: 1, objective: "", systemInstructions: "" },
+  supervisorAgent: { label: "Supervisor Agent", runtime: "direct", sandboxAgent: "codex", model: "", memoryScope: "team", maxIterations: 1, delegationStrategy: "sequential_delegation", objective: "", systemInstructions: "" },
+  specialistAgent: { label: "Specialist Agent", role: "", runtime: "direct", sandboxAgent: "codex", model: "", memoryScope: "workflow", maxIterations: 1, objective: "", systemInstructions: "" },
   humanApproval: { label: "Human Approval", reason: "Requires manual approval before continuing.", timeoutHours: 24 },
   memory: { label: "Write Memory", scope: "workflow" },
-  conditional: { label: "Conditional", condition: "", sandboxAgent: "codex", model: "" },
+  conditional: { label: "Conditional", condition: "", runtime: "direct", sandboxAgent: "codex", model: "" },
   webhook: { label: "Webhook", url: "", method: "POST", payloadTemplate: "" },
+  trigger: { label: "Topic", source: "manual", fieldName: "topic", placeholder: "What should this workflow work on?", required: true },
 };
 
 // ── presets: same node type as a palette category, but with real pre-filled
@@ -103,6 +115,12 @@ const presetDefaults: Record<string, Record<string, unknown>> = {
     objective: "Aggregate the findings from all prior agents in this workflow into one report.",
     selectedSkills: [STANDARD_REPORT_FORMAT_SKILL_ID],
     memoryScope: "workflow",
+  },
+  telegramTrigger: {
+    ...nodeDefaults.trigger,
+    label: "Message",
+    source: "telegram",
+    placeholder: "Sent from Telegram",
   },
   aggregator: {
     ...nodeDefaults.specialistAgent,
@@ -122,6 +140,13 @@ const palette: { category: string; items: { icon: typeof Bot; label: string; nod
       { icon: Bot, label: "Specialist Agent", nodeType: "specialistAgent", description: "Runs one focused task in the sandbox" },
       { icon: FileText, label: "Report Writer", nodeType: "specialistAgent", presetKey: "reportWriter", description: "Aggregates prior findings into a report" },
       { icon: GitMerge, label: "Aggregator", nodeType: "specialistAgent", presetKey: "aggregator", description: "Merges parallel branches into one summary" },
+    ],
+  },
+  {
+    category: "Triggers",
+    items: [
+      { icon: Zap, label: "Manual Trigger", nodeType: "trigger", description: "Supplies a value you enter when the run starts" },
+      { icon: Send, label: "Telegram Trigger", nodeType: "trigger", presetKey: "telegramTrigger", description: "Starts this workflow from an allowlisted chat message" },
     ],
   },
   {
@@ -145,28 +170,6 @@ const palette: { category: string; items: { icon: typeof Bot; label: string; nod
   },
 ];
 
-// ── seed template ────────────────────────────────────────────────────────────
-// Sequential left-to-right pipeline — each col is 320px wide, vertically centred
-// supervisor(0) → memory(1,top) → code(2) → deps(3) → secrets(4) → report(5)
-// memory runs in parallel with code as a planning step off the supervisor
-const COL = 320;
-const defaultNodes: Node[] = [
-  { id: "supervisor",  type: "supervisorAgent", position: { x: 0,        y: 200 }, data: { label: "Security Supervisor",    sandboxAgent: "codex", model: "", selectedTools: [], selectedSkills: [], memoryScope: "team",         maxIterations: 4, requiresApproval: false, delegationStrategy: "sequential_delegation", objective: "Scope this security review, identify the top areas to inspect, and coordinate specialist agents to run in sequence.", systemInstructions: "Delegate only to known specialist agents. Enforce tool allowlists, memory boundaries, and approval policy." } },
-  { id: "memory-plan", type: "memory",          position: { x: COL,      y: 40  }, data: { label: "Write task plan",        scope: "team" } },
-  { id: "code",        type: "specialistAgent", position: { x: COL * 2,  y: 200 }, data: { label: "Code Security Reviewer",  role: "Secure code review",    sandboxAgent: "codex", model: "", selectedTools: [], selectedSkills: [], memoryScope: "workflow",      maxIterations: 3, requiresApproval: false, objective: "Review 2–3 key source files for auth, injection, and access-control vulnerabilities.", systemInstructions: "" } },
-  { id: "deps",        type: "specialistAgent", position: { x: COL * 3,  y: 200 }, data: { label: "Dependency Auditor",      role: "Dependency auditor",    sandboxAgent: "codex", model: "", selectedTools: [], selectedSkills: [], memoryScope: "workflow",      maxIterations: 3, requiresApproval: false, objective: "Check requirements.txt or package.json for known vulnerable or outdated packages.", systemInstructions: "" } },
-  { id: "secrets",     type: "specialistAgent", position: { x: COL * 4,  y: 200 }, data: { label: "Secrets & Config Agent",  role: "Masked config review",  sandboxAgent: "codex", model: "", selectedTools: [], selectedSkills: [], memoryScope: "agent_private", maxIterations: 3, requiresApproval: false, objective: "Scan config files and env patterns for hardcoded secrets, tokens, or insecure defaults.", systemInstructions: "" } },
-  { id: "report",      type: "specialistAgent", position: { x: COL * 5,  y: 200 }, data: { label: "Report Writer Agent",     role: "Security report writer", sandboxAgent: "codex", model: "", selectedTools: [], selectedSkills: [], memoryScope: "workflow",      maxIterations: 2, requiresApproval: false, objective: "Summarise findings from all prior agents into a structured security report with severity ratings.", systemInstructions: "" } },
-];
-
-const defaultEdges: Edge[] = [
-  { id: "e1", source: "supervisor",  target: "memory-plan", type: "smoothstep" },
-  { id: "e2", source: "supervisor",  target: "code",        type: "smoothstep" },
-  { id: "e3", source: "code",        target: "deps",        type: "smoothstep" },
-  { id: "e4", source: "deps",        target: "secrets",     type: "smoothstep" },
-  { id: "e5", source: "secrets",     target: "report",      type: "smoothstep" },
-];
-
 // ── conditional edge labels ──────────────────────────────────────────────────
 // Edges leaving a Conditional node's "true"/"false" handles get a colored label
 // so the branch semantics are visible on the canvas, not just at the handles.
@@ -186,7 +189,9 @@ function withConditionLabel<T extends Edge | Connection>(edge: T): T {
 
 // ── normalizer ───────────────────────────────────────────────────────────────
 function normalizeGraph(graph?: Partial<WorkflowGraph>): { nodes: Node[]; edges: Edge[] } {
-  if (!Array.isArray(graph?.nodes) || graph.nodes.length === 0) return { nodes: defaultNodes, edges: defaultEdges };
+  // Empty stays empty. Substituting the seed template here made a blank workflow
+  // look like the security-review sample, which autosave then made permanent.
+  if (!Array.isArray(graph?.nodes) || graph.nodes.length === 0) return { nodes: [], edges: [] };
   const nodes = (graph.nodes as (Partial<Node> & Record<string, unknown>)[]).map((raw, i) => ({
     id: String(raw.id ?? `node-${i}`),
     type: String(raw.type ?? "specialistAgent"),
@@ -238,12 +243,18 @@ function BuilderInner({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState(isNew ? [] : defaultNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(isNew ? [] : defaultEdges);
+  // Start empty, never with the seed template: a placeholder graph on the canvas
+  // is indistinguishable from real content and autosave will persist it.
+  const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("agent");
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [workflowName, setWorkflowName] = useState(isNew ? "" : "Security Review Team");
+  // Never seed a fake name: autosave would persist it over the real one.
+  const [workflowName, setWorkflowName] = useState("");
+  // True once the graph, name and description have all loaded.
+  const [baselined, setBaselined] = useState(false);
+
   const [workflowDescription, setWorkflowDescription] = useState(isNew ? "" : "");
   const [nameTouched, setNameTouched] = useState(false);
   const [statusMessage, setStatusMessage] = useState(isNew ? "New workflow — drag nodes from the palette to get started." : "Drag from the palette to add nodes.");
@@ -275,6 +286,22 @@ function BuilderInner({
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSaveDbTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const graphLoadedRef = useRef(false);
+  const draftRestoredRef = useRef(false);
+
+  // Fingerprint of the last state known to be on the server. `saveStatus` can't
+  // serve as a dirty flag -- it self-clears after 3s -- so compare against this.
+  const savedSnapshot = useRef<string>("");
+  const snapshotOf = useCallback(
+    (n: Node[], e: Edge[], name: string, description: string) =>
+      JSON.stringify({
+        name,
+        description,
+        // Positions count: a drag is a real change the user expects to keep.
+        nodes: n.map((x) => ({ id: x.id, type: x.type, position: x.position, data: x.data })),
+        edges: e.map((x) => ({ id: x.id, source: x.source, target: x.target })),
+      }),
+    [],
+  );
 
   const toggleAutoSaveDb = () => {
     setAutoSaveDb((v) => {
@@ -291,6 +318,10 @@ function BuilderInner({
   const allWorkflowsQuery = useQuery({ queryKey: ["workflows"], queryFn: () => api.workflows(token), enabled: canUseBackend, retry: false });
   const templatesList = (allWorkflowsQuery.data ?? []).filter((w) => w.is_template);
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+  const [runInputOpen, setRunInputOpen] = useState(false);
+  const [runInput, setRunInput] = useState<Record<string, string>>({});
+  const [modelPreference] = useModelPreference();
 
   // ── load: localStorage wins over DB (local edits survive refresh) ──────────
   useEffect(() => {
@@ -302,6 +333,10 @@ function BuilderInner({
         setNodes(g.nodes); setEdges(g.edges);
         setStatusMessage("Draft restored — save to publish your latest edits.");
         graphLoadedRef.current = true;
+        // Baseline against the restored draft. It may differ from the server, but
+        // it is what the user last saw -- treating it as dirty on arrival would
+        // prompt on every navigation away from an untouched canvas.
+        draftRestoredRef.current = true;
         return;
       } catch { /* fall through to DB */ }
     }
@@ -323,14 +358,29 @@ function BuilderInner({
   };
 
   useEffect(() => {
-    if (!workflowQuery.data || graphLoadedRef.current) return;
+    if (!workflowQuery.data) return;
+    // Name and description always come from the server: the localStorage draft
+    // only holds {nodes, edges}, so a restored draft would otherwise leave these
+    // blank and a save would wipe them.
+    setWorkflowName((cur) => cur || workflowQuery.data.name);
+    setWorkflowDescription((cur) => cur || workflowQuery.data.description);
+    // Server copy is the source of truth for the repo; localStorage is only a cache.
+    const savedPath = workflowQuery.data.workspace_path;
+    if (savedPath) {
+      const match = (workspacesQuery.data ?? []).find((w) => w.path === savedPath && w.is_active);
+      if (match) setSelectedWorkspaceId((cur) => cur || match.id);
+    }
+    if (graphLoadedRef.current) return;
     const g = normalizeGraph(workflowQuery.data.graph);
     setNodes(g.nodes); setEdges(g.edges);
-    setWorkflowName(workflowQuery.data.name);
-    setWorkflowDescription(workflowQuery.data.description);
     setStatusMessage(`Loaded "${workflowQuery.data.name}".`);
     graphLoadedRef.current = true;
-  }, [setEdges, setNodes, workflowQuery.data]);
+    // Freshly loaded from the server = clean. (A restored localStorage draft is
+    // deliberately NOT baselined -- it represents edits that never reached the DB.)
+    savedSnapshot.current = snapshotOf(
+      g.nodes, g.edges, workflowQuery.data.name, workflowQuery.data.description,
+    );
+  }, [setEdges, setNodes, workflowQuery.data, workspacesQuery.data, snapshotOf]);
 
   // ── auto-save to localStorage 1s after any change ─────────────────────────
   useEffect(() => {
@@ -345,12 +395,13 @@ function BuilderInner({
   }, [nodes, edges, workflowId]);
 
   const runMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (runInput: Record<string, string> = {}) => {
       if (!selectedWorkspace) throw new Error("No workspace selected.");
       return api.startRun(token, {
         workflow_id: workflowId,
         workspace_path: selectedWorkspace.path,
         graph: { nodes, edges },
+        run_input: runInput,
       });
     },
     onSuccess: (data) => navigate(`/workflows/${workflowId}/run/${data.run_id}`),
@@ -360,12 +411,17 @@ function BuilderInner({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const saveStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+
   const saveMutation = useMutation({
     mutationFn: (graphOverride?: { nodes: Node[]; edges: Edge[] }) => {
       const graph = graphOverride ?? { nodes, edges };
+      // Record what we're about to persist, so a successful save clears "dirty".
+      savedSnapshot.current = snapshotOf(graph.nodes, graph.edges, workflowName, workflowDescription);
       return isNew
-        ? api.createWorkflow(token, { name: workflowName || "Untitled Workflow", description: workflowDescription, graph })
-        : api.updateWorkflow(token, workflowId, { name: workflowName, description: workflowDescription, graph });
+        // workspace_path travels with the workflow: a trigger-started run has no
+        // dropdown to read, so the server copy is the only thing it can use.
+        ? api.createWorkflow(token, { name: workflowName || "Untitled Workflow", description: workflowDescription, graph, workspace_path: selectedWorkspace?.path })
+        : api.updateWorkflow(token, workflowId, { name: workflowName, description: workflowDescription, graph, workspace_path: selectedWorkspace?.path });
     },
     onSuccess: (wf) => {
       setStatusMessage(`Saved "${wf.name}" at ${new Date().toLocaleTimeString()}.`);
@@ -384,6 +440,9 @@ function BuilderInner({
       }
     },
     onError: (err) => {
+      // The snapshot was recorded optimistically before the request; a rejected
+      // save (e.g. duplicate name) must not leave the graph looking persisted.
+      savedSnapshot.current = "";
       setStatusMessage(err instanceof Error ? err.message : "Save failed.");
       setSaveStatus("error");
       if (saveStatusTimer.current) clearTimeout(saveStatusTimer.current);
@@ -393,7 +452,10 @@ function BuilderInner({
 
   // ── auto-save to database 2.5s after any change, when enabled ─────────────
   useEffect(() => {
-    if (isNew || !autoSaveDb || !graphLoadedRef.current || !canUseBackend || !workflowName.trim()) return;
+    // `baselined` (not graphLoadedRef) is the real "fully loaded" signal: a
+    // restored draft sets graphLoadedRef before the server name/description
+    // arrive, and autosaving then writes placeholder values over real data.
+    if (isNew || !autoSaveDb || !baselined || !canUseBackend || !workflowName.trim()) return;
     if (autoSaveDbTimer.current) clearTimeout(autoSaveDbTimer.current);
     autoSaveDbTimer.current = setTimeout(() => {
       if (!saveMutation.isPending) saveMutation.mutate(undefined);
@@ -595,18 +657,27 @@ function BuilderInner({
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const id = `${nodeType}-${++nodeCounter}`;
       const baseDefaults = (presetKey && presetDefaults[presetKey]) || nodeDefaults[nodeType];
+      // Node types that actually run an agent inherit the header's default
+      // agent/model; control-flow and memory nodes have no model to set.
+      const inheritsModel = "sandboxAgent" in baseDefaults;
       const newNode: Node = {
         id,
         type: nodeType,
         position,
-        data: { ...baseDefaults, label },
+        data: {
+          ...baseDefaults,
+          label,
+          ...(inheritsModel
+            ? { sandboxAgent: modelPreference.agent, model: modelPreference.model }
+            : {}),
+        },
       };
       setNodes((cur) => [...cur, newNode]);
       setSelectedNodeId(id);
       setActiveTab("agent");
       setStatusMessage(`Added "${label}" — configure it in the Agent panel.`);
     },
-    [screenToFlowPosition, setNodes],
+    [screenToFlowPosition, setNodes, modelPreference],
   );
 
   // ── load template into canvas ─────────────────────────────────────────────
@@ -627,6 +698,82 @@ function BuilderInner({
     if (selectedNodeId && selNodes.some((n) => n.id === selectedNodeId)) setSelectedNodeId(null);
   }, [nodes, edges, deleteElements, selectedNodeId]);
 
+  // Baseline once the initial graph has settled, whichever source it came from.
+  // Without this, arriving on a workflow that has a localStorage draft would count
+  // as dirty forever and prompt on every navigation away from an untouched canvas.
+  useEffect(() => {
+    if (baselined || !graphLoadedRef.current) return;
+    const t = setTimeout(() => {
+      savedSnapshot.current = snapshotOf(nodes, edges, workflowName, workflowDescription);
+      setBaselined(true);
+    }, 400); // after normalizeGraph/layout have applied
+    return () => clearTimeout(t);
+  }, [baselined, nodes, edges, workflowName, workflowDescription, snapshotOf]);
+
+  // ── unsaved-changes guard ─────────────────────────────────────────────────
+  // Only meaningful once a graph has loaded; before that everything looks "changed".
+  const isDirty =
+    baselined &&
+    snapshotOf(nodes, edges, workflowName, workflowDescription) !== savedSnapshot.current;
+
+  // Browser refresh / tab close. Registered only while dirty so an untouched
+  // builder never nags. Does NOT fire for in-app navigation -- that's handled below.
+  useEffect(() => {
+    if (!isDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ""; // required for Chrome to show its native prompt
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [isDirty]);
+
+  // In-app back / forward. This app uses BrowserRouter (not a data router), so
+  // useBlocker isn't available; intercept popstate and re-push the entry to stay
+  // put when the user cancels.
+  const [pendingNav, setPendingNav] = useState<null | (() => void)>(null);
+
+  /** Navigate, but confirm first when there are unsaved changes. */
+  const guardedNavigate = useCallback(
+    (to: string) => {
+      if (isDirty) setPendingNav(() => () => navigate(to));
+      else navigate(to);
+    },
+    [isDirty, navigate],
+  );
+  useEffect(() => {
+    if (!isDirty) return;
+    // Sentinel entry: popping it means the user pressed Back.
+    window.history.pushState({ specterGuard: true }, "");
+    const onPopState = () => {
+      window.history.pushState({ specterGuard: true }, "");
+      setPendingNav(() => () => {
+        window.history.go(-2); // past our sentinel, then the real entry
+      });
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [isDirty]);
+
+  // ── bulk edit across every agent node ─────────────────────────────────────
+  const agentNodeCount = nodes.filter((n) => AGENT_NODE_TYPES.has(String(n.type))).length;
+
+  const applyToAll = useCallback(
+    (patch: Record<string, unknown>, label: string) => {
+      let touched = 0;
+      setNodes((cur) =>
+        cur.map((n) => {
+          if (!AGENT_NODE_TYPES.has(String(n.type))) return n;
+          touched += 1;
+          return { ...n, data: { ...n.data, ...patch } };
+        }),
+      );
+      setBulkMenuOpen(false);
+      setStatusMessage(`Applied "${label}" to ${touched} agent node${touched === 1 ? "" : "s"}.`);
+    },
+    [setNodes],
+  );
+
   // ── auto-arrange the canvas into topological columns ──────────────────────
   const tidyLayout = useCallback(() => {
     setNodes((cur) => topoLayout(cur, edges).nodes);
@@ -644,7 +791,7 @@ function BuilderInner({
       return;
     }
     if (!canUseBackend) {
-      setStatusMessage("Changes saved locally (preview mode).");
+      setStatusMessage("Changes saved locally — sign in to save to the server.");
       return;
     }
     saveMutation.mutate();
@@ -654,6 +801,13 @@ function BuilderInner({
   const activeWorkspaces = workspacesQuery.data?.filter((w) => w.is_active) ?? [];
   const selectedWorkspace = activeWorkspaces.find((w) => w.id === selectedWorkspaceId);
   const executionReady = Boolean(selectedWorkspace);
+  // Trigger nodes declare the values a run needs before it can start.
+  const triggerNodes = nodes.filter((n) => n.type === "trigger");
+  const triggerInputComplete = triggerNodes.every((n) => {
+    const d = n.data as Record<string, unknown>;
+    if (d.required === false) return true;
+    return (runInput[String(d.fieldName ?? "input")] ?? "").trim().length > 0;
+  });
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const hasSelection = nodes.some((n) => n.selected) || edges.some((e) => e.selected);
   const mcpServers: McpServer[] = mcpQuery.data?.servers ?? [];
@@ -680,7 +834,7 @@ function BuilderInner({
             </span>
             {!canUseBackend && (
               <span className="border border-[#fcd34d] bg-[#fffbeb] px-1.5 py-[2px] text-[10px] font-semibold uppercase tracking-widest text-[#92400e]">
-                preview mode
+                signed out
               </span>
             )}
           </div>
@@ -713,6 +867,64 @@ function BuilderInner({
           />
         </div>
         <div className="flex shrink-0 items-center gap-2 pt-1">
+          {/* Bulk edit: applies to every agent-bearing node so you don't have to
+              open the inspector once per node on an imported graph. */}
+          {agentNodeCount > 0 && (
+            <div style={{ position: "relative" }}>
+              <Button
+                variant="outline"
+                onClick={() => setBulkMenuOpen((v) => !v)}
+                title="Apply a setting to every agent node on this canvas"
+                className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb]"
+              >
+                <Layers className="mr-1.5 h-3 w-3" /> Apply to all
+                <ChevronDown className="ml-1.5 h-3 w-3" />
+              </Button>
+              {bulkMenuOpen && (
+                <>
+                  <div onClick={() => setBulkMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                  <div style={{
+                    position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 50,
+                    background: "white", border: "1px solid #e2e8f0", borderRadius: 10,
+                    boxShadow: "0 8px 30px rgba(0,0,0,0.12)", minWidth: 250, overflow: "hidden",
+                  }}>
+                    <p style={bulkHeading}>Execution mode</p>
+                    <button style={bulkItem} onClick={() => applyToAll({ runtime: "direct" }, "Direct CLI")}>
+                      Direct CLI <span style={bulkHint}>fast, runs on host</span>
+                    </button>
+                    <button style={bulkItem} onClick={() => applyToAll({ runtime: "sandbox" }, "Docker Sandbox")}>
+                      Docker Sandbox <span style={bulkHint}>isolated microVM</span>
+                    </button>
+
+                    <p style={{ ...bulkHeading, borderTop: "1px solid #f1f5f9" }}>Agent</p>
+                    {[["codex", "Codex"], ["claude", "Claude Code"], ["cursor", "Cursor"]].map(([value, label]) => (
+                      <button
+                        key={value}
+                        style={bulkItem}
+                        // Models are agent-specific, so switching agent clears the model.
+                        onClick={() => applyToAll({ sandboxAgent: value, model: "" }, label)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+
+                    <p style={{ ...bulkHeading, borderTop: "1px solid #f1f5f9" }}>Model</p>
+                    <button
+                      style={bulkItem}
+                      onClick={() =>
+                        applyToAll(
+                          { sandboxAgent: modelPreference.agent, model: modelPreference.model },
+                          `${modelPreference.agent}${modelPreference.model ? ` / ${modelPreference.model}` : ""}`,
+                        )
+                      }
+                    >
+                      Use header default <span style={bulkHint}>{modelPreference.model || "Auto"}</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <Button onClick={tidyLayout} variant="outline"
             className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb]"
             title="Auto-arrange nodes into topological columns">
@@ -797,14 +1009,14 @@ function BuilderInner({
           </Button>
           <Button
             disabled={isNew || !executionReady || runMutation.isPending}
-            onClick={() => runMutation.mutate()}
+            onClick={() => (triggerNodes.length ? setRunInputOpen(true) : runMutation.mutate({}))}
             className="h-8 rounded-none bg-[#0f1117] px-3 text-[11px] font-medium text-white hover:bg-[#1f2937] disabled:opacity-40"
             title={isNew ? "Save the workflow first before running" : undefined}>
             {runMutation.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Play className="mr-1.5 h-3 w-3" />}
             Run workflow
           </Button>
           <Button
-            onClick={() => navigate("/runs")}
+            onClick={() => guardedNavigate("/runs")}
             variant="outline"
             className="h-8 rounded-none border-[#d1d5db] px-3 text-[11px] font-medium text-[#6b7280] hover:bg-[#f9fafb]">
             <History className="mr-1.5 h-3 w-3" />
@@ -1008,6 +1220,7 @@ function BuilderInner({
                 skills={allSkills}
                 onPlanWorkflow={(node, feedback) => planMutation.mutate({ sup: node, feedback })}
                 planPending={planMutation.isPending}
+                planError={planMutation.error instanceof Error ? planMutation.error.message : null}
                 hasGeneratedPlan={Boolean(selectedNode && nodes.some((n) => (n.data as Record<string, unknown>)?.generatedBy === selectedNode.id))}
                 onTuneNode={(node, instruction) => tuneNodeMutation.mutate({ node, instruction })}
                 tunePending={tuneNodeMutation.isPending}
@@ -1028,6 +1241,111 @@ function BuilderInner({
         </div>}
         </div>
       </div>
+
+      {/* Collect trigger values before starting the run. */}
+      {runInputOpen && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 100, background: "rgba(15,23,42,0.35)",
+            backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+          onClick={() => setRunInputOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "white", borderRadius: 14, padding: 24, width: 460, boxShadow: "0 20px 60px rgba(0,0,0,0.18)" }}
+          >
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#0f172a" }}>Start run</p>
+            <p style={{ margin: "4px 0 16px", fontSize: 12, color: "#94a3b8" }}>
+              This workflow asks for input before it runs.
+            </p>
+
+            {triggerNodes.map((node) => {
+              const d = node.data as Record<string, unknown>;
+              const field = String(d.fieldName ?? "input");
+              const required = d.required !== false;
+              return (
+                <div key={node.id} style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em", display: "block", marginBottom: 5 }}>
+                    {String(d.label ?? field)}
+                    {required && <span style={{ color: "#dc2626" }}> *</span>}
+                  </label>
+                  <textarea
+                    autoFocus={triggerNodes[0]?.id === node.id}
+                    rows={3}
+                    value={runInput[field] ?? ""}
+                    onChange={(e) => setRunInput((cur) => ({ ...cur, [field]: e.target.value }))}
+                    placeholder={String(d.placeholder ?? "")}
+                    style={{
+                      width: "100%", padding: "8px 10px", borderRadius: 7, border: "1px solid #e2e8f0",
+                      fontSize: 13, color: "#0f172a", outline: "none", resize: "vertical", boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              );
+            })}
+
+            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              <button
+                onClick={() => setRunInputOpen(false)}
+                style={{ flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 600, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", color: "#374151" }}
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!triggerInputComplete || runMutation.isPending}
+                onClick={() => { setRunInputOpen(false); runMutation.mutate(runInput); }}
+                style={{
+                  flex: 2, padding: "9px 0", fontSize: 13, fontWeight: 700,
+                  background: triggerInputComplete ? "#0f1117" : "#e2e8f0",
+                  color: triggerInputComplete ? "white" : "#94a3b8",
+                  border: "none", borderRadius: 8,
+                  cursor: triggerInputComplete ? "pointer" : "not-allowed",
+                }}
+              >
+                Run workflow
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unsaved-changes confirm for in-app navigation (Back, toolbar links). */}
+      <AlertDialog open={pendingNav !== null} onOpenChange={(open) => !open && setPendingNav(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This workflow has changes that haven't been saved to the server. Leaving now
+              discards them.
+              {!isNew && " A local draft is kept in this browser, but it won't reach the server."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingNav(null)}>Stay on this page</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const go = pendingNav;
+                setPendingNav(null);
+                saveGraph();
+                setTimeout(() => go?.(), 200); // let the save request fire first
+              }}
+            >
+              Save and leave
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                const go = pendingNav;
+                setPendingNav(null);
+                go?.();
+              }}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Discard changes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1038,7 +1356,7 @@ export default function WorkflowBuilder() {
   const [searchParams] = useSearchParams();
   const publishOnSave = searchParams.get("template") === "1";
   const token = getStoredToken() ?? "";
-  const canUseBackend = Boolean(token && token !== "preview-mode");
+  const canUseBackend = Boolean(token);
 
   return (
     <ReactFlowProvider>
@@ -1046,3 +1364,14 @@ export default function WorkflowBuilder() {
     </ReactFlowProvider>
   );
 }
+
+const bulkHeading: React.CSSProperties = {
+  margin: 0, padding: "8px 12px 3px", fontSize: 9, fontWeight: 700,
+  textTransform: "uppercase", letterSpacing: "0.1em", color: "#94a3b8",
+};
+const bulkItem: React.CSSProperties = {
+  display: "flex", alignItems: "baseline", gap: 6, width: "100%", textAlign: "left",
+  padding: "6px 12px", fontSize: 12, color: "#0f172a",
+  background: "none", border: "none", cursor: "pointer",
+};
+const bulkHint: React.CSSProperties = { fontSize: 10, color: "#94a3b8" };

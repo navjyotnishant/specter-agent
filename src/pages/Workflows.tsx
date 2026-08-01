@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,6 +10,7 @@ import {
   Clock,
   Code2,
   Copy,
+  FolderGit2,
   FolderOpen,
   GitBranch,
   Loader2,
@@ -26,9 +28,12 @@ import { SupervisorAgentNode } from "@/components/workflow/nodes/SupervisorAgent
 import { SpecialistAgentNode } from "@/components/workflow/nodes/SpecialistAgentNode";
 import { HumanApprovalNode } from "@/components/workflow/nodes/HumanApprovalNode";
 import { MemoryNode } from "@/components/workflow/nodes/MemoryNode";
+import { ImportRepoDialog } from "@/components/workflow/ImportRepoDialog";
 import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
-import type { Workflow, WorkflowRun, RuntimeWorkspace } from "@/lib/types";
+import { toast } from "@/hooks/use-toast";
+import { buildImportGraph, type ImportSelection } from "@/lib/repo-import";
+import type { ParsedRepository, Workflow, WorkflowRun, RuntimeWorkspace } from "@/lib/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -736,24 +741,23 @@ function WorkflowRow({ workflow, token, canUseBackend, onDelete, isDeleting, onC
 // ── main page ─────────────────────────────────────────────────────────────────
 const emptyGraph = { nodes: [], edges: [] };
 
-const previewWorkflows: Workflow[] = [
-  {
-    id: "security-review-team",
-    name: "Security Review Team",
-    description: "Supervisor-led security review with specialist agents, shared memory, and approval before final report.",
-    graph: emptyGraph,
-    is_template: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
-
 export default function Workflows() {
   const navigate = useNavigate();
   const token = getStoredToken() ?? "";
-  const canUseBackend = Boolean(token && token !== "preview-mode");
+  const canUseBackend = Boolean(token);
   const queryClient = useQueryClient();
   const [error, setError] = useState("");
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [newMenuAnchor, setNewMenuAnchor] = useState<{ bottom: number; right: number } | null>(null);
+  const newMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const [importOpen, setImportOpen] = useState(false);
+
+  const skillsQuery = useQuery({
+    queryKey: ["skills"],
+    queryFn: () => api.skills(token),
+    enabled: canUseBackend,
+    retry: false,
+  });
 
   const { data = [], isLoading } = useQuery({
     queryKey: ["workflows"],
@@ -762,7 +766,7 @@ export default function Workflows() {
     retry: false,
   });
 
-  const workflows = data.length ? data : previewWorkflows;
+  const workflows = data;
 
   const create = useMutation({
     mutationFn: (payload: { name: string; description: string; graph: typeof emptyGraph }) =>
@@ -776,12 +780,96 @@ export default function Workflows() {
   });
 
   const handleNewWorkflow = () => {
+    setNewMenuOpen(false);
     navigate("/workflows/new/builder");
   };
 
+  // ── import a repo as a brand-new workflow ─────────────────────────────────
+  // Creates the skills rows first (so node.data.selectedSkills resolves at run
+  // time), then creates the workflow and opens it in the builder.
+  /** Write the selected skills into the skill library. Shared by both import paths. */
+  const importSkills = async (
+    parsed: ParsedRepository,
+    selection: ImportSelection,
+    skillIdFor: (key: string) => string,
+  ) => {
+    const repoPath = parsed.repo?.path ?? "";
+    const picked = (parsed.skills ?? []).filter((s) => !s.error && selection.skills.has(s.key));
+
+    await Promise.all(
+      picked.map((skill) =>
+        api.createSkill(token, {
+          id: skillIdFor(skill.key),
+          name: skill.name || skill.key,
+          description: skill.description,
+          prompt_template: skill.body,
+          compatible_agent_roles: [],
+          source_repo: repoPath,
+          upsert: true,
+        }),
+      ),
+    );
+    queryClient.invalidateQueries({ queryKey: ["skills"] });
+    return picked.length;
+  };
+
+  /** Skills-only: populate the library, build no workflow. */
+  const handleImportSkillsOnly = async (
+    parsed: ParsedRepository,
+    selection: ImportSelection,
+    skillIdFor: (key: string) => string,
+  ) => {
+    const count = await importSkills(parsed, selection, skillIdFor);
+    setImportOpen(false);
+    toast({
+      title: `Imported ${count} skill${count === 1 ? "" : "s"}`,
+      description: "They're in your skill library and can be attached to any node from the inspector.",
+    });
+  };
+
+  const handleImport = async (
+    parsed: ParsedRepository,
+    selection: ImportSelection,
+    skillIdFor: (key: string) => string,
+  ) => {
+    const repoPath = parsed.repo?.path ?? "";
+    await importSkills(parsed, selection, skillIdFor);
+
+    const graph = buildImportGraph(parsed, selection, skillIdFor);
+
+    // Name the workflow after the orchestrator that drives it -- "tech-blog" says
+    // far more than the repo name, especially when importing one skill from a repo
+    // of many. The root is the supervisor nothing else points at; with several
+    // (or none) fall back to the repo, which is the only honest summary.
+    const targets = new Set(graph.edges.map((e) => e.target));
+    const roots = graph.nodes.filter(
+      (n) => n.type === "supervisorAgent" && !targets.has(n.id),
+    );
+    const root = roots.length === 1 ? roots[0] : null;
+    const rootData = (root?.data ?? {}) as { label?: string; objective?: string };
+
+    const created = await api.createWorkflow(token, {
+      name: rootData.label || parsed.repo?.name || "Imported workflow",
+      description:
+        rootData.objective?.trim() ||
+        `Imported from ${repoPath || parsed.repo?.name || "a repository"}`,
+      graph,
+    });
+    queryClient.invalidateQueries({ queryKey: ["workflows"] });
+    setImportOpen(false);
+    navigate(`/workflows/${created.id}/builder`);
+  };
+
+  // Deleting is irreversible, so it always routes through a confirm dialog.
+  const [pendingDelete, setPendingDelete] = useState<Workflow | null>(null);
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteWorkflow(token, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflows"] }),
+    onSuccess: (_res, id) => {
+      queryClient.invalidateQueries({ queryKey: ["workflows"] });
+      const name = workflows.find((w) => w.id === id)?.name;
+      toast({ title: `Deleted ${name ? `"${name}"` : "workflow"}` });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to delete workflow"),
   });
 
   const publish = useMutation({
@@ -829,19 +917,68 @@ export default function Workflows() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={handleNewWorkflow}
-              style={{
-                display: "flex", alignItems: "center", gap: 7,
-                padding: "9px 18px", borderRadius: 999,
-                background: "#4f46e5", color: "white", border: "none",
-                cursor: "pointer", fontSize: 13, fontWeight: 700,
-                boxShadow: "0 2px 10px #4f46e530",
-              }}
-            >
-              <Plus style={{ width: 13, height: 13 }} />
-              New workflow
-            </button>
+            <div style={{ position: "relative" }}>
+              <button
+                ref={newMenuButtonRef}
+                onClick={() => {
+                  const rect = newMenuButtonRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    setNewMenuAnchor({ bottom: rect.bottom, right: window.innerWidth - rect.right });
+                  }
+                  setNewMenuOpen((v) => !v);
+                }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 7,
+                  padding: "9px 18px", borderRadius: 999,
+                  background: "#4f46e5", color: "white", border: "none",
+                  cursor: "pointer", fontSize: 13, fontWeight: 700,
+                  boxShadow: "0 2px 10px #4f46e530",
+                }}
+              >
+                <Plus style={{ width: 13, height: 13 }} />
+                New workflow
+                <ChevronDown style={{ width: 12, height: 12, opacity: 0.8 }} />
+              </button>
+              {/* Portaled to <body>: the enclosing Card sets overflow-hidden, which
+                  would otherwise clip this menu to the card's bounds. */}
+              {newMenuOpen && newMenuAnchor && createPortal(
+                <>
+                  <div
+                    onClick={() => setNewMenuOpen(false)}
+                    style={{ position: "fixed", inset: 0, zIndex: 40 }}
+                  />
+                  <div style={{
+                    position: "fixed", top: newMenuAnchor.bottom + 6, right: newMenuAnchor.right, zIndex: 50,
+                    background: "white", border: "1px solid #e2e8f0", borderRadius: 10,
+                    boxShadow: "0 8px 30px rgba(0,0,0,0.12)", minWidth: 280, overflow: "hidden",
+                  }}>
+                    <button onClick={handleNewWorkflow} style={newMenuItem}>
+                      <Plus style={{ width: 13, height: 13, color: "#4f46e5", flexShrink: 0, marginTop: 2 }} />
+                      <span>
+                        <span style={{ display: "block", fontWeight: 700, fontSize: 12, color: "#0f172a" }}>Blank workflow</span>
+                        <span style={{ display: "block", fontSize: 10.5, color: "#94a3b8", marginTop: 1 }}>
+                          Start from an empty canvas
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => { setNewMenuOpen(false); setImportOpen(true); }}
+                      disabled={!canUseBackend}
+                      style={{ ...newMenuItem, borderTop: "1px solid #f1f5f9", opacity: canUseBackend ? 1 : 0.45 }}
+                    >
+                      <FolderGit2 style={{ width: 13, height: 13, color: "#4f46e5", flexShrink: 0, marginTop: 2 }} />
+                      <span>
+                        <span style={{ display: "block", fontWeight: 700, fontSize: 12, color: "#0f172a" }}>Import from repository</span>
+                        <span style={{ display: "block", fontSize: 10.5, color: "#94a3b8", marginTop: 1 }}>
+                          Build a workflow from a repo's skills and agents
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </>,
+                document.body,
+              )}
+            </div>
           </div>
           {error && <Alert variant="destructive" className="mt-3 rounded-xl"><AlertDescription>{error}</AlertDescription></Alert>}
         </CardContent>
@@ -916,7 +1053,7 @@ export default function Workflows() {
                         workflow={workflow}
                         token={token}
                         canUseBackend={canUseBackend}
-                        onDelete={(id) => remove.mutate(id)}
+                        onDelete={(id) => setPendingDelete(workflows.find((w) => w.id === id) ?? null)}
                         isDeleting={remove.isPending}
                         onCopyTemplate={handleCopyTemplate}
                         onPublish={(id) => publish.mutate(id)}
@@ -984,7 +1121,7 @@ export default function Workflows() {
                         workflow={workflow}
                         token={token}
                         canUseBackend={canUseBackend}
-                        onDelete={(id) => remove.mutate(id)}
+                        onDelete={(id) => setPendingDelete(workflows.find((w) => w.id === id) ?? null)}
                         isDeleting={remove.isPending}
                         onCopyTemplate={handleCopyTemplate}
                         onPublish={(id) => publish.mutate(id)}
@@ -1007,6 +1144,78 @@ export default function Workflows() {
         )}
       </Card>
 
+      {/* Delete is irreversible and cascades to the workflow's run history. */}
+      {pendingDelete && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 100, background: "rgba(15,23,42,0.35)",
+            backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+          onClick={() => setPendingDelete(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "white", borderRadius: 14, padding: 24, width: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.18)" }}
+          >
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <div style={{ background: "#fef2f2", borderRadius: 10, padding: 9, display: "flex", flexShrink: 0 }}>
+                <AlertTriangle style={{ width: 16, height: 16, color: "#dc2626" }} />
+              </div>
+              <div>
+                <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#0f172a" }}>
+                  Delete “{pendingDelete.name}”?
+                </p>
+                <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "#475569", lineHeight: 1.5 }}>
+                  This permanently removes the workflow, its saved canvas, and its entire run
+                  history — step runs, logs, agent transcripts, memory, and approvals.{" "}
+                  <strong>It can't be undone.</strong>
+                </p>
+                <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "#94a3b8" }}>
+                  Skills imported from a repository stay in your library.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+              <button
+                onClick={() => setPendingDelete(null)}
+                style={{
+                  flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 600, background: "#f8fafc",
+                  border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", color: "#374151",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                autoFocus
+                disabled={remove.isPending}
+                onClick={() => {
+                  remove.mutate(pendingDelete.id);
+                  setPendingDelete(null);
+                }}
+                style={{
+                  flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 700, background: "#dc2626",
+                  color: "white", border: "none", borderRadius: 8,
+                  cursor: remove.isPending ? "not-allowed" : "pointer", opacity: remove.isPending ? 0.6 : 1,
+                }}
+              >
+                Delete workflow
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importOpen && (
+        <ImportRepoDialog
+          token={token}
+          existingSkills={skillsQuery.data ?? []}
+          onClose={() => setImportOpen(false)}
+          onImport={handleImport}
+          onImportSkillsOnly={handleImportSkillsOnly}
+        />
+      )}
+
       <style>{`
         @keyframes wf-spin  { to { transform: rotate(360deg); } }
         @keyframes wf-pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
@@ -1014,3 +1223,8 @@ export default function Workflows() {
     </div>
   );
 }
+
+const newMenuItem: React.CSSProperties = {
+  display: "flex", alignItems: "flex-start", gap: 9, width: "100%", textAlign: "left",
+  padding: "10px 14px", background: "none", border: "none", cursor: "pointer",
+};
