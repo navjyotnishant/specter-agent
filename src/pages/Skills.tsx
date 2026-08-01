@@ -445,7 +445,37 @@ export default function Skills() {
   );
 }
 
-function SkillBtn({ skill, selected, onSelect }: { skill: Skill; selected: boolean; onSelect: (s: Skill) => void }) {
+/** Where a skill came from. Grouping alone loses this once a row is scrolled
+ *  away from its header, and the editor needs it to warn before overwriting. */
+export type SkillOrigin = "builtin" | "imported" | "own" | "unsaved";
+
+const ORIGIN_BADGE: Record<SkillOrigin, { label: string; className: string }> = {
+  builtin:  { label: "built-in",     className: "bg-slate-100 text-slate-500" },
+  imported: { label: "imported",     className: "bg-indigo-50 text-indigo-600" },
+  own:      { label: "hand-written", className: "bg-emerald-50 text-emerald-700" },
+  unsaved:  { label: "not saved",    className: "bg-amber-50 text-amber-700" },
+};
+
+/** Ids seeded by backend/app/runtime/skill_seeds.py. Listed explicitly rather
+ *  than inferred from id shape: an imported skill whose source_repo was cleared
+ *  has an identical slug id, so shape alone mislabels it. */
+const SEEDED_SKILL_IDS = new Set([
+  "breaking-change-detector", "dependency-risk-review", "deployment-risk-assessment",
+  "error-observability-review", "performance-review", "pr-readiness-review",
+  "release-notes-writer", "secrets-config-review", "secure-code-review",
+  "test-gap-analysis", "standard-report-format",
+]);
+
+export function originOf(skill: Skill, isSaved: boolean): SkillOrigin {
+  if (!isSaved) return "unsaved";
+  if (SEEDED_SKILL_IDS.has(skill.id)) return "builtin";
+  return String((skill as Skill & { source_repo?: string }).source_repo ?? "") ? "imported" : "own";
+}
+
+function SkillBtn({ skill, selected, origin, onSelect }: {
+  skill: Skill; selected: boolean; origin: SkillOrigin; onSelect: (s: Skill) => void;
+}) {
+  const badge = ORIGIN_BADGE[origin];
   return (
     <button
       type="button"
@@ -454,7 +484,12 @@ function SkillBtn({ skill, selected, onSelect }: { skill: Skill; selected: boole
         selected ? "bg-indigo-50" : "hover:bg-slate-50"
       }`}
     >
-      <p className={`truncate text-sm font-semibold ${selected ? "text-indigo-800" : "text-slate-800"}`}>{skill.name}</p>
+      <div className="flex items-center gap-1.5">
+        <p className={`min-w-0 flex-1 truncate text-sm font-semibold ${selected ? "text-indigo-800" : "text-slate-800"}`}>{skill.name}</p>
+        <span className={`shrink-0 rounded px-1.5 py-[1px] text-[8.5px] font-extrabold uppercase tracking-[0.05em] ${badge.className}`}>
+          {badge.label}
+        </span>
+      </div>
       <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400">
         {skill.description || "No description provided."}
       </p>
@@ -508,7 +543,7 @@ function SkillList({ skills, savedSkills, selectedSkillId, onSelect }: {
             )}
           </div>
           <div className="space-y-0.5">
-            {items.map((s) => <SkillBtn key={s.id} skill={s} selected={s.id === selectedSkillId} onSelect={onSelect} />)}
+            {items.map((s) => <SkillBtn key={s.id} skill={s} origin={originOf(s, savedSet.has(s.id))} selected={s.id === selectedSkillId} onSelect={onSelect} />)}
           </div>
         </div>
       ))}
