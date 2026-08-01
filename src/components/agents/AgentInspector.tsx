@@ -325,7 +325,14 @@ export function AgentInspector({
                   { value: "telegram", label: "Telegram — an allowlisted chat message" },
                 ]}
               />
-              {String(d.source) === "telegram" && <TelegramConfigForm />}
+              {String(d.source) === "telegram" && (
+                <>
+                  <TelegramConfigForm />
+                  <p className="mt-1.5 text-[10px] text-[#9ca3af]">
+                    Also in Settings → Users, under My integrations.
+                  </p>
+                </>
+              )}
             </Field>
             <Field label="Prompt shown at run time" required empty={!String(d.label ?? "").trim()}>
               <TextInput value={String(d.label ?? "")} onChange={(v) => patch({ label: v })} placeholder="Topic" />

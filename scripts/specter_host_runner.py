@@ -3278,6 +3278,18 @@ def save_telegram_config(payload: dict[str, Any]) -> dict[str, Any]:
         except (TypeError, ValueError):
             return {"ok": False, "message": f"Chat id '{raw}' is not a number."}
 
+    # Disconnect is an explicit flag, not an empty token: a blank bot_token
+    # already means "keep the stored one" (so rotating chat ids never has to echo
+    # the secret back), which makes it useless as a clear signal.
+    if payload.get("clear"):
+        # Removing the file is the stop: _telegram_poll() re-reads config every
+        # cycle and idles when _telegram_config() returns {}.
+        try:
+            TELEGRAM_CONFIG.unlink(missing_ok=True)
+        except OSError as exc:
+            return {"ok": False, "message": f"Could not remove config: {exc}"}
+        return {"ok": True, "cleared": True}
+
     merged = {
         # Secrets: an empty field means "unchanged", so the UI never has to echo them back.
         "bot_token": str(payload.get("bot_token") or "").strip() or current.get("bot_token", ""),

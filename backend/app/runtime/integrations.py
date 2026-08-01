@@ -52,6 +52,15 @@ def get_integration(user_id: str, provider: str) -> dict | None:
     }
 
 
+def delete_integration(user_id: str, provider: str) -> bool:
+    """Remove a user's stored credential. Returns whether a row was deleted."""
+    with db_session() as db:
+        return db.execute(
+            "DELETE FROM user_integrations WHERE user_id = ? AND provider = ?",
+            (user_id, provider),
+        ).rowcount > 0
+
+
 def secret_hint(secret: str) -> str:
     """Last 4 chars, for confirming *which* token is stored without exposing it."""
     return f"…{secret[-4:]}" if len(secret) > 4 else ""
@@ -82,7 +91,10 @@ def demo() -> None:
             "SELECT secret_enc FROM user_integrations WHERE user_id = ?", (uid,)
         ).fetchone()["secret_enc"]
         assert "TESTONLY" not in stored, "token must not sit in the DB in plaintext"
-        db.execute("DELETE FROM user_integrations WHERE user_id = ?", (uid,))
+
+    assert delete_integration(uid, "telegram") is True
+    assert delete_integration(uid, "telegram") is False, "second delete is a no-op"
+    with db_session() as db:
         db.execute("DELETE FROM users WHERE id = ?", (uid,))
 
     assert get_integration(uid, "telegram") is None

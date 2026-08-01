@@ -10,7 +10,17 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getStoredToken } from "@/lib/auth";
 
-export function TelegramConfigForm() {
+export function TelegramConfigForm({ variant = "compact" }: { variant?: "compact" | "page" }) {
+  // Same component in two homes: the ~280px inspector rail and a full-width
+  // settings card. Only the size tokens differ -- the states do not.
+  const page = variant === "page";
+  const sz = {
+    box: page ? "mt-3 border border-[#e5e7eb] bg-[#fafafa] p-4" : "mt-2 border border-[#e5e7eb] bg-[#fafafa] p-2.5",
+    text: page ? "text-xs" : "text-[10px]",
+    label: page ? "text-[11px]" : "text-[10px]",
+    input: page ? "text-xs px-3 py-2" : "text-[11px] px-2.5 py-1.5",
+    save: page ? "mt-3 px-4 py-2 text-xs" : "mt-2.5 w-full px-2 py-1.5 text-[11px]",
+  };
   const token = getStoredToken() ?? "";
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
@@ -42,6 +52,18 @@ export function TelegramConfigForm() {
     onError: (err: Error) => setError(err.message),
   });
 
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const disconnect = useMutation({
+    mutationFn: () => api.deleteTelegramConfig(token),
+    onSuccess: (res) => {
+      setConfirmDisconnect(false);
+      setChatIds("");
+      setError(res.warning ?? "");
+      queryClient.invalidateQueries({ queryKey: ["telegram-config"] });
+    },
+    onError: (err: Error) => setError(err.message || "Could not disconnect."),
+  });
+
   const save = useMutation({
     mutationFn: () =>
       api.saveTelegramConfig(token, {
@@ -66,14 +88,14 @@ export function TelegramConfigForm() {
     );
   }
 
-  const field = "w-full border border-[#e5e7eb] bg-white px-2.5 py-1.5 text-[11px] text-[#111827] outline-none focus:border-[#374151]";
+  const field = `w-full border border-[#e5e7eb] bg-white ${sz.input} text-[#111827] outline-none focus:border-[#374151]`;
 
   // Already set up: this is one bot for the whole host, so re-showing the token
   // form on every trigger node reads as "configure it again". Show state instead.
   if (data?.configured && !editing) {
     return (
-      <div className="mt-2 border border-[#e5e7eb] bg-[#fafafa] p-2.5">
-        <p className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700">
+      <div className={sz.box}>
+        <p className={`flex items-center gap-1 ${sz.text} font-semibold text-emerald-700`}>
           <CheckCircle2 className="h-3 w-3" />
           Bot connected ({data.bot_token_hint}) · {data.allowed_chat_ids.length} chat
           {data.allowed_chat_ids.length === 1 ? "" : "s"}
@@ -83,7 +105,7 @@ export function TelegramConfigForm() {
         </p>
         <button
           onClick={() => setEditing(true)}
-          className="mt-2 border border-[#d1d5db] bg-white px-2 py-1 text-[10px] font-medium text-[#374151]"
+className={`mt-2 border border-[#d1d5db] bg-white px-2 py-1 ${sz.text} font-medium text-[#374151]`}
         >
           Change bot settings
         </button>
@@ -92,7 +114,7 @@ export function TelegramConfigForm() {
   }
 
   return (
-    <div className="mt-2 border border-[#e5e7eb] bg-[#fafafa] p-2.5">
+    <div className={sz.box}>
       {data?.configured && (
         <div className="mb-2 flex items-center justify-between">
           <p className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700">
@@ -174,7 +196,7 @@ export function TelegramConfigForm() {
       <button
         onClick={() => save.mutate()}
         disabled={save.isPending}
-        className="mt-2.5 w-full border border-[#0f1117] bg-[#0f1117] px-2 py-1.5 text-[11px] font-medium text-white disabled:opacity-40"
+className={`border border-[#0f1117] bg-[#0f1117] ${sz.save} font-medium text-white disabled:opacity-40`}
       >
         {save.isPending ? "Saving…" : data?.configured ? "Update bot config" : "Save bot config"}
       </button>

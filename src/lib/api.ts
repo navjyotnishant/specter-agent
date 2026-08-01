@@ -196,6 +196,11 @@ export const api = {
     }),
   telegramConfig: (token: string) =>
     request<TelegramConfig>("/runtime-adapters/telegram/config", { headers: authHeaders(token) }),
+  deleteTelegramConfig: (token: string) =>
+    request<{ ok: boolean; removed?: boolean; warning?: string }>("/runtime-adapters/telegram/config", {
+      method: "DELETE",
+      headers: authHeaders(token),
+    }),
   saveTelegramConfig: (token: string, payload: { bot_token?: string; allowed_chat_ids: string[] }) =>
     request<TelegramConfig & { message?: string }>("/runtime-adapters/telegram/config", {
       method: "POST",

@@ -1,7 +1,8 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Shield, Trash2, UserPlus, Users as UsersIcon } from "lucide-react";
+import { Loader2, Send, Shield, Trash2, UserPlus, Users as UsersIcon } from "lucide-react";
 import { getStoredToken, useAuth } from "@/lib/auth";
+import { TelegramConfigForm } from "@/components/agents/TelegramConfigForm";
 import { api } from "@/lib/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -97,6 +98,21 @@ export default function Users() {
           </form>
           {!token && <p className="mt-3 text-sm text-slate-500">Sign in to manage users.</p>}
           {error && <Alert variant="destructive" className="mt-4 rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-[2rem] border-white/80 bg-white/80 shadow-sm">
+        <CardContent className="p-5 sm:p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-100 text-sky-800"><Send className="h-5 w-5" /></span>
+            <div>
+              <h3 className="text-lg font-black text-slate-950">My integrations</h3>
+              <p className="text-sm text-slate-600">Credentials for your account, shared by every workflow you run.</p>
+            </div>
+          </div>
+          {token
+            ? <TelegramConfigForm variant="page" />
+            : <p className="text-sm text-slate-500">Sign in to manage your integrations.</p>}
         </CardContent>
       </Card>
 

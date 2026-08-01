@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.db.session import db_session
-from app.runtime.integrations import get_integration, save_integration, secret_hint
+from app.runtime.integrations import delete_integration, get_integration, save_integration, secret_hint
 from app.runtime.auth import issue_service_token, require_admin, require_user
 
 router = APIRouter(prefix="/runtime-adapters", tags=["runtime-adapters"])
@@ -284,6 +284,25 @@ def save_telegram_config(request: TelegramConfigRequest, user: dict = Depends(re
         return {"ok": True, "configured": True, "warning":
                 result.get("message") or "Saved, but the host runner is unreachable."}
     return {"ok": True, "configured": True}
+
+
+@router.delete("/telegram/config")
+def delete_telegram_config(user: dict = Depends(require_admin)) -> dict[str, Any]:
+    """Disconnect the bot: clear the stored credential AND stop the poller.
+
+    Clearing only the database row would leave the host runner still long-polling
+    with the old token, so the bot would keep accepting messages after the UI
+    reports it disconnected -- worse than not offering the button at all.
+    """
+    removed = delete_integration(user["id"], "telegram")
+    # An explicit clear flag: a blank bot_token means "keep the stored one" on
+    # that endpoint, so it cannot double as a disconnect signal.
+    result = call_host_runner("/telegram/config", method="POST", timeout=15,
+                              body={"clear": True})
+    if not result.get("ok"):
+        return {"ok": True, "removed": removed, "warning":
+                "Credential removed, but the host runner is unreachable — it may still be polling."}
+    return {"ok": True, "removed": removed}
 
 
 @router.post("/telegram/discover-chats")
