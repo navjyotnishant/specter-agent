@@ -475,30 +475,43 @@ function SkillList({ skills, savedSkills, selectedSkillId, onSelect }: {
   onSelect: (s: Skill) => void;
 }) {
   const savedSet = new Set(savedSkills.map((s) => s.id));
-  const saved = skills.filter((s) => savedSet.has(s.id));
-  const templates = skills.filter((s) => !savedSet.has(s.id));
+  // Grouped by real provenance rather than "in the database or not". source_repo
+  // was already fetched on every skill and never read, so an imported skill was
+  // indistinguishable from one written by hand.
+  const repoName = (path: string) => path.replace(/\/+$/, "").split("/").filter(Boolean).pop() ?? "repo";
+  const groups = new Map<string, Skill[]>();
+  for (const skill of skills) {
+    const isSaved = savedSet.has(skill.id);
+    const src = String((skill as Skill & { source_repo?: string }).source_repo ?? "");
+    const key = !isSaved ? "Starting points"
+      : src ? `From ${repoName(src)}`
+      : "Your skills";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(skill);
+  }
+  // Own skills first, then imports, then unsaved templates.
+  const order = (k: string) => (k === "Your skills" ? 0 : k === "Starting points" ? 2 : 1);
+  const sorted = [...groups.entries()].sort((a, b) => order(a[0]) - order(b[0]) || a[0].localeCompare(b[0]));
   const noResults = skills.length === 0;
 
   return (
     <div className="p-2">
       {noResults && <p className="p-3 text-xs text-slate-400">No skills match the current search.</p>}
-      {saved.length > 0 && (
-        <>
-          <SectionHeader label="Your skills" />
-          <div className="space-y-0.5">
-            {saved.map((s) => <SkillBtn key={s.id} skill={s} selected={s.id === selectedSkillId} onSelect={onSelect} />)}
+      {sorted.map(([label, items], i) => (
+        <div key={label}>
+          {i > 0 && <div className="my-2 border-t border-slate-100" />}
+          <div className="flex items-center gap-2 px-2 pb-1 pt-2">
+            <span className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">{label}</span>
+            <span className="text-[10px] font-semibold text-slate-300">{items.length}</span>
+            {label === "Starting points" && (
+              <span className="text-[9px] text-slate-400">not saved yet</span>
+            )}
           </div>
-        </>
-      )}
-      {templates.length > 0 && (
-        <>
-          {saved.length > 0 && <div className="my-2 border-t border-slate-100" />}
-          <SectionHeader label="Templates" />
           <div className="space-y-0.5">
-            {templates.map((s) => <SkillBtn key={s.id} skill={s} selected={s.id === selectedSkillId} onSelect={onSelect} />)}
+            {items.map((s) => <SkillBtn key={s.id} skill={s} selected={s.id === selectedSkillId} onSelect={onSelect} />)}
           </div>
-        </>
-      )}
+        </div>
+      ))}
     </div>
   );
 }
