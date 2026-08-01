@@ -261,6 +261,10 @@
   display: flex; padding: 0 20px; border-bottom: 1px solid #e8ecf1;
   background: #fbfcfd;
 }
+/* The mockups disagree: workflows and skills use 9px 14px, models and users
+   use 10px 15px. Neither is wrong — they were authored separately. The base is
+   the workflows value; .sp-tabs-lg opts into the roomier one. */
+.sp-tabs-lg .sp-tb { padding: 10px 15px; }
 .sp-tb {
   padding: 9px 14px; font-size: 12px; font-weight: 700; color: #94a3b8;
   cursor: pointer; border-bottom: 2px solid transparent;

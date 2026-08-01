@@ -248,6 +248,13 @@ export default function Models() {
     enabled: canUseBackend,
     retry: false,
   });
+  const { data: allWorkflows = [] } = useQuery({
+    queryKey: ["workflows"],
+    queryFn: () => api.workflows(token ?? ""),
+    enabled: canUseBackend,
+    retry: false,
+  });
+
   const { data: runtimeRuns = [] } = useQuery({
     queryKey: ["runtime-runs", "codex-cli"],
     queryFn: () => api.codexRuntimeRuns(token ?? ""),
@@ -467,6 +474,15 @@ export default function Models() {
 
   const agentRows = directCliRuntime?.agent_status ?? [];
 
+  /** What an approved path is actually used for. An approved repository nobody
+   *  runs is still granted access, so saying "unused" is the useful signal —
+   *  it is a candidate for revoking. */
+  const workspaceUsage = (path: string) => {
+    const n = allWorkflows.filter((w) => w.workspace_path === path).length;
+    if (n) return `used by ${n} workflow${n === 1 ? "" : "s"}`;
+    return path.includes("/.specter/imports/") ? "imported · unused" : "unused";
+  };
+
   const approvedWorkspacePaths = new Set(activeRuntimeWorkspaces.map((workspace) => workspace.path));
   const discoveredRepositories = discoverRepositories.data?.repositories ?? [];
   const completedRuntimeRuns = runtimeRuns.filter((run) => run.status === "completed").length;
@@ -556,13 +572,20 @@ export default function Models() {
           carried its own radius, background and font-size, none of which
           matched. `.sp-tb` / `.sp-tb-on` are the shared classes. */}
       <Tabs defaultValue="infrastructure">
-        <TabsList className="sp-tabs h-auto justify-start rounded-none bg-transparent p-0">
+        <TabsList className="sp-tabs sp-tabs-lg h-auto justify-start rounded-none bg-transparent p-0">
           <TabsTrigger value="infrastructure" className="sp-tb rounded-none">
             Runtimes
           </TabsTrigger>
-          <TabsTrigger value="access" className="sp-tb rounded-none">
+          {/* Access scrolls to its own frame below rather than swapping the
+              panel — the design shows Runtimes and Access at the same time, and
+              the tab is the way to jump to it, not to hide the other one. */}
+          <button
+            type="button"
+            className="sp-tb"
+            onClick={() => document.getElementById("access")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          >
             Access
-          </TabsTrigger>
+          </button>
           <TabsTrigger value="logs" className="sp-tb rounded-none">
             <span className="flex items-center gap-2">
               Console
@@ -932,7 +955,7 @@ export default function Models() {
         </Card>
       </div>
 
-      {/* ── Row 2: Host Runner + Directory Scan + Approved ── */}
+      {/* ── Host Runner ── */}
       <div className="grid gap-4 xl:grid-cols-3">
 
         {/* ── Host Runner ── */}
@@ -1210,152 +1233,6 @@ export default function Models() {
         {/* Approving a repository grants an agent filesystem access to it. The
             previous copy said "Add" and "Approved", which reads as list
             management rather than granting access. */}
-        <TabsContent value="access" className="mt-4 space-y-4">
-          <div className="sp-warnbox">
-            <div className="t">⚠ Approving a repository grants agent access to it</div>
-            <div className="b">
-              Agents can read every file in an approved path, and in <b>Direct CLI</b> mode
-              they run on this host with no isolation — including any <code>.env</code>,
-              credentials or client work inside. Approve only repositories you would hand
-              to a contractor.
-            </div>
-          </div>
-
-        {/* ── Directory Scan ── */}
-        <Card className="sp-frame">
-          <CardContent className="p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-cyan-100 text-cyan-800">
-                  <FolderSearch className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-base font-black text-slate-950">Directory scan</h3>
-                  <p className="text-xs font-semibold text-slate-500">Discover repositories</p>
-                </div>
-              </div>
-              <Button type="button" variant="outline" className="w-fit rounded-[8px] bg-white" onClick={() => setDirectoryScanOpen((open) => !open)}>
-                {directoryScanOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
-                {directoryScanOpen ? "Hide" : "Show"}
-              </Button>
-            </div>
-            {directoryScanOpen && (
-              <>
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                  <Input className="rounded-[8px] bg-white" value={discoveryRoot} onChange={(event) => setDiscoveryRoot(event.target.value)} placeholder="Absolute path to scan, e.g. ~/code or /Users/you/projects" />
-                  <Button type="button" disabled={!canUseBackend || !discoveryRoot.trim() || discoverRepositories.isPending || hostRunnerOffline} onClick={() => discoverRepositories.mutate()} className="rounded-[8px] bg-cyan-800 hover:bg-cyan-900">
-                    {discoverRepositories.isPending && <Loader2 className="mr-2 h-4 w-4" />}
-                    {discoverRepositories.isPending ? "Scanning" : "Scan"}
-                  </Button>
-                </div>
-                {discoverRepositories.data && (
-                  <div className="mt-4 rounded-[8px] border border-slate-100 bg-slate-50 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      {/* No "Select all". It approved up to 50 repositories in
-                          two clicks with no confirmation, and a partial failure
-                          left some granted while reporting that nothing worked.
-                          Each path is reviewed on its own — the design says so
-                          explicitly: "there is no bulk approve". */}
-                      <p className="text-sm font-black text-slate-950">
-                        {discoveredRepositories.length} found · review before approving
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" disabled={!selectedDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths([])} variant="outline" className="rounded-[6px] bg-white">Deselect</Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button size="sm" disabled={!selectedDiscoveredPaths.length || approveSelectedRepositories.isPending} className="rounded-[6px] bg-slate-900 hover:bg-slate-800">
-                              Grant access…
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                Grant agents access to {selectedDiscoveredPaths.length} repositor
-                                {selectedDiscoveredPaths.length === 1 ? "y" : "ies"}?
-                              </AlertDialogTitle>
-                              <AlertDialogDescription asChild>
-                                <div className="space-y-3">
-                                  <p>
-                                    Approved repositories can be <strong>read in full</strong> by any
-                                    agent you run — including <code>.env</code> files, credentials and
-                                    client work. In <strong>Direct CLI</strong> mode agents also execute
-                                    on this host with no isolation.
-                                  </p>
-                                  <div className="max-h-40 overflow-y-auto rounded-[6px] border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700">
-                                    {selectedDiscoveredPaths.map((path) => <div key={path}>{path}</div>)}
-                                  </div>
-                                  <p>Approve only repositories you would hand to a contractor.</p>
-                                </div>
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => approveSelectedRepositories.mutate()} className="bg-slate-900 text-white hover:bg-slate-800">
-                                Grant access
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </div>
-                    <div className="mt-3 max-h-56 space-y-2 overflow-auto pr-1">
-                      {discoveredRepositories.length ? discoveredRepositories.map((repo) => {
-                        const approved = approvedWorkspacePaths.has(repo.path);
-                        const checked = selectedDiscoveredPaths.includes(repo.path);
-                        return (
-                          <label key={repo.path} className="flex cursor-pointer gap-3 rounded-[8px] bg-white p-3">
-                            <Checkbox checked={approved || checked} disabled={approved}
-                              onCheckedChange={(value) => setSelectedDiscoveredPaths((paths) => value ? [...new Set([...paths, repo.path])] : paths.filter((path) => path !== repo.path))} />
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="font-black text-slate-950">{repo.name}</p>
-                                {approved && <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Approved</Badge>}
-                              </div>
-                              <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{repo.path}</p>
-                            </div>
-                          </label>
-                        );
-                      }) : <p className="text-sm font-semibold text-slate-500">No repositories found.</p>}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Approved paths, visible by default and rendered as rows rather than
-            collapsed behind a "Show" button. A security control users do not
-            see is one they do not audit — and this is the answer to "what can
-            agents actually touch?". Revoke says Revoke, not "Remove". */}
-        <div className="sp-frame">
-          <div className="sp-sec">
-            <h2>Approved · {activeRuntimeWorkspaces.length} path{activeRuntimeWorkspaces.length === 1 ? "" : "s"}</h2>
-            <div className="sp-sub">Agents can read every file in these repositories.</div>
-
-            {activeRuntimeWorkspaces.length === 0 && (
-              <p className="text-sm text-slate-500">
-                No repositories approved yet — nothing can run until one is.
-              </p>
-            )}
-
-            {activeRuntimeWorkspaces.map((workspace) => (
-              <div className="sp-pathrow" key={workspace.id}>
-                <code title={workspace.path}>{workspace.path}</code>
-                <span style={{ color: "#94a3b8", fontSize: 11 }}>{workspace.name}</span>
-                <button
-                  type="button"
-                  className="sp-rm"
-                  disabled={!canUseBackend || deleteWorkspace.isPending}
-                  onClick={() => deleteWorkspace.mutate(workspace.id)}
-                >
-                  Revoke
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-        </TabsContent>
 
         <TabsContent value="logs" className="mt-4">
           <div className="rounded-[8px] bg-slate-950 text-white">
@@ -1450,6 +1327,77 @@ export default function Models() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Access is its own frame below Runtimes, not a tab — the design shows
+          both at once on purpose. "What can agents reach?" is a question you
+          ask while looking at whether they are ready, and hiding it behind a
+          tab means the security control is only seen by someone who goes
+          looking for it. */}
+      <div className="sp-frame" id="access">
+        <div className="sp-hdr">
+          <h1>Access</h1>
+          <p>Repositories agents are allowed to read and write</p>
+        </div>
+        <div className="sp-sec">
+          <div className="sp-warnbox">
+            <div className="t">⚠ Approving a repository grants agent access to it</div>
+            <div className="b">
+              Agents can read every file in an approved path, and in <b>Direct CLI</b> mode
+              they run on this host with no isolation — including any <code>.env</code>,
+              credentials or client work inside. Approve only repositories you would hand
+              to a contractor.
+            </div>
+          </div>
+
+          <h2>Approved · {activeRuntimeWorkspaces.length} path{activeRuntimeWorkspaces.length === 1 ? "" : "s"}</h2>
+          <div className="sp-sub">Shown by default. This is the answer to “what can agents touch?”</div>
+
+          {activeRuntimeWorkspaces.length === 0 && (
+            <p className="text-sm text-slate-500">
+              No repositories approved yet — nothing can run until one is.
+            </p>
+          )}
+
+          {activeRuntimeWorkspaces.map((workspace) => (
+            <div className="sp-pathrow" key={workspace.id}>
+              <code title={workspace.path}>{workspace.path}</code>
+              <span style={{ color: "#94a3b8", fontSize: 11 }}>{workspaceUsage(workspace.path)}</span>
+              <button
+                type="button"
+                className="sp-rm"
+                disabled={!canUseBackend || deleteWorkspace.isPending}
+                onClick={() => deleteWorkspace.mutate(workspace.id)}
+              >
+                Revoke
+              </button>
+            </div>
+          ))}
+
+          <h2 style={{ marginTop: 17 }}>Scan for repositories</h2>
+          <div className="sp-sub">
+            {discoveredRepositories.length
+              ? `Found ${discoveredRepositories.length} under this root. Review before approving — there is no bulk approve.`
+              : "Review before approving — there is no bulk approve."}
+          </div>
+          <div className="sp-pathrow" style={{ borderBottom: "none" }}>
+            <input
+              className="flex-1 border-0 bg-transparent font-mono text-[11px] outline-none"
+              value={discoveryRoot}
+              onChange={(e) => setDiscoveryRoot(e.target.value)}
+              placeholder="Absolute path to scan, e.g. ~/code"
+            />
+            <button
+              type="button"
+              className="sp-rm"
+              style={{ color: "#334155", borderColor: "#dde3ea" }}
+              disabled={!canUseBackend || !discoveryRoot.trim() || discoverRepositories.isPending || hostRunnerOffline}
+              onClick={() => discoverRepositories.mutate()}
+            >
+              {discoverRepositories.isPending ? "Scanning…" : "Scan"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

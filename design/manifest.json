@@ -463,7 +463,7 @@
         {
           "key": "tabs",
           "mock": ".frame:first-of-type .tb",
-          "live": "[role=tab]"
+          "live": ".sp-tabs .sp-tb"
         },
         {
           "key": "columns",
@@ -490,21 +490,6 @@
       ],
       "harnessRoute": "/__parity/models",
       "waivers": [
-        {
-          "selector": ".sp-warnbox",
-          "reason": "lives in the Access tab; Radix mounts only the active tab, so it is absent from the DOM at measure time",
-          "tracked": "harness"
-        },
-        {
-          "selector": ".sp-pathrow",
-          "reason": "Access tab — not mounted when the default tab is measured",
-          "tracked": "harness"
-        },
-        {
-          "selector": ".sp-rm",
-          "reason": "Access tab — not mounted when the default tab is measured",
-          "tracked": "harness"
-        },
         {
           "selector": ".sp-top",
           "reason": "the app shell renders the top bar, not the page; the page header is .sp-hdr",
