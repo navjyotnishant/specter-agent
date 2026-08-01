@@ -155,11 +155,11 @@ function DependencyChain({
  *  the distinction is the point: an uninstalled agent needs an install command,
  *  an unauthenticated one needs a login, and conflating them sends people to the
  *  wrong fix. Sandbox mode additionally needs the daemon up. */
-function AgentState({ installed, authenticated, sandboxReady }: {
-  installed: boolean; authenticated: boolean; sandboxReady: boolean;
+function AgentState({ installed, authenticated, runtimeUp }: {
+  installed: boolean; authenticated: boolean; runtimeUp: boolean;
 }) {
   if (!installed) return <span className="sp-st sp-st-no">not installed</span>;
-  if (!sandboxReady) return <span className="sp-st sp-st-auth">daemon down</span>;
+  if (!runtimeUp) return <span className="sp-st sp-st-auth">daemon down</span>;
   if (!authenticated) return <span className="sp-st sp-st-auth">login needed</span>;
   return <span className="sp-st sp-st-ok">ready</span>;
 }
@@ -321,12 +321,21 @@ export default function Models() {
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Unable to update Docker Sandbox policy"),
   });
+  // Revoking access is the one mutation on this page that had no error handler,
+  // so a refused revoke left the row in place with no message — the user could
+  // not tell whether access had actually been removed. For a security control
+  // that failure mode is worse than the error itself.
   const deleteWorkspace = useMutation({
     mutationFn: (id: string) => api.deleteRuntimeWorkspace(token ?? "", id),
     onSuccess: () => {
       setSelectedWorkspaceId("");
+      setError("");
       queryClient.invalidateQueries({ queryKey: ["runtime-workspaces"] });
     },
+    onError: (err) =>
+      setError(err instanceof Error
+        ? `Could not revoke access: ${err.message}`
+        : "Could not revoke access — the path is still approved."),
   });
   const discoverRepositories = useMutation({
     mutationFn: () => api.discoverRepositories(token ?? "", { root_path: discoveryRoot, max_depth: 3, max_results: 50 }),
@@ -460,7 +469,6 @@ export default function Models() {
 
   const approvedWorkspacePaths = new Set(activeRuntimeWorkspaces.map((workspace) => workspace.path));
   const discoveredRepositories = discoverRepositories.data?.repositories ?? [];
-  const selectableDiscoveredPaths = discoveredRepositories.filter((repo) => !approvedWorkspacePaths.has(repo.path)).map((repo) => repo.path);
   const completedRuntimeRuns = runtimeRuns.filter((run) => run.status === "completed").length;
   const preferredRuntime =
     dockerSandboxRuntime?.status === "ready"
@@ -512,37 +520,15 @@ export default function Models() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <Badge className="mb-2 rounded-full bg-slate-900 text-white hover:bg-slate-900">Local execution</Badge>
-          <h2 className="text-3xl font-black text-slate-950">Models</h2>
+      {/* The page header, per the design: a title and one line saying what the
+          page is for. The five tinted stat tiles that used to sit here restated
+          exactly what the dependency chain below now shows — host runner,
+          sandbox, direct CLI, repo count — in a second visual language. */}
+      <div className="sp-frame">
+        <div className="sp-hdr">
+          <h1>Runtimes</h1>
+          <p>Where agents run, and what they can reach</p>
         </div>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-          {/* Host runner status */}
-          <div className={`rounded-[8px] border px-4 py-3 text-center shadow-sm ${hostRunnerOffline ? "border-slate-200 bg-slate-100 text-slate-800" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
-            <p className="text-xl font-black">{hostRunnerOffline ? "Offline" : "Online"}</p>
-            <p className={`text-xs font-bold uppercase ${hostRunnerOffline ? "text-slate-500" : "text-emerald-700"}`}>Host Runner</p>
-          </div>
-          {/* Docker Sandbox status */}
-          <div className={`rounded-[8px] border px-4 py-3 text-center shadow-sm ${sandboxReady ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-            <p className="text-xl font-black">{sandboxReady ? "Ready" : "Setup"}</p>
-            <p className={`text-xs font-bold uppercase ${sandboxReady ? "text-emerald-700" : "text-amber-700"}`}>Sandbox</p>
-          </div>
-          {/* Direct CLI status */}
-          <div className={`rounded-[8px] border px-4 py-3 text-center shadow-sm ${directCliRuntime?.available ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-            <p className="text-xl font-black">{directCliRuntime?.available ? "Ready" : "Setup"}</p>
-            <p className={`text-xs font-bold uppercase ${directCliRuntime?.available ? "text-emerald-700" : "text-amber-700"}`}>Direct CLI</p>
-          </div>
-          <div className="rounded-[8px] border border-slate-100 bg-white px-4 py-3 text-center shadow-sm text-slate-950">
-            <p className="text-xl font-black">{activeRuntimeWorkspaces.length}</p>
-            <p className="text-xs font-bold uppercase text-slate-500">Repos</p>
-          </div>
-          <div className="rounded-[8px] border border-slate-100 bg-white px-4 py-3 text-center shadow-sm text-slate-950">
-            <p className="text-xl font-black">{completedRuntimeRuns}</p>
-            <p className="text-xs font-bold uppercase text-slate-500">Runs</p>
-          </div>
-        </div>
-      </div>
 
       {error && (
         <Alert variant="destructive" className="rounded-[8px]">
@@ -562,7 +548,8 @@ export default function Models() {
         agentsReady={agentReadiness.ready}
         agentsTotal={agentReadiness.total}
         approvedPaths={activeRuntimeWorkspaces.length}
-      />
+        />
+      </div>
 
       {/* Underline tabs, per the design — not shadcn's pill group. The mockup
           specifies a bottom-border indicator on a flat bar; the pill variant
@@ -604,11 +591,39 @@ export default function Models() {
               {agentRows.length === 0 && (
                 <tr><td colSpan={5} className="text-slate-400">No agent status reported by the host runner.</td></tr>
               )}
+              {/* The sandbox runtime itself heads the table. Every agent row
+                  below depends on it, so a reader seeing four "daemon down"
+                  rows can see why in the row above rather than inferring it. */}
+              <tr>
+                <td className="sp-ag">Docker sandbox</td>
+                <td>
+                  {sandboxReady
+                    ? <span className="sp-st sp-st-ok">ready</span>
+                    : <span className="sp-st sp-st-no">{dockerSandboxBadge.label}</span>}
+                </td>
+                <td style={{ color: "#94a3b8" }}>n/a</td>
+                <td style={dockerSandboxRuntime?.sbx_version ? undefined : { color: "#94a3b8" }}>
+                  {dockerSandboxRuntime?.sbx_version ?? dockerSandboxRuntime?.current_version ?? "—"}
+                </td>
+                <td>
+                  {!sandboxReady && (
+                    <button type="button" className="sp-fix"
+                      disabled={!canUseBackend || startSandboxDaemon.isPending}
+                      onClick={() => startSandboxDaemon.mutate()}>
+                      {startSandboxDaemon.isPending ? "Starting…" : "Start the daemon →"}
+                    </button>
+                  )}
+                </td>
+              </tr>
               {agentRows.map((ag) => (
                 <tr key={ag.key}>
                   <td className="sp-ag">{ag.display_name}</td>
-                  <td><AgentState installed={ag.installed} authenticated={ag.authenticated} sandboxReady={sandboxReady} /></td>
-                  <td><AgentState installed={ag.installed} authenticated={ag.authenticated} sandboxReady /></td>
+                  {/* Sandbox: the adapter reports daemon health, not per-agent
+                      state, so readiness is derived — the sandbox runs these
+                      same host binaries, so "installed AND daemon up" is the
+                      real condition. Direct CLI needs no daemon. */}
+                  <td><AgentState installed={ag.installed} authenticated={ag.authenticated} runtimeUp={sandboxReady} /></td>
+                  <td><AgentState installed={ag.installed} authenticated={ag.authenticated} runtimeUp /></td>
                   <td style={ag.version ? undefined : { color: "#94a3b8" }}>{ag.version ?? "—"}</td>
                   <td>
                     {!ag.installed && ag.docs_url && (
@@ -629,7 +644,7 @@ export default function Models() {
       <div className="grid gap-4 xl:grid-cols-2">
 
         {/* ── Docker Sandbox ── */}
-        <Card className="rounded-[1.5rem] border-emerald-100 bg-white/90 shadow-sm">
+        <Card className="sp-frame">
           <CardContent className="p-5">
             {/* Header */}
             <div className="flex items-start justify-between gap-3">
@@ -809,7 +824,7 @@ export default function Models() {
         </Card>
 
         {/* ── Direct CLI ── */}
-        <Card className="rounded-[1.5rem] border-amber-100 bg-white/90 shadow-sm">
+        <Card className="sp-frame">
           <CardContent className="p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
@@ -921,7 +936,7 @@ export default function Models() {
       <div className="grid gap-4 xl:grid-cols-3">
 
         {/* ── Host Runner ── */}
-        <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
+        <Card className="sp-frame">
           <CardContent className="p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
@@ -1020,7 +1035,7 @@ export default function Models() {
           : Boolean(selectedWorkspaceId && runtimePrompt.trim() && canUseBackend && directCliRuntime?.available && !createCliRuntimeRun.isPending);
 
         return (
-          <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
+          <Card className="sp-frame">
             <CardContent className="p-5">
               {/* Header */}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1207,7 +1222,7 @@ export default function Models() {
           </div>
 
         {/* ── Directory Scan ── */}
-        <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
+        <Card className="sp-frame">
           <CardContent className="p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
@@ -1236,9 +1251,15 @@ export default function Models() {
                 {discoverRepositories.data && (
                   <div className="mt-4 rounded-[8px] border border-slate-100 bg-slate-50 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-black text-slate-950">{discoveredRepositories.length} found</p>
+                      {/* No "Select all". It approved up to 50 repositories in
+                          two clicks with no confirmation, and a partial failure
+                          left some granted while reporting that nothing worked.
+                          Each path is reviewed on its own — the design says so
+                          explicitly: "there is no bulk approve". */}
+                      <p className="text-sm font-black text-slate-950">
+                        {discoveredRepositories.length} found · review before approving
+                      </p>
                       <div className="flex flex-wrap gap-2">
-                        <Button size="sm" disabled={!selectableDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths(selectableDiscoveredPaths)} variant="outline" className="rounded-[6px] bg-white">Select all</Button>
                         <Button size="sm" disabled={!selectedDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths([])} variant="outline" className="rounded-[6px] bg-white">Deselect</Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
@@ -1303,41 +1324,37 @@ export default function Models() {
           </CardContent>
         </Card>
 
-        {/* ── Approved ── */}
-        <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-slate-100 text-slate-900">
-                  <ShieldCheck className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-base font-black text-slate-950">Approved</h3>
-                  <p className="text-xs font-semibold text-slate-500">{activeRuntimeWorkspaces.length} repositories</p>
-                </div>
-              </div>
-              <Button type="button" variant="outline" className="rounded-[8px] bg-white" onClick={() => setApprovedOpen((open) => !open)}>
-                {approvedOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
-                {approvedOpen ? "Hide" : "Show"}
-              </Button>
-            </div>
-            {approvedOpen && (
-              <div className="mt-4 max-h-72 space-y-2 overflow-auto pr-1">
-                {activeRuntimeWorkspaces.length ? activeRuntimeWorkspaces.map((workspace) => (
-                  <div key={workspace.id} className="rounded-[8px] border border-slate-100 bg-slate-50 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-black text-slate-950">{workspace.name}</p>
-                        <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{workspace.path}</p>
-                      </div>
-                      <Button type="button" size="sm" variant="outline" disabled={deleteWorkspace.isPending} onClick={() => deleteWorkspace.mutate(workspace.id)} className="rounded-[6px] bg-white">Remove</Button>
-                    </div>
-                  </div>
-                )) : <p className="rounded-[8px] bg-slate-50 p-3 text-sm font-semibold text-slate-500">No approved repositories.</p>}
-              </div>
+        {/* Approved paths, visible by default and rendered as rows rather than
+            collapsed behind a "Show" button. A security control users do not
+            see is one they do not audit — and this is the answer to "what can
+            agents actually touch?". Revoke says Revoke, not "Remove". */}
+        <div className="sp-frame">
+          <div className="sp-sec">
+            <h2>Approved · {activeRuntimeWorkspaces.length} path{activeRuntimeWorkspaces.length === 1 ? "" : "s"}</h2>
+            <div className="sp-sub">Agents can read every file in these repositories.</div>
+
+            {activeRuntimeWorkspaces.length === 0 && (
+              <p className="text-sm text-slate-500">
+                No repositories approved yet — nothing can run until one is.
+              </p>
             )}
-          </CardContent>
-        </Card>
+
+            {activeRuntimeWorkspaces.map((workspace) => (
+              <div className="sp-pathrow" key={workspace.id}>
+                <code title={workspace.path}>{workspace.path}</code>
+                <span style={{ color: "#94a3b8", fontSize: 11 }}>{workspace.name}</span>
+                <button
+                  type="button"
+                  className="sp-rm"
+                  disabled={!canUseBackend || deleteWorkspace.isPending}
+                  onClick={() => deleteWorkspace.mutate(workspace.id)}
+                >
+                  Revoke
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
         </TabsContent>
 
         <TabsContent value="logs" className="mt-4">

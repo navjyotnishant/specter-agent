@@ -29,8 +29,8 @@
         },
         {
           "key": "st",
-          "mock": ".st.bad",
-          "live": ".sp-st-bad"
+          "mock": ".st",
+          "live": ".sp-st"
         },
         {
           "key": "ra",
@@ -55,7 +55,7 @@
         {
           "key": "hdr",
           "mock": ".hdr",
-          "live": ".sp-top"
+          "live": ".sp-hdr"
         },
         {
           "key": "acts",
@@ -86,6 +86,51 @@
           "key": "tabs",
           "mock": ".tabs",
           "live": ".sp-tabs"
+        },
+        {
+          "key": "btn.primary",
+          "mock": ".btn.primary",
+          "live": ".sp-btn-primary"
+        },
+        {
+          "key": "chipf.on",
+          "mock": ".chipf.on",
+          "live": ".sp-chip-on"
+        },
+        {
+          "key": "tb.on",
+          "mock": ".tb.on",
+          "live": ".sp-tb-on"
+        },
+        {
+          "key": "st.bad",
+          "mock": ".st.bad",
+          "live": ".sp-st-bad"
+        },
+        {
+          "key": "mini.dark",
+          "mock": ".mini.dark",
+          "live": ".sp-btn-sm.sp-btn-primary"
+        },
+        {
+          "key": "st.run",
+          "mock": ".st.run",
+          "live": ".sp-st-run"
+        },
+        {
+          "key": "st.ok",
+          "mock": ".st.ok",
+          "live": ".sp-st-ok"
+        },
+        {
+          "key": "st.never",
+          "mock": ".st.never",
+          "live": ".sp-st-never"
+        },
+        {
+          "key": "frame",
+          "mock": ".frame",
+          "live": ".sp-frame"
         }
       ],
       "sequences": [
@@ -187,7 +232,7 @@
         {
           "key": "hdr",
           "mock": ".hdr",
-          "live": ".sp-top"
+          "live": ".sp-hdr"
         },
         {
           "key": "acts",
@@ -258,6 +303,11 @@
           "key": "rl.on",
           "mock": ".rl.on",
           "live": ".sp-rl-on"
+        },
+        {
+          "key": "frame",
+          "mock": ".frame",
+          "live": ".sp-frame"
         }
       ],
       "sequences": [
@@ -356,7 +406,7 @@
         {
           "key": "hdr",
           "mock": ".frame:first-of-type .hdr",
-          "live": ".sp-top"
+          "live": ".sp-hdr"
         },
         {
           "key": "sec",
@@ -377,6 +427,36 @@
           "key": "warnbox",
           "mock": ".frame:first-of-type .warnbox",
           "live": ".sp-warnbox"
+        },
+        {
+          "key": "tb.on",
+          "mock": ".frame:first-of-type .tb.on",
+          "live": "[role=tab][data-state=active]"
+        },
+        {
+          "key": "st.ok",
+          "mock": ".frame:first-of-type .st.ok",
+          "live": ".sp-st-ok"
+        },
+        {
+          "key": "st.lim",
+          "mock": ".frame:first-of-type .st.lim",
+          "live": ".sp-st-lim"
+        },
+        {
+          "key": "st.auth",
+          "mock": ".frame:first-of-type .st.auth",
+          "live": ".sp-st-auth"
+        },
+        {
+          "key": "st.no",
+          "mock": ".frame:first-of-type .st.no",
+          "live": ".sp-st-no"
+        },
+        {
+          "key": "frame",
+          "mock": ".frame",
+          "live": ".sp-frame"
         }
       ],
       "sequences": [
@@ -408,7 +488,34 @@
         ".sp-top",
         ".sp-warnbox"
       ],
-      "harnessRoute": "/__parity/models"
+      "harnessRoute": "/__parity/models",
+      "waivers": [
+        {
+          "selector": ".sp-warnbox",
+          "reason": "lives in the Access tab; Radix mounts only the active tab, so it is absent from the DOM at measure time",
+          "tracked": "harness"
+        },
+        {
+          "selector": ".sp-pathrow",
+          "reason": "Access tab — not mounted when the default tab is measured",
+          "tracked": "harness"
+        },
+        {
+          "selector": ".sp-rm",
+          "reason": "Access tab — not mounted when the default tab is measured",
+          "tracked": "harness"
+        },
+        {
+          "selector": ".sp-top",
+          "reason": "the app shell renders the top bar, not the page; the page header is .sp-hdr",
+          "tracked": "harness"
+        },
+        {
+          "selector": "st.lim",
+          "reason": "rate-limited is a real backend state; the fixture has no rate-limited agent",
+          "tracked": "fixture"
+        }
+      ]
     },
     "users": {
       "route": "/settings/users",
@@ -437,7 +544,7 @@
         {
           "key": "hdr",
           "mock": ".frame:first-of-type .hdr",
-          "live": ".sp-top"
+          "live": ".sp-hdr"
         },
         {
           "key": "tb",
@@ -488,6 +595,36 @@
           "key": "gate",
           "mock": ".frame:first-of-type .gate",
           "live": ".sp-gate"
+        },
+        {
+          "key": "tb.on",
+          "mock": ".frame:first-of-type .tb.on",
+          "live": "[role=tab][data-state=active]"
+        },
+        {
+          "key": "btn.danger",
+          "mock": ".frame:first-of-type .btn.danger",
+          "live": ".sp-btn-danger"
+        },
+        {
+          "key": "badge.you",
+          "mock": ".frame:first-of-type .badge.you",
+          "live": ".sp-badge-you"
+        },
+        {
+          "key": "badge.adm",
+          "mock": ".frame:first-of-type .badge.adm",
+          "live": ".sp-badge-adm"
+        },
+        {
+          "key": "badge.opr",
+          "mock": ".frame:first-of-type .badge.opr",
+          "live": ".sp-badge-opr"
+        },
+        {
+          "key": "frame",
+          "mock": ".frame",
+          "live": ".sp-frame"
         }
       ],
       "sequences": [
@@ -610,7 +747,7 @@
         {
           "key": "hdr",
           "mock": ".hdr",
-          "live": ".sp-top"
+          "live": ".sp-hdr"
         },
         {
           "key": "att",
@@ -666,6 +803,36 @@
           "key": "side",
           "mock": ".side",
           "live": ".sp-side"
+        },
+        {
+          "key": "v.bad",
+          "mock": ".v.bad",
+          "live": ".sp-tile-v-bad"
+        },
+        {
+          "key": "st.run",
+          "mock": ".st.run",
+          "live": ".sp-st-run"
+        },
+        {
+          "key": "st.wait",
+          "mock": ".st.wait",
+          "live": ".sp-st-wait"
+        },
+        {
+          "key": "st.bad",
+          "mock": ".st.bad",
+          "live": ".sp-st-bad"
+        },
+        {
+          "key": "st.ok",
+          "mock": ".st.ok",
+          "live": ".sp-st-ok"
+        },
+        {
+          "key": "frame",
+          "mock": ".frame",
+          "live": ".sp-frame"
         }
       ],
       "sequences": [

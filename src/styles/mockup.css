@@ -361,6 +361,10 @@
 /* ── agent readiness ─────────────────────────────────────────────────────── */
 
 .sp-ag { font-weight: 600; }
+/* The Models agents table sits inside .sp-sec, where the mockup uses tighter
+   cells than the full-width page tables. */
+.sp-sec .sp-table th { padding: 6px 0; font-size: 9px; }
+.sp-sec .sp-table td { padding: 9px 0; font-size: 12px; }
 /* Three states, not two: "not installed", "daemon down" and "needs login" are
    three different problems with three different fixes, and collapsing them into
    one amber "setup needed" is what the design set out to correct. */
@@ -398,3 +402,21 @@
   margin-left: auto; font-size: 10.5px; color: #dc2626; cursor: pointer;
   border: 1px solid #fecaca; background: #fff; border-radius: 5px; padding: 3px 9px;
 }
+
+/* ── frame ───────────────────────────────────────────────────────────────────
+   The card shell, copied from the mockups' `.frame`. 10px radius and a single
+   neutral border — not the 24px pill with a tinted border that the previous
+   direction used. Sections inside it are separated by rules, not by gaps
+   between floating cards. */
+
+.sp-frame {
+  background: #fff; border: 1px solid #d8dee6; border-radius: 10px;
+  overflow: hidden; box-shadow: 0 6px 28px rgba(15, 23, 42, .09);
+  font-size: 13px; line-height: 1.5; color: var(--sp-fg);
+}
+.sp-hdr { padding: 14px 20px; border-bottom: 1px solid #e8ecf1; }
+.sp-hdr h1 { font-size: 19px; font-weight: 850; }
+.sp-hdr p { font-size: 12px; color: #7c8798; margin-top: 2px; }
+/* The last section in a frame has no rule under it — the frame border is the
+   boundary. */
+.sp-sec:last-child { border-bottom: 0; }
