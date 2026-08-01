@@ -36,6 +36,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
 
 const codexSigninCommand = "codex";
 const dockerSandboxMacInstallCommand = "brew install docker/tap/sbx";
@@ -155,12 +156,16 @@ function DependencyChain({
  *  the distinction is the point: an uninstalled agent needs an install command,
  *  an unauthenticated one needs a login, and conflating them sends people to the
  *  wrong fix. Sandbox mode additionally needs the daemon up. */
-function AgentState({ installed, authenticated, runtimeUp }: {
-  installed: boolean; authenticated: boolean; runtimeUp: boolean;
+function AgentState({ installed, authenticated, runtimeUp, rateLimited }: {
+  installed: boolean; authenticated: boolean; runtimeUp: boolean; rateLimited?: boolean | null;
 }) {
   if (!installed) return <span className="sp-st sp-st-no">not installed</span>;
   if (!runtimeUp) return <span className="sp-st sp-st-auth">daemon down</span>;
   if (!authenticated) return <span className="sp-st sp-st-auth">login needed</span>;
+  // Installed and signed in, but the provider is refusing calls. Distinct from
+  // "ready" because nothing will run, and distinct from "login needed" because
+  // signing in again does not help — you wait, or switch agent.
+  if (rateLimited) return <span className="sp-st sp-st-lim">rate limited</span>;
   return <span className="sp-st sp-st-ok">ready</span>;
 }
 
@@ -645,15 +650,38 @@ export default function Models() {
                       state, so readiness is derived — the sandbox runs these
                       same host binaries, so "installed AND daemon up" is the
                       real condition. Direct CLI needs no daemon. */}
-                  <td><AgentState installed={ag.installed} authenticated={ag.authenticated} runtimeUp={sandboxReady} /></td>
-                  <td><AgentState installed={ag.installed} authenticated={ag.authenticated} runtimeUp /></td>
+                  <td><AgentState installed={ag.installed} authenticated={ag.authenticated} runtimeUp={sandboxReady} rateLimited={ag.rate_limited} /></td>
+                  <td><AgentState installed={ag.installed} authenticated={ag.authenticated} runtimeUp rateLimited={ag.rate_limited} /></td>
                   <td style={ag.version ? undefined : { color: "#94a3b8" }}>{ag.version ?? "—"}</td>
                   <td>
                     {!ag.installed && ag.docs_url && (
                       <a className="sp-fix" href={ag.docs_url} target="_blank" rel="noreferrer">Show install command →</a>
                     )}
+                    {/* Show the command, not a description of it. The design
+                        says "Show login command →" because the fix is a line
+                        you paste, and auth_command carries it. */}
+                    {/* Quota reset time when the provider gives one. */}
+                    {ag.rate_limited && ag.rate_limit_resets_at && (
+                      <span className="sp-fix">
+                        quota resets {new Date(ag.rate_limit_resets_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })} →
+                      </span>
+                    )}
                     {ag.installed && !ag.authenticated && (
-                      <span className="sp-fix" title={ag.auth_note}>{ag.auth_note || "Sign-in required"} →</span>
+                      ag.auth_command ? (
+                        <button
+                          type="button"
+                          className="sp-fix"
+                          title={ag.auth_command}
+                          onClick={() => {
+                            void navigator.clipboard?.writeText(ag.auth_command ?? "");
+                            toast({ title: "Login command copied", description: ag.auth_command ?? "" });
+                          }}
+                        >
+                          Show login command →
+                        </button>
+                      ) : (
+                        <span className="sp-fix" title={ag.auth_note}>{ag.auth_note || "Sign-in required"} →</span>
+                      )
                     )}
                   </td>
                 </tr>

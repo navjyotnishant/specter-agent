@@ -140,8 +140,13 @@ export const DIRECT_CLI = {
   message: "Direct CLI ready",
   agent_status: [
     { key: "claude", display_name: "Claude Code", installed: true,  authenticated: true,  version: "2.1.22", auth_note: "" },
-    { key: "codex",  display_name: "Codex",       installed: true,  authenticated: true,  version: "0.48.0", auth_note: "" },
-    { key: "cursor", display_name: "Cursor",      installed: true,  authenticated: false, version: "1.7.4",  auth_note: "Show login command" },
+    // Rate-limited: installed and signed in, but the provider is refusing
+    // calls. The host runner cannot detect this yet, so this fixture is the
+    // only place the state renders — it proves the UI handles it when the
+    // backend eventually reports it.
+    { key: "codex",  display_name: "Codex",       installed: true,  authenticated: true,  version: "0.48.0", auth_note: "",
+      rate_limited: true, rate_limit_resets_at: "2026-08-07T00:00:00Z" },
+    { key: "cursor", display_name: "Cursor",      installed: true,  authenticated: false, version: "1.7.4",  auth_note: "Sign-in required", auth_command: "sbx secret set -g cursor" },
     { key: "gemini", display_name: "Gemini",      installed: false, authenticated: false, version: null,     auth_note: "", docs_url: "https://ai.google.dev" },
   ],
 };

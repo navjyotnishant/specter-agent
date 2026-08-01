@@ -100,6 +100,16 @@ export type RuntimeAdapterStatus = {
     version?: string | null;
     executable_path?: string | null;
     auth_note: string;
+    /** The exact command that authenticates this agent, e.g. `sbx secret set -g
+     *  openai`. The host runner has always produced this; it was absent from
+     *  this type, so the UI showed the prose note instead of the command. */
+    auth_command?: string | null;
+    /** Set when the agent's provider is refusing calls for quota reasons. The
+     *  host runner does not detect this yet — no 429 handling, no quota probe —
+     *  so it is currently never populated. The UI renders the state when it
+     *  appears rather than waiting for a second change. */
+    rate_limited?: boolean | null;
+    rate_limit_resets_at?: string | null;
     docs_url?: string;
   }>;
 };

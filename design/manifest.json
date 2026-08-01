@@ -494,11 +494,6 @@
           "selector": ".sp-top",
           "reason": "the app shell renders the top bar, not the page; the page header is .sp-hdr",
           "tracked": "harness"
-        },
-        {
-          "selector": "st.lim",
-          "reason": "rate-limited is a real backend state; the fixture has no rate-limited agent",
-          "tracked": "fixture"
         }
       ]
     },
