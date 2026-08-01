@@ -18,8 +18,14 @@ router = APIRouter(prefix="/workflow-runs", tags=["workflow-runs"])
 
 class StartRunRequest(BaseModel):
     workflow_id: str = Field(min_length=1)
-    workspace_path: str = Field(min_length=1)
+    # Blank falls back to the first approved workspace -- a Telegram message
+    # carries no workspace, and the UI already picks one per run.
+    workspace_path: str = ""
     graph: dict = {}
+    # Values supplied at run time by the workflow's trigger nodes, keyed by the
+    # trigger's field name (e.g. {"topic": "How we built repo import"}).
+    run_input: dict[str, str] = {}
+    trigger_type: str = "manual"
 
 
 def _public_run(row) -> dict[str, Any]:
@@ -31,6 +37,8 @@ def _public_run(row) -> dict[str, Any]:
         "trigger_type": row["trigger_type"],
         "workspace_path": row["workspace_path"] if "workspace_path" in row.keys() else None,
         "graph": json.loads(graph_json or "{}"),
+        # Needed by the Telegram poller to report a result back to the chat.
+        "final_report": row["final_report"] if "final_report" in row.keys() else None,
         "created_at": row["created_at"],
         "completed_at": row["completed_at"],
     }
@@ -157,7 +165,21 @@ def _approved_workspace_path(path: str) -> str:
 @router.post("")
 def start_run(request: StartRunRequest, user: dict = Depends(require_admin)) -> dict[str, Any]:
     run_id = str(uuid4())
-    workspace_path = _approved_workspace_path(request.workspace_path)
+    workspace_path = request.workspace_path.strip()
+    if not workspace_path:
+        # Fall back to the workflow's OWN workspace, never a global default:
+        # running workflow A against workflow B's repo would write to the wrong tree.
+        with db_session() as db:
+            row = db.execute(
+                "SELECT workspace_path FROM workflows WHERE id = ?", (request.workflow_id,)
+            ).fetchone()
+        workspace_path = (row["workspace_path"] if row else "") or ""
+        if not workspace_path:
+            raise HTTPException(
+                status_code=400,
+                detail="This workflow has no workspace set. Open it in the builder, pick a repository, and save.",
+            )
+    workspace_path = _approved_workspace_path(workspace_path)
 
     # resolve graph — use saved workflow graph if not provided
     graph = request.graph
@@ -170,11 +192,18 @@ def start_run(request: StartRunRequest, user: dict = Depends(require_admin)) -> 
 
     with db_session() as db:
         db.execute(
-            "INSERT INTO workflow_runs (id, workflow_id, status, trigger_type, graph_json, workspace_path) VALUES (?, ?, 'queued', 'manual', ?, ?)",
-            (run_id, request.workflow_id, json.dumps(graph), workspace_path),
+            "INSERT INTO workflow_runs (id, workflow_id, status, trigger_type, graph_json, workspace_path, run_input_json)"
+            " VALUES (?, ?, 'queued', ?, ?, ?, ?)",
+            (run_id, request.workflow_id, request.trigger_type, json.dumps(graph),
+             workspace_path, json.dumps(request.run_input or {})),
         )
 
-    start_run_async(run_id, request.workflow_id, graph, workspace_path)
+    # Remember it so a trigger-started run uses the same repo the UI last ran against.
+    with db_session() as db:
+        db.execute("UPDATE workflows SET workspace_path = ? WHERE id = ?",
+                   (workspace_path, request.workflow_id))
+
+    start_run_async(run_id, request.workflow_id, graph, workspace_path, request.run_input or {})
 
     return {"run_id": run_id, "status": "queued", "workflow_id": request.workflow_id, "workspace_path": workspace_path}
 

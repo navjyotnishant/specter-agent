@@ -275,6 +275,16 @@ def _skill_prompt_fragments(skill_ids: list[str]) -> list[str]:
     return [f"[Skill: {r['name']}] {r['prompt_template']}" for r in rows if str(r["prompt_template"] or "").strip()]
 
 
+def _split_trigger_context(context: str) -> tuple[str, str]:
+    """Separate the run's trigger input from accumulated step output."""
+    if not context or not context.startswith(TRIGGER_MARKER):
+        return "", context
+    body = context[len(TRIGGER_MARKER):]
+    marker = "\n\n"  # step output is appended after a blank line
+    head, sep, tail = body.partition(marker)
+    return head.strip(), tail.strip() if sep else ""
+
+
 def _build_prompt(node: dict, context: str, memory_context: str = "") -> str:
     data = node.get("data") or {}
     node_type = node.get("type", "")
@@ -324,8 +334,16 @@ def _build_prompt(node: dict, context: str, memory_context: str = "") -> str:
     if memory_context:
         parts.append(f"\nRelevant memory from earlier in this run (use as background only):\n{memory_context[-1500:]}")
 
-    if context:
-        parts.append(f"\nPrevious step context (use as background only):\n{context[-1500:]}")
+    trigger_input, step_context = _split_trigger_context(context)
+    if trigger_input:
+        # The user's own instruction: stated as a directive and never truncated,
+        # since the head of a pasted draft matters more than its tail.
+        parts.append(
+            "\nThe user supplied this when starting the run. Treat it as your "
+            f"instruction and act on it directly:\n{trigger_input}"
+        )
+    if step_context:
+        parts.append(f"\nPrevious step context (use as background only):\n{step_context[-1500:]}")
 
     parts.append("\nRespond with a short structured summary only. Be concise.")
     return " ".join(parts)
@@ -405,8 +423,11 @@ def _evaluate_condition(node: dict, context: str, memory_context: str, workspace
     ]
     if memory_context:
         prompt_parts.append(f"\nRelevant memory:\n{memory_context[-1500:]}")
-    if context:
-        prompt_parts.append(f"\nPrevious step context:\n{context[-1500:]}")
+    trigger_input, step_context = _split_trigger_context(context)
+    if trigger_input:
+        prompt_parts.append(f"\nUser instruction for this run:\n{trigger_input}")
+    if step_context:
+        prompt_parts.append(f"\nPrevious step context:\n{step_context[-1500:]}")
     prompt = " ".join(prompt_parts)
 
     agent = str(data.get("sandboxAgent") or "codex").strip().lower()
@@ -472,6 +493,12 @@ def _execute_node(node: dict, workspace_path: str, context: str, run_id: str) ->
     data = node.get("data") or {}
     node_type = node.get("type", "")
     label = str(data.get("label") or node["id"])
+
+    if node_type == "trigger":
+        # Inputs, not work: the value was folded into the run context before the
+        # first level executed, so the node just records what it supplied.
+        field = str(data.get("fieldName") or "input")
+        return "completed", "", f"Trigger supplied “{field}”."
 
     if node_type == "humanApproval":
         return "waiting_approval", "", str(data.get("reason") or "Awaiting human approval.")
@@ -696,7 +723,38 @@ def _nodes_to_skip(nodes: list[dict], edges: list[dict], removed_edge_ids: set[s
     return {n["id"] for n in nodes} - reachable
 
 
-def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> None:
+TRIGGER_MARKER = "[[trigger-input]]\n"
+
+
+def _trigger_context(nodes: list[dict], run_input: dict) -> str:
+    """Render trigger values as the run's opening context.
+
+    A trigger node declares a named field; the value arrives per run. Labelling it
+    with the trigger's own label keeps the prompt readable ("Topic: ...") rather
+    than dumping a bare string the agent has to guess the meaning of.
+    """
+    lines: list[str] = []
+    for node in nodes:
+        if node.get("type") != "trigger":
+            continue
+        data = node.get("data") or {}
+        field = str(data.get("fieldName") or "input").strip()
+        value = str(run_input.get(field) or "").strip()
+        if not value:
+            continue
+        label = str(data.get("label") or field).strip()
+        lines.append(f"{label}: {value}")
+
+    if not lines:
+        return ""
+    # Marked, not merged: this is the user's instruction for the run, not the
+    # output of an earlier step, and _build_prompt frames the two differently.
+    return TRIGGER_MARKER + "\n".join(lines)
+
+
+def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str,
+                 run_input: dict | None = None) -> None:
+    run_input = run_input or {}
     nodes: list[dict] = graph.get("nodes") or []
     edges: list[dict] = graph.get("edges") or []
     workflow_name = _get_workflow_name(workflow_id)
@@ -713,7 +771,13 @@ def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str
     _write_log(run_id, "info", f"Starting {mode} run: {len(nodes)} nodes across {len(levels)} levels.", {"run_id": run_id})
     _update_run_status(run_id, "running")
 
-    accumulated_context = ""
+    # Trigger nodes carry their value in at run time. Seeding the shared context
+    # is what makes it reach the root supervisor's prompt (and everything after),
+    # since _build_prompt already folds context into each node's instructions.
+    accumulated_context = _trigger_context(nodes, run_input)
+    if accumulated_context:
+        supplied = ", ".join(sorted(run_input)) or "none"
+        _write_log(run_id, "info", f"Trigger input supplied: {supplied}", {"fields": list(run_input)})
     removed_edge_ids: set[str] = set()
     skip_ids = _nodes_to_skip(nodes, edges, removed_edge_ids)
 
@@ -786,6 +850,21 @@ def run_workflow(run_id: str, workflow_id: str, graph: dict, workspace_path: str
         if new_branch_taken:
             skip_ids = _nodes_to_skip(nodes, edges, removed_edge_ids)
 
+    # Persist the last node's summary as the run's result -- it's what a trigger
+    # integration reports back, and the column was previously never written.
+    with db_session() as db:
+        last = db.execute(
+            """
+            SELECT ar.summary FROM agent_runs ar
+            WHERE ar.workflow_run_id = ? AND ar.summary IS NOT NULL AND ar.summary != ''
+            ORDER BY ar.completed_at DESC LIMIT 1
+            """,
+            (run_id,),
+        ).fetchone()
+        if last and last["summary"]:
+            db.execute("UPDATE workflow_runs SET final_report = ? WHERE id = ?",
+                       (last["summary"], run_id))
+
     _update_run_status(run_id, "completed")
     _write_log(run_id, "info", "Workflow run completed successfully.")
     linear_logger.log_run_complete(run_id, workflow_name)
@@ -818,9 +897,10 @@ def _parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def _run_workflow_tracked(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> None:
+def _run_workflow_tracked(run_id: str, workflow_id: str, graph: dict, workspace_path: str,
+                          run_input: dict | None = None) -> None:
     try:
-        run_workflow(run_id, workflow_id, graph, workspace_path)
+        run_workflow(run_id, workflow_id, graph, workspace_path, run_input or {})
     finally:
         with _ACTIVE_RUNS_LOCK:
             _ACTIVE_RUNS.pop(run_id, None)
@@ -835,14 +915,15 @@ def is_run_active(run_id: str) -> bool:
         return False
 
 
-def start_run_async(run_id: str, workflow_id: str, graph: dict, workspace_path: str) -> bool:
+def start_run_async(run_id: str, workflow_id: str, graph: dict, workspace_path: str,
+                    run_input: dict | None = None) -> bool:
     with _ACTIVE_RUNS_LOCK:
         thread = _ACTIVE_RUNS.get(run_id)
         if thread and thread.is_alive():
             return False
         t = threading.Thread(
             target=_run_workflow_tracked,
-            args=(run_id, workflow_id, graph, workspace_path),
+            args=(run_id, workflow_id, graph, workspace_path, run_input or {}),
             daemon=True,
         )
         _ACTIVE_RUNS[run_id] = t

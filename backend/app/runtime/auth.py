@@ -69,6 +69,23 @@ def authenticate(email: str, password: str) -> tuple[dict, str]:
         return public_user(row), token
 
 
+def issue_service_token(user_id: str, days: int = 365) -> str:
+    """Mint a long-lived session for a background integration.
+
+    The Telegram poller runs outside the app and needs to call the API on the
+    configuring user's behalf. Minting here means the user never has to find and
+    paste their own browser token; revoking is the same as any other session.
+    """
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+    with db_session() as db:
+        db.execute(
+            "INSERT INTO auth_sessions (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)",
+            (str(uuid4()), user_id, hash_token(token), expires_at),
+        )
+    return token
+
+
 def get_user_for_token(token: str) -> dict | None:
     with db_session() as db:
         row = db.execute(

@@ -16,6 +16,17 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS user_integrations (
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  -- Encrypted at rest via app.runtime.secretbox; never stored in plaintext.
+  secret_enc TEXT NOT NULL DEFAULT '',
+  config_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, provider),
+  FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS auth_sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -41,6 +52,7 @@ CREATE TABLE IF NOT EXISTS skills (
   description TEXT NOT NULL DEFAULT '',
   prompt_template TEXT NOT NULL DEFAULT '',
   compatible_agent_roles TEXT NOT NULL DEFAULT '[]',
+  source_repo TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -255,6 +267,9 @@ def initialize_database() -> None:
         _add_column_if_missing(db, "workflow_runs", "graph_json", "TEXT NOT NULL DEFAULT '{}'")
         _add_column_if_missing(db, "workflow_runs", "workspace_path", "TEXT")
         _add_column_if_missing(db, "approval_requests", "expires_at", "TEXT")
+        _add_column_if_missing(db, "skills", "source_repo", "TEXT NOT NULL DEFAULT ''")
+        _add_column_if_missing(db, "workflow_runs", "run_input_json", "TEXT NOT NULL DEFAULT '{}'")
+        _add_column_if_missing(db, "workflows", "workspace_path", "TEXT NOT NULL DEFAULT ''")
         db.execute("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL")
         db.execute("UPDATE runtime_workspaces SET updated_at = created_at WHERE updated_at IS NULL")
 
