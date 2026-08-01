@@ -432,7 +432,7 @@ function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBac
         onMouseLeave={(e) => { if (!expanded) e.currentTarget.style.background = "white"; }}
       >
         {/* chevron + name */}
-        <td style={{ padding: "13px 16px" }}>
+        <td style={{ padding: "11px 20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ color: "#94a3b8", flexShrink: 0, display: "flex" }}>
               {expanded
@@ -462,13 +462,13 @@ function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBac
         </td>
 
         {/* nodes */}
-        <td style={{ padding: "13px 8px", fontSize: 12, color: "#6b7280", fontFamily: "ui-monospace, monospace" }}>
+        <td style={{ padding: "11px 8px", fontSize: 12, color: "#6b7280", fontFamily: "ui-monospace, monospace" }}>
           {nodeCount} nodes
         </td>
 
         {/* last run — only for custom workflows, not templates */}
         {!isTemplate && (
-          <td style={{ padding: "13px 8px" }}>
+          <td style={{ padding: "11px 8px" }}>
             {runsLoading
               ? <Loader2 style={{ width: 11, height: 11, color: "#d1d5db", animation: "wf-spin 1s linear infinite" }} />
               : activeRun
@@ -1043,32 +1043,20 @@ export default function Workflows() {
         {/* Filter + status chips. None of this existed: the list rendered in API
             order, and descriptions are clipped so even Cmd-F missed them. */}
         {activeTab === "workflows" && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 9, padding: "10px 20px",
-            borderBottom: "1px solid #e8ecf1", background: "#fbfcfd", flexWrap: "wrap",
-          }}>
-            <div style={{ position: "relative", flex: 1, minWidth: 220, maxWidth: 340 }}>
-              <Search style={{ position: "absolute", left: 9, top: 8, width: 12, height: 12, color: "#94a3b8" }} />
+          <div className="sp-toolbar">
+            <div className="sp-find">
+              <Search className="sp-find-icon" style={{ width: 12, height: 12 }} />
               <input
                 value={listQuery}
                 onChange={(e) => setListQuery(e.target.value)}
                 placeholder="Filter by name or description…"
-                style={{
-                  width: "100%", height: 30, border: "1px solid #d3dae3", borderRadius: 6,
-                  padding: "0 10px 0 27px", fontSize: 11, fontFamily: "inherit", outline: "none",
-                }}
               />
             </div>
             {([["all", "All"], ["failing", "Failing"], ["running", "Running"], ["never", "Never run"]] as const).map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setStatusFilter(key)}
-                style={{
-                  fontSize: 11, fontWeight: 600, padding: "5px 11px", borderRadius: 6, cursor: "pointer",
-                  border: `1px solid ${statusFilter === key ? "#0f1117" : "#d3dae3"}`,
-                  background: statusFilter === key ? "#0f1117" : "#fff",
-                  color: statusFilter === key ? "#fff" : "#475569",
-                }}
+                className={`sp-chip ${statusFilter === key ? "sp-chip-on" : ""}`}
               >
                 {label}
               </button>
@@ -1085,10 +1073,7 @@ export default function Workflows() {
         {activeTab === "workflows" && (
           <>
             {workflowsQuery.isError && (
-              <div style={{
-                margin: "12px 20px", padding: "10px 14px", borderRadius: 8,
-                background: "#fef2f2", border: "1px solid #fecaca", fontSize: 12, color: "#991b1b",
-              }}>
+              <div className="sp-banner sp-banner-error">
                 <strong>Couldn't reach the backend.</strong> This list may be incomplete or stale —
                 it is not a sign that your workflows were deleted.{" "}
                 {workflowsQuery.error instanceof Error ? workflowsQuery.error.message : ""}
@@ -1107,8 +1092,8 @@ export default function Workflows() {
                     <tr style={{ borderBottom: "1px solid #f8fafc", background: "#fafafa" }}>
                       {["Workflow", "Nodes", "Last run", ""].map((h, i) => (
                         <th key={h} style={{
-                          padding: "8px " + (i === 0 ? "16px" : i === 3 ? "16px 16px 8px 8px" : "8px"),
-                          fontSize: 10, fontWeight: 700, color: "#94a3b8",
+                          padding: "8px " + (i === 0 ? "20px" : i === 3 ? "20px 20px 8px 8px" : "8px"),
+                          fontSize: 9, fontWeight: 800, color: "#94a3b8",
                           textTransform: "uppercase", letterSpacing: "0.08em",
                           textAlign: i === 3 ? "right" : "left", whiteSpace: "nowrap",
                         }}>{h}</th>
