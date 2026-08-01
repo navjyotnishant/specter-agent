@@ -46,7 +46,12 @@
 .sp-find,
 .sp-table,
 .sp-rail,
-.sp-insp { font-size: 13px; line-height: 1.5; color: var(--sp-fg); }
+.sp-insp,
+.sp-chain,
+.sp-chain-lk,
+.sp-sec,
+.sp-pathrow,
+.sp-warnbox { font-size: 13px; line-height: 1.5; color: var(--sp-fg); }
 
 /* ── buttons ─────────────────────────────────────────────────────────────── */
 
@@ -328,3 +333,68 @@
   padding: 10px 12px; font-size: 11px; color: #64748b; line-height: 1.6;
 }
 .sp-meta b { color: var(--sp-fg); }
+
+/* ── dependency chain (Models → Runtimes) ────────────────────────────────────
+   Copied from design/mockups/models.html. The host runner is the substrate for
+   everything above it, so the design renders the dependency as a chain rather
+   than leaving it to be inferred from card order. */
+
+.sp-chain {
+  display: flex; align-items: center; gap: 0; padding: 13px 20px;
+  border-bottom: 1px solid #e8ecf1; background: #fbfcfd; flex-wrap: wrap;
+}
+.sp-chain-lk {
+  display: flex; align-items: center; gap: 7px; padding: 6px 11px;
+  border: 1px solid #dde3ea; border-radius: 7px; background: #fff;
+}
+.sp-chain-pip { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.sp-chain-n { font-size: 11.5px; font-weight: 600; }
+.sp-chain-s { font-size: 10px; color: #94a3b8; }
+.sp-chain-arw { color: #cbd5e1; padding: 0 7px; font-size: 13px; }
+
+/* ── sections ────────────────────────────────────────────────────────────── */
+
+.sp-sec { padding: 15px 20px; border-bottom: 1px solid #f1f5f9; }
+.sp-sec h2 { font-size: 12.5px; font-weight: 800; margin-bottom: 2px; }
+.sp-sub { font-size: 11.5px; color: #94a3b8; margin-bottom: 11px; }
+
+/* ── agent readiness ─────────────────────────────────────────────────────── */
+
+.sp-ag { font-weight: 600; }
+/* Three states, not two: "not installed", "daemon down" and "needs login" are
+   three different problems with three different fixes, and collapsing them into
+   one amber "setup needed" is what the design set out to correct. */
+.sp-st-auth { background: #fef3c7; color: #92400e; }
+.sp-st-no   { background: #fee2e2; color: #991b1b; }
+.sp-st-lim  { background: #ffedd5; color: #9a3412; }
+.sp-fix {
+  font-size: 11px; color: #4f46e5; cursor: pointer; font-weight: 600;
+  background: none; border: 0; padding: 0;
+}
+
+/* ── approval warning ────────────────────────────────────────────────────── */
+
+.sp-warnbox {
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 12px;
+}
+.sp-warnbox .t {
+  font-size: 12px; font-weight: 800; color: #92400e;
+  display: flex; align-items: center; gap: 7px;
+}
+.sp-warnbox .b { font-size: 11.5px; color: #a16207; margin-top: 4px; line-height: 1.55; }
+
+/* ── approved repository paths ───────────────────────────────────────────── */
+
+.sp-pathrow {
+  display: flex; align-items: center; gap: 10px; padding: 8px 0;
+  border-bottom: 1px solid #f6f8fa; font-size: 12px;
+}
+.sp-pathrow code {
+  font: 11px var(--sp-mono); background: #f8fafc; padding: 2px 7px;
+  border-radius: 4px; border: 1px solid #eef2f6;
+}
+.sp-rm {
+  margin-left: auto; font-size: 10.5px; color: #dc2626; cursor: pointer;
+  border: 1px solid #fecaca; background: #fff; border-radius: 5px; padding: 3px 9px;
+}

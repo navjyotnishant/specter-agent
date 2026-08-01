@@ -127,6 +127,32 @@ export const WORKSPACES: RuntimeWorkspace[] = [
     is_active: false, created_at: T("2026-06-20 09:00:00"), updated_at: T("2026-06-20 09:00:00") },
 ];
 
+
+/** Direct-CLI adapter status, so the agent readiness table has rows. The three
+ *  states the design distinguishes are all represented: ready, installed but
+ *  unauthenticated, and not installed. */
+export const DIRECT_CLI = {
+  runtime_id: "direct-cli",
+  display_name: "Direct CLI",
+  status: "ready",
+  available: true,
+  installed: true,
+  message: "Direct CLI ready",
+  agent_status: [
+    { key: "claude", display_name: "Claude Code", installed: true,  authenticated: true,  version: "2.1.22", auth_note: "" },
+    { key: "codex",  display_name: "Codex",       installed: true,  authenticated: true,  version: "0.48.0", auth_note: "" },
+    { key: "cursor", display_name: "Cursor",      installed: true,  authenticated: false, version: "1.7.4",  auth_note: "Show login command" },
+    { key: "gemini", display_name: "Gemini",      installed: false, authenticated: false, version: null,     auth_note: "", docs_url: "https://ai.google.dev" },
+  ],
+};
+
+export const DOCKER_SANDBOX = {
+  runtime_id: "docker-sandbox", display_name: "Docker Sandbox", status: "ready",
+  available: true, installed: true, message: "daemon ready", sbx_version: "1.2.0",
+};
+
+export const HOST_RUNNER_VERSION = { version: "v1.4" };
+
 /** The workflow the builder harness route opens. Exported so the route, the
  *  fixture, and the cache key cannot drift apart. */
 export const FIXTURE_WORKFLOW_ID = "wf-prepush";
@@ -163,6 +189,9 @@ export const SEED: Array<[readonly unknown[], unknown]> = [
   [["workspaces"], WORKSPACES],
   [["runtime-workspaces"], WORKSPACES],
   [["mcp-list"], []],
+  [["runtime-adapter", "direct-cli"], DIRECT_CLI],
+  [["runtime-adapter", "docker-sandbox"], DOCKER_SANDBOX],
+  [["host-runner", "version"], HOST_RUNNER_VERSION],
   [["workflow", FIXTURE_WORKFLOW_ID],
    { ...WORKFLOWS.find((w) => w.id === FIXTURE_WORKFLOW_ID)!, graph: BUILDER_GRAPH }],
 ];

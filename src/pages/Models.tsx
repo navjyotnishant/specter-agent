@@ -87,6 +87,83 @@ function shortPath(path?: string) {
   return parts.length > 3 ? `.../${parts.slice(-3).join("/")}` : path;
 }
 
+/** One link in the dependency chain. Green when healthy, amber when partially
+ *  ready, red when down — the pip carries the state so the row reads at a
+ *  glance without parsing the label. */
+function ChainLink({ tone, name, detail }: { tone: "ok" | "warn" | "bad"; name: string; detail: string }) {
+  const PIP = { ok: "#16a34a", warn: "#d97706", bad: "#dc2626" };
+  return (
+    <div className="sp-chain-lk">
+      <span className="sp-chain-pip" style={{ background: PIP[tone] }} />
+      <span>
+        <span className="sp-chain-n">{name}</span>{" "}
+        <span className="sp-chain-s">{detail}</span>
+      </span>
+    </div>
+  );
+}
+
+/** Runtime dependency chain: host runner → sandbox → agents → approved repos.
+ *
+ *  Rendered as a chain because that is what it is. Each link depends on the one
+ *  to its left, so when the host runner is down every card to the right of it is
+ *  reporting a symptom rather than a cause. */
+function DependencyChain({
+  hostRunnerOnline, hostRunnerVersion, sandboxReady, sandboxLabel,
+  agentsReady, agentsTotal, approvedPaths,
+}: {
+  hostRunnerOnline: boolean;
+  hostRunnerVersion: string | null;
+  sandboxReady: boolean;
+  sandboxLabel: string;
+  agentsReady: number;
+  agentsTotal: number;
+  approvedPaths: number;
+}) {
+  const arrow = <span className="sp-chain-arw">→</span>;
+  return (
+    <div className="sp-chain">
+      <ChainLink
+        tone={hostRunnerOnline ? "ok" : "bad"}
+        name="Host runner"
+        detail={`${hostRunnerVersion ? `${hostRunnerVersion} · ` : ""}${hostRunnerOnline ? "online" : "offline"}`}
+      />
+      {arrow}
+      <ChainLink
+        tone={sandboxReady ? "ok" : "warn"}
+        name="Docker sandbox"
+        detail={sandboxLabel}
+      />
+      {arrow}
+      <ChainLink
+        tone={agentsTotal && agentsReady === agentsTotal ? "ok" : agentsReady ? "warn" : "bad"}
+        name="Agents"
+        detail={`${agentsReady} of ${agentsTotal} ready`}
+      />
+      {arrow}
+      {/* Zero approved paths is not a healthy state: nothing can run. */}
+      <ChainLink
+        tone={approvedPaths ? "ok" : "warn"}
+        name="Approved repos"
+        detail={`${approvedPaths} path${approvedPaths === 1 ? "" : "s"}`}
+      />
+    </div>
+  );
+}
+
+/** One agent's state in a given runtime. The design distinguishes three, and
+ *  the distinction is the point: an uninstalled agent needs an install command,
+ *  an unauthenticated one needs a login, and conflating them sends people to the
+ *  wrong fix. Sandbox mode additionally needs the daemon up. */
+function AgentState({ installed, authenticated, sandboxReady }: {
+  installed: boolean; authenticated: boolean; sandboxReady: boolean;
+}) {
+  if (!installed) return <span className="sp-st sp-st-no">not installed</span>;
+  if (!sandboxReady) return <span className="sp-st sp-st-auth">daemon down</span>;
+  if (!authenticated) return <span className="sp-st sp-st-auth">login needed</span>;
+  return <span className="sp-st sp-st-ok">ready</span>;
+}
+
 export default function Models() {
   const token = getStoredToken();
   const queryClient = useQueryClient();
@@ -368,6 +445,19 @@ export default function Models() {
         .slice(-20)
         .map((l) => l.message)
     : [];
+  // "3 of 4 ready" in the chain. Counts the runtimes the page already queries
+  // rather than inventing a new endpoint; an adapter is ready when the backend
+  // says `ready`, which is the same signal each card renders.
+  const agentReadiness = (() => {
+    const adapters = [codexRuntime, dockerSandboxRuntime, directCliRuntime].filter(Boolean);
+    return {
+      ready: adapters.filter((a) => a?.status === "ready").length,
+      total: adapters.length,
+    };
+  })();
+
+  const agentRows = directCliRuntime?.agent_status ?? [];
+
   const approvedWorkspacePaths = new Set(activeRuntimeWorkspaces.map((workspace) => workspace.path));
   const discoveredRepositories = discoverRepositories.data?.repositories ?? [];
   const selectableDiscoveredPaths = discoveredRepositories.filter((repo) => !approvedWorkspacePaths.has(repo.path)).map((repo) => repo.path);
@@ -460,6 +550,20 @@ export default function Models() {
         </Alert>
       )}
 
+      {/* The dependency chain, per the design. The host runner is the substrate
+          everything else sits on, yet it used to render below and smaller than
+          the cards that depend on it — so the ordering had to be inferred. Here
+          it reads left to right: runner → sandbox → agents → approved repos. */}
+      <DependencyChain
+        hostRunnerOnline={!hostRunnerOffline}
+        hostRunnerVersion={hostRunnerVersion?.version ?? null}
+        sandboxReady={sandboxReady}
+        sandboxLabel={dockerSandboxBadge.label}
+        agentsReady={agentReadiness.ready}
+        agentsTotal={agentReadiness.total}
+        approvedPaths={activeRuntimeWorkspaces.length}
+      />
+
       {/* Underline tabs, per the design — not shadcn's pill group. The mockup
           specifies a bottom-border indicator on a flat bar; the pill variant
           carried its own radius, background and font-size, none of which
@@ -467,18 +571,59 @@ export default function Models() {
       <Tabs defaultValue="infrastructure">
         <TabsList className="sp-tabs h-auto justify-start rounded-none bg-transparent p-0">
           <TabsTrigger value="infrastructure" className="sp-tb rounded-none">
-            Infrastructure
+            Runtimes
+          </TabsTrigger>
+          <TabsTrigger value="access" className="sp-tb rounded-none">
+            Access
           </TabsTrigger>
           <TabsTrigger value="logs" className="sp-tb rounded-none">
             <span className="flex items-center gap-2">
-              Logs
+              Console
               {!hostRunnerOffline && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
               {runnerLogs?.total ? <span className="text-[10px] text-slate-400">{runnerLogs.total}</span> : null}
             </span>
           </TabsTrigger>
+          <TabsTrigger value="models" className="sp-tb rounded-none">
+            Models
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="infrastructure" className="mt-4 space-y-4">
+        {/* Agent readiness. THREE states, not two: "not installed", "needs
+            login" and "ready" are different problems with different fixes, and
+            collapsing the first two into one amber "setup needed" is what the
+            design set out to correct. Each row names the fix. */}
+        <div className="sp-sec">
+          <h2>Agents</h2>
+          <div className="sp-sub">Each shows what is wrong and the exact command that fixes it.</div>
+          <table className="sp-table w-full">
+            <thead>
+              <tr><th>Agent</th><th>Sandbox</th><th>Direct CLI</th><th>Version</th><th /></tr>
+            </thead>
+            <tbody>
+              {agentRows.length === 0 && (
+                <tr><td colSpan={5} className="text-slate-400">No agent status reported by the host runner.</td></tr>
+              )}
+              {agentRows.map((ag) => (
+                <tr key={ag.key}>
+                  <td className="sp-ag">{ag.display_name}</td>
+                  <td><AgentState installed={ag.installed} authenticated={ag.authenticated} sandboxReady={sandboxReady} /></td>
+                  <td><AgentState installed={ag.installed} authenticated={ag.authenticated} sandboxReady /></td>
+                  <td style={ag.version ? undefined : { color: "#94a3b8" }}>{ag.version ?? "—"}</td>
+                  <td>
+                    {!ag.installed && ag.docs_url && (
+                      <a className="sp-fix" href={ag.docs_url} target="_blank" rel="noreferrer">Show install command →</a>
+                    )}
+                    {ag.installed && !ag.authenticated && (
+                      <span className="sp-fix" title={ag.auth_note}>{ag.auth_note || "Sign-in required"} →</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
 
       {/* ── Row 1: Docker Sandbox + Direct CLI ── */}
       <div className="grid gap-4 xl:grid-cols-2">
@@ -852,138 +997,6 @@ export default function Models() {
           </CardContent>
         </Card>
 
-        {/* ── Directory Scan ── */}
-        <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-cyan-100 text-cyan-800">
-                  <FolderSearch className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-base font-black text-slate-950">Directory scan</h3>
-                  <p className="text-xs font-semibold text-slate-500">Discover repositories</p>
-                </div>
-              </div>
-              <Button type="button" variant="outline" className="w-fit rounded-[8px] bg-white" onClick={() => setDirectoryScanOpen((open) => !open)}>
-                {directoryScanOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
-                {directoryScanOpen ? "Hide" : "Show"}
-              </Button>
-            </div>
-            {directoryScanOpen && (
-              <>
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                  <Input className="rounded-[8px] bg-white" value={discoveryRoot} onChange={(event) => setDiscoveryRoot(event.target.value)} placeholder="Absolute path to scan, e.g. ~/code or /Users/you/projects" />
-                  <Button type="button" disabled={!canUseBackend || !discoveryRoot.trim() || discoverRepositories.isPending || hostRunnerOffline} onClick={() => discoverRepositories.mutate()} className="rounded-[8px] bg-cyan-800 hover:bg-cyan-900">
-                    {discoverRepositories.isPending && <Loader2 className="mr-2 h-4 w-4" />}
-                    {discoverRepositories.isPending ? "Scanning" : "Scan"}
-                  </Button>
-                </div>
-                {discoverRepositories.data && (
-                  <div className="mt-4 rounded-[8px] border border-slate-100 bg-slate-50 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-black text-slate-950">{discoveredRepositories.length} found</p>
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" disabled={!selectableDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths(selectableDiscoveredPaths)} variant="outline" className="rounded-[6px] bg-white">Select all</Button>
-                        <Button size="sm" disabled={!selectedDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths([])} variant="outline" className="rounded-[6px] bg-white">Deselect</Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button size="sm" disabled={!selectedDiscoveredPaths.length || approveSelectedRepositories.isPending} className="rounded-[6px] bg-slate-900 hover:bg-slate-800">
-                              Grant access…
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                Grant agents access to {selectedDiscoveredPaths.length} repositor
-                                {selectedDiscoveredPaths.length === 1 ? "y" : "ies"}?
-                              </AlertDialogTitle>
-                              <AlertDialogDescription asChild>
-                                <div className="space-y-3">
-                                  <p>
-                                    Approved repositories can be <strong>read in full</strong> by any
-                                    agent you run — including <code>.env</code> files, credentials and
-                                    client work. In <strong>Direct CLI</strong> mode agents also execute
-                                    on this host with no isolation.
-                                  </p>
-                                  <div className="max-h-40 overflow-y-auto rounded-[6px] border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700">
-                                    {selectedDiscoveredPaths.map((path) => <div key={path}>{path}</div>)}
-                                  </div>
-                                  <p>Approve only repositories you would hand to a contractor.</p>
-                                </div>
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => approveSelectedRepositories.mutate()} className="bg-slate-900 text-white hover:bg-slate-800">
-                                Grant access
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </div>
-                    <div className="mt-3 max-h-56 space-y-2 overflow-auto pr-1">
-                      {discoveredRepositories.length ? discoveredRepositories.map((repo) => {
-                        const approved = approvedWorkspacePaths.has(repo.path);
-                        const checked = selectedDiscoveredPaths.includes(repo.path);
-                        return (
-                          <label key={repo.path} className="flex cursor-pointer gap-3 rounded-[8px] bg-white p-3">
-                            <Checkbox checked={approved || checked} disabled={approved}
-                              onCheckedChange={(value) => setSelectedDiscoveredPaths((paths) => value ? [...new Set([...paths, repo.path])] : paths.filter((path) => path !== repo.path))} />
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="font-black text-slate-950">{repo.name}</p>
-                                {approved && <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Approved</Badge>}
-                              </div>
-                              <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{repo.path}</p>
-                            </div>
-                          </label>
-                        );
-                      }) : <p className="text-sm font-semibold text-slate-500">No repositories found.</p>}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ── Approved ── */}
-        <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-slate-100 text-slate-900">
-                  <ShieldCheck className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-base font-black text-slate-950">Approved</h3>
-                  <p className="text-xs font-semibold text-slate-500">{activeRuntimeWorkspaces.length} repositories</p>
-                </div>
-              </div>
-              <Button type="button" variant="outline" className="rounded-[8px] bg-white" onClick={() => setApprovedOpen((open) => !open)}>
-                {approvedOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
-                {approvedOpen ? "Hide" : "Show"}
-              </Button>
-            </div>
-            {approvedOpen && (
-              <div className="mt-4 max-h-72 space-y-2 overflow-auto pr-1">
-                {activeRuntimeWorkspaces.length ? activeRuntimeWorkspaces.map((workspace) => (
-                  <div key={workspace.id} className="rounded-[8px] border border-slate-100 bg-slate-50 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-black text-slate-950">{workspace.name}</p>
-                        <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{workspace.path}</p>
-                      </div>
-                      <Button type="button" size="sm" variant="outline" disabled={deleteWorkspace.isPending} onClick={() => deleteWorkspace.mutate(workspace.id)} className="rounded-[6px] bg-white">Remove</Button>
-                    </div>
-                  </div>
-                )) : <p className="rounded-[8px] bg-slate-50 p-3 text-sm font-semibold text-slate-500">No approved repositories.</p>}
-              </div>
-            )}
-          </CardContent>
-        </Card>
 
       </div>
 
@@ -1179,6 +1192,154 @@ export default function Models() {
       })()}
         </TabsContent>
 
+        {/* Approving a repository grants an agent filesystem access to it. The
+            previous copy said "Add" and "Approved", which reads as list
+            management rather than granting access. */}
+        <TabsContent value="access" className="mt-4 space-y-4">
+          <div className="sp-warnbox">
+            <div className="t">⚠ Approving a repository grants agent access to it</div>
+            <div className="b">
+              Agents can read every file in an approved path, and in <b>Direct CLI</b> mode
+              they run on this host with no isolation — including any <code>.env</code>,
+              credentials or client work inside. Approve only repositories you would hand
+              to a contractor.
+            </div>
+          </div>
+
+        {/* ── Directory Scan ── */}
+        <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-cyan-100 text-cyan-800">
+                  <FolderSearch className="h-5 w-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-black text-slate-950">Directory scan</h3>
+                  <p className="text-xs font-semibold text-slate-500">Discover repositories</p>
+                </div>
+              </div>
+              <Button type="button" variant="outline" className="w-fit rounded-[8px] bg-white" onClick={() => setDirectoryScanOpen((open) => !open)}>
+                {directoryScanOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
+                {directoryScanOpen ? "Hide" : "Show"}
+              </Button>
+            </div>
+            {directoryScanOpen && (
+              <>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <Input className="rounded-[8px] bg-white" value={discoveryRoot} onChange={(event) => setDiscoveryRoot(event.target.value)} placeholder="Absolute path to scan, e.g. ~/code or /Users/you/projects" />
+                  <Button type="button" disabled={!canUseBackend || !discoveryRoot.trim() || discoverRepositories.isPending || hostRunnerOffline} onClick={() => discoverRepositories.mutate()} className="rounded-[8px] bg-cyan-800 hover:bg-cyan-900">
+                    {discoverRepositories.isPending && <Loader2 className="mr-2 h-4 w-4" />}
+                    {discoverRepositories.isPending ? "Scanning" : "Scan"}
+                  </Button>
+                </div>
+                {discoverRepositories.data && (
+                  <div className="mt-4 rounded-[8px] border border-slate-100 bg-slate-50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-black text-slate-950">{discoveredRepositories.length} found</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" disabled={!selectableDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths(selectableDiscoveredPaths)} variant="outline" className="rounded-[6px] bg-white">Select all</Button>
+                        <Button size="sm" disabled={!selectedDiscoveredPaths.length} onClick={() => setSelectedDiscoveredPaths([])} variant="outline" className="rounded-[6px] bg-white">Deselect</Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="sm" disabled={!selectedDiscoveredPaths.length || approveSelectedRepositories.isPending} className="rounded-[6px] bg-slate-900 hover:bg-slate-800">
+                              Grant access…
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Grant agents access to {selectedDiscoveredPaths.length} repositor
+                                {selectedDiscoveredPaths.length === 1 ? "y" : "ies"}?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription asChild>
+                                <div className="space-y-3">
+                                  <p>
+                                    Approved repositories can be <strong>read in full</strong> by any
+                                    agent you run — including <code>.env</code> files, credentials and
+                                    client work. In <strong>Direct CLI</strong> mode agents also execute
+                                    on this host with no isolation.
+                                  </p>
+                                  <div className="max-h-40 overflow-y-auto rounded-[6px] border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700">
+                                    {selectedDiscoveredPaths.map((path) => <div key={path}>{path}</div>)}
+                                  </div>
+                                  <p>Approve only repositories you would hand to a contractor.</p>
+                                </div>
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => approveSelectedRepositories.mutate()} className="bg-slate-900 text-white hover:bg-slate-800">
+                                Grant access
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </div>
+                    <div className="mt-3 max-h-56 space-y-2 overflow-auto pr-1">
+                      {discoveredRepositories.length ? discoveredRepositories.map((repo) => {
+                        const approved = approvedWorkspacePaths.has(repo.path);
+                        const checked = selectedDiscoveredPaths.includes(repo.path);
+                        return (
+                          <label key={repo.path} className="flex cursor-pointer gap-3 rounded-[8px] bg-white p-3">
+                            <Checkbox checked={approved || checked} disabled={approved}
+                              onCheckedChange={(value) => setSelectedDiscoveredPaths((paths) => value ? [...new Set([...paths, repo.path])] : paths.filter((path) => path !== repo.path))} />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-black text-slate-950">{repo.name}</p>
+                                {approved && <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Approved</Badge>}
+                              </div>
+                              <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{repo.path}</p>
+                            </div>
+                          </label>
+                        );
+                      }) : <p className="text-sm font-semibold text-slate-500">No repositories found.</p>}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Approved ── */}
+        <Card className="rounded-[1.5rem] border-[#dfe3e8] bg-white shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-slate-100 text-slate-900">
+                  <ShieldCheck className="h-5 w-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-black text-slate-950">Approved</h3>
+                  <p className="text-xs font-semibold text-slate-500">{activeRuntimeWorkspaces.length} repositories</p>
+                </div>
+              </div>
+              <Button type="button" variant="outline" className="rounded-[8px] bg-white" onClick={() => setApprovedOpen((open) => !open)}>
+                {approvedOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
+                {approvedOpen ? "Hide" : "Show"}
+              </Button>
+            </div>
+            {approvedOpen && (
+              <div className="mt-4 max-h-72 space-y-2 overflow-auto pr-1">
+                {activeRuntimeWorkspaces.length ? activeRuntimeWorkspaces.map((workspace) => (
+                  <div key={workspace.id} className="rounded-[8px] border border-slate-100 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-black text-slate-950">{workspace.name}</p>
+                        <p className="mt-1 break-all text-xs font-semibold leading-5 text-slate-500">{workspace.path}</p>
+                      </div>
+                      <Button type="button" size="sm" variant="outline" disabled={deleteWorkspace.isPending} onClick={() => deleteWorkspace.mutate(workspace.id)} className="rounded-[6px] bg-white">Remove</Button>
+                    </div>
+                  </div>
+                )) : <p className="rounded-[8px] bg-slate-50 p-3 text-sm font-semibold text-slate-500">No approved repositories.</p>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        </TabsContent>
+
         <TabsContent value="logs" className="mt-4">
           <div className="rounded-[8px] bg-slate-950 text-white">
             {/* toolbar */}
@@ -1254,6 +1415,21 @@ export default function Models() {
                 </div>
               )}
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="models" className="mt-4">
+          <div className="sp-sec">
+            <h2>Model selection</h2>
+            <div className="sp-sub">
+              Which model each agent runs on. Selection currently lives in the header
+              dropdown, so the page named "Models" does not yet contain any — this tab is
+              where it belongs.
+            </div>
+            <p className="text-sm text-slate-500">
+              Not built yet. Tracked separately; the header selector remains the way to
+              choose a model in the meantime.
+            </p>
           </div>
         </TabsContent>
       </Tabs>
