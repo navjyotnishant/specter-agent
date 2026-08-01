@@ -296,7 +296,7 @@ export default function Connectors() {
   const [client, setClient] = useState<ClientId>("codex");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const canFetch = Boolean(token && token !== "preview-mode");
+  const canFetch = Boolean(token);
 
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ["mcp-list", client],

@@ -20,7 +20,7 @@ export default function Users() {
   const [role, setRole] = useState<"admin" | "operator">("operator");
   const [error, setError] = useState("");
 
-  const { data = [] } = useQuery({ queryKey: ["users"], queryFn: () => api.users(token ?? ""), enabled: Boolean(token && token !== "preview-mode"), retry: false });
+  const { data = [] } = useQuery({ queryKey: ["users"], queryFn: () => api.users(token ?? ""), enabled: Boolean(token), retry: false });
   const accounts = data.length ? data : user ? [user] : [];
 
   const create = useMutation({
@@ -91,11 +91,11 @@ export default function Users() {
                 </SelectContent>
               </Select>
             </div>
-            <Button disabled={create.isPending || token === "preview-mode"} className="rounded-2xl bg-indigo-600 hover:bg-indigo-700">
+            <Button disabled={create.isPending} className="rounded-2xl bg-indigo-600 hover:bg-indigo-700">
               {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Create
             </Button>
           </form>
-          {token === "preview-mode" && <p className="mt-3 text-sm text-slate-500">User creation is available when the service is connected.</p>}
+          {!token && <p className="mt-3 text-sm text-slate-500">Sign in to manage users.</p>}
           {error && <Alert variant="destructive" className="mt-4 rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
         </CardContent>
       </Card>
@@ -116,7 +116,7 @@ export default function Users() {
                   </div>
                 </div>
               </div>
-              <Button disabled={account.id === user?.id || remove.isPending || token === "preview-mode"} onClick={() => remove.mutate(account.id)} variant="outline" className="rounded-2xl border-red-200 bg-white text-red-700 hover:bg-red-50">
+              <Button disabled={account.id === user?.id || remove.isPending} onClick={() => remove.mutate(account.id)} variant="outline" className="rounded-2xl border-red-200 bg-white text-red-700 hover:bg-red-50">
                 <Trash2 className="mr-2 h-4 w-4" /> Delete
               </Button>
             </CardContent>

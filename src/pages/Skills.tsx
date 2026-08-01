@@ -174,7 +174,7 @@ export default function Skills() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
 
-  const canUseBackend = Boolean(token && token !== "preview-mode");
+  const canUseBackend = Boolean(token);
   const { data = [] } = useQuery({
     queryKey: ["skills"],
     queryFn: () => api.skills(token ?? ""),

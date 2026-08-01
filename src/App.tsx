@@ -9,7 +9,6 @@ import { AppShell } from "./components/layout/AppShell";
 import { AuthProvider } from "./lib/auth";
 import Connectors from "./pages/Connectors";
 import Dashboard from "./pages/Dashboard";
-import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Models from "./pages/Models";
 import NotFound from "./pages/NotFound";
@@ -31,7 +30,9 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            <Route path="/" element={<Index />} />
+            {/* No landing page — go straight to the app. ProtectedRoute bounces
+                unauthenticated visitors to /login (or /setup on first run). */}
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/setup" element={<Setup />} />
             <Route path="/login" element={<Login />} />
             <Route path="/workflowssecurity-review-team/builder" element={<Navigate to="/workflows/security-review-team/builder" replace />} />

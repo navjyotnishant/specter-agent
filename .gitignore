@@ -39,3 +39,6 @@ codebases/*
 *.sln
 *.sw?
 .dyad/
+
+# Playwright MCP console dumps (local debugging)
+.playwright-mcp/

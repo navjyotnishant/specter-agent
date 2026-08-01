@@ -38,10 +38,10 @@ export default function Setup() {
       </div>
       <div className="relative mx-auto grid min-h-[calc(100vh-4rem)] max-w-6xl items-center gap-8 lg:grid-cols-[0.95fr_1.05fr]">
         <section>
-          <Link to="/" className="mb-8 inline-flex items-center gap-3 rounded-3xl border border-white/80 bg-white/80 p-3 shadow-sm backdrop-blur-xl">
+          <div className="mb-8 inline-flex items-center gap-3 rounded-3xl border border-white/80 bg-white/80 p-3 shadow-sm backdrop-blur-xl">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-cyan-300"><ShieldCheck className="h-6 w-6" /></span>
             <span className="font-black">Specter Agent</span>
-          </Link>
+          </div>
           <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl">Create your Specter Agent administrator.</h1>
           <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">Set up the first administrator account for governed workflows, approvals, and agent operations.</p>
           <div className="mt-8 grid gap-3 sm:grid-cols-2">

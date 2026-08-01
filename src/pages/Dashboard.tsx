@@ -136,7 +136,7 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
 
 export default function Dashboard() {
   const token = getStoredToken() ?? "";
-  const canUseBackend = Boolean(token && token !== "preview-mode");
+  const canUseBackend = Boolean(token);
 
   const { data: healthData, isLoading: healthLoading } = useQuery({ queryKey: ["health"], queryFn: api.health, retry: false });
   const { data: systemHealthData } = useQuery({

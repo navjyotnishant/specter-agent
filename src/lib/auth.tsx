@@ -64,19 +64,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(storedToken);
       }
     } catch {
+      // The backend is unreachable or the stored token is no longer valid. Drop
+      // the session rather than inventing one -- a fake signed-in state makes
+      // every backend-gated feature report a confident false negative.
       setNeedsSetup(false);
-      if (!localStorage.getItem(TOKEN_KEY)) {
-        const previewUser: AuthUser = {
-          id: "preview-user",
-          email: "preview@local.dev",
-          role: "admin",
-          created_at: new Date().toISOString(),
-        };
-        localStorage.setItem(TOKEN_KEY, "preview-mode");
-        localStorage.setItem(USER_KEY, JSON.stringify(previewUser));
-        setToken("preview-mode");
-        setUser(previewUser);
-      }
+      clearSession();
     } finally {
       setIsLoading(false);
     }
@@ -93,28 +85,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: Boolean(user && token),
     needsSetup,
     login: async (email: string, password: string) => {
-      try {
-        const response = await api.login(email, password);
-        storeSession(response.token, response.user);
-      } catch (error) {
-        if (token === "preview-mode") return;
-        throw error;
-      }
+      const response = await api.login(email, password);
+      storeSession(response.token, response.user);
     },
     bootstrap: async (email: string, password: string) => {
-      try {
-        await api.bootstrap(email, password);
-        const response = await api.login(email, password);
-        storeSession(response.token, response.user);
-      } catch (error) {
-        if (token === "preview-mode") return;
-        throw error;
-      }
+      await api.bootstrap(email, password);
+      const response = await api.login(email, password);
+      storeSession(response.token, response.user);
     },
     logout: async () => {
       const currentToken = localStorage.getItem(TOKEN_KEY);
       clearSession();
-      if (currentToken && currentToken !== "preview-mode") await api.logout(currentToken);
+      if (currentToken) await api.logout(currentToken);
     },
 
     refresh,

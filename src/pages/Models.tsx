@@ -115,7 +115,7 @@ export default function Models() {
   const [cliShowRaw, setCliShowRaw] = useState(false);
   const cliLiveOutputRef = useRef<HTMLPreElement>(null);
 
-  const canUseBackend = Boolean(token && token !== "preview-mode");
+  const canUseBackend = Boolean(token);
   const { data: codexRuntime, isLoading: runtimeLoading } = useQuery({
     queryKey: ["runtime-adapter", "codex-cli"],
     queryFn: () => api.codexRuntimeStatus(token ?? ""),
