@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Runtimes / Access / Console — proposed</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:13px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#0f172a;background:#eef1f5;padding:20px}
+  .frame{max-width:1240px;margin:0 auto 16px;background:#fff;border:1px solid #d8dee6;border-radius:10px;overflow:hidden;box-shadow:0 6px 28px rgba(15,23,42,.09)}
+  .hdr{padding:14px 20px;border-bottom:1px solid #e8ecf1}
+  .hdr h1{font-size:19px;font-weight:850}
+  .hdr p{font-size:12px;color:#7c8798;margin-top:2px}
+  .tabs{display:flex;padding:0 20px;border-bottom:1px solid #e8ecf1;background:#fbfcfd}
+  .tb{padding:10px 15px;font-size:12px;font-weight:700;color:#94a3b8;cursor:pointer;border-bottom:2px solid transparent}
+  .tb.on{color:#0f1117;border-bottom-color:#0f1117}
+  .chain{display:flex;align-items:center;gap:0;padding:13px 20px;border-bottom:1px solid #e8ecf1;background:#fbfcfd;flex-wrap:wrap}
+  .lk{display:flex;align-items:center;gap:7px;padding:6px 11px;border:1px solid #dde3ea;border-radius:7px;background:#fff}
+  .lk .p{width:7px;height:7px;border-radius:50%;flex:none}
+  .lk .n{font-size:11.5px;font-weight:600}
+  .lk .s{font-size:10px;color:#94a3b8}
+  .arw{color:#cbd5e1;padding:0 7px;font-size:13px}
+  .sec{padding:15px 20px;border-bottom:1px solid #f1f5f9}
+  .sec h2{font-size:12.5px;font-weight:800;margin-bottom:2px}
+  .sec .sub{font-size:11.5px;color:#94a3b8;margin-bottom:11px}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:9px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#94a3b8;padding:6px 0;border-bottom:1px solid #eef2f6}
+  td{padding:9px 0;border-bottom:1px solid #f6f8fa;font-size:12px}
+  .ag{font-weight:600}
+  .st{font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2.5px 8px;border-radius:4px}
+  .st.ok{background:#dcfce7;color:#166534}.st.auth{background:#fef3c7;color:#92400e}
+  .st.no{background:#fee2e2;color:#991b1b}.st.lim{background:#ffedd5;color:#9a3412}
+  .fix{font-size:11px;color:#4f46e5;cursor:pointer;font-weight:600}
+  .warnbox{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;margin-bottom:12px}
+  .warnbox .t{font-size:12px;font-weight:800;color:#92400e;display:flex;align-items:center;gap:7px}
+  .warnbox .b{font-size:11.5px;color:#a16207;margin-top:4px;line-height:1.55}
+  .pathrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f6f8fa;font-size:12px}
+  .pathrow code{font:11px ui-monospace,monospace;background:#f8fafc;padding:2px 7px;border-radius:4px;border:1px solid #eef2f6}
+  .pathrow .rm{margin-left:auto;font-size:10.5px;color:#dc2626;cursor:pointer;border:1px solid #fecaca;background:#fff;border-radius:5px;padding:3px 9px}
+  .note{max-width:1240px;margin:0 auto;font-size:11.5px;color:#64748b;line-height:1.65}
+  .note b{color:#0f172a}.note ol{margin:8px 0 0 18px}.note li{margin-bottom:5px}
+  code.i{font:10.5px ui-monospace,monospace;background:#f1f5f9;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="hdr"><h1>Runtimes</h1><p>Where agents run, and what they can reach</p></div>
+  <div class="tabs"><div class="tb on">Runtimes</div><div class="tb">Access</div><div class="tb">Console</div><div class="tb">Models</div></div>
+
+  <div class="chain">
+    <div class="lk"><span class="p" style="background:#16a34a"></span><span><span class="n">Host runner</span> <span class="s">v1.4 · online</span></span></div>
+    <span class="arw">→</span>
+    <div class="lk"><span class="p" style="background:#16a34a"></span><span><span class="n">Docker sandbox</span> <span class="s">daemon ready</span></span></div>
+    <span class="arw">→</span>
+    <div class="lk"><span class="p" style="background:#d97706"></span><span><span class="n">Agents</span> <span class="s">3 of 4 ready</span></span></div>
+    <span class="arw">→</span>
+    <div class="lk"><span class="p" style="background:#16a34a"></span><span><span class="n">Approved repos</span> <span class="s">6 paths</span></span></div>
+  </div>
+
+  <div class="sec">
+    <h2>Agents</h2>
+    <div class="sub">Each shows what is wrong and the exact command that fixes it.</div>
+    <table>
+      <tr><th>Agent</th><th>Sandbox</th><th>Direct CLI</th><th>Version</th><th></th></tr>
+      <tr><td class="ag">Claude Code</td><td><span class="st ok">ready</span></td><td><span class="st ok">ready</span></td><td>2.1.22</td><td></td></tr>
+      <tr><td class="ag">Codex</td><td><span class="st lim">rate limited</span></td><td><span class="st lim">rate limited</span></td><td>0.48.0</td><td><span class="fix">quota resets Aug 7 →</span></td></tr>
+      <tr><td class="ag">Cursor</td><td><span class="st auth">login needed</span></td><td><span class="st ok">ready</span></td><td>1.7.4</td><td><span class="fix">Show login command →</span></td></tr>
+      <tr><td class="ag">Gemini</td><td><span class="st no">not installed</span></td><td><span class="st no">not installed</span></td><td style="color:#94a3b8">—</td><td><span class="fix">Show install command →</span></td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="frame">
+  <div class="hdr"><h1>Access</h1><p>Repositories agents are allowed to read and write</p></div>
+  <div class="sec">
+    <div class="warnbox">
+      <div class="t">⚠ Approving a repository grants agent access to it</div>
+      <div class="b">Agents can read every file in an approved path, and in <b>Direct CLI</b> mode they run on this host with no isolation — including any <code class="i">.env</code>, credentials or client work inside. Approve only repositories you would hand to a contractor.</div>
+    </div>
+
+    <h2>Approved · 6 paths</h2>
+    <div class="sub">Shown by default. This is the answer to “what can agents touch?”</div>
+    <div class="pathrow"><code>~/Desktop/github/navjyotnishant/specter-agent</code><span style="color:#94a3b8;font-size:11px">used by 4 workflows</span><button class="rm">Revoke</button></div>
+    <div class="pathrow"><code>~/Desktop/github/ToolTropolis/nj-agents</code><span style="color:#94a3b8;font-size:11px">used by 2 workflows</span><button class="rm">Revoke</button></div>
+    <div class="pathrow"><code>~/.specter/imports/navjyotnishant-nj-agents</code><span style="color:#94a3b8;font-size:11px">imported · unused</span><button class="rm">Revoke</button></div>
+
+    <h2 style="margin-top:17px">Scan for repositories</h2>
+    <div class="sub">Found 23 under this root. Review before approving — there is no bulk approve.</div>
+    <div class="pathrow" style="border-bottom:none"><code style="flex:1">~/Desktop/github</code><button class="rm" style="color:#334155;border-color:#dde3ea">Scan</button></div>
+  </div>
+</div>
+
+<div class="note">
+  <b>What changed.</b>
+  <ol>
+    <li><b>Split into three pages.</b> One page currently mixes runtime config, a host-daemon lifecycle, a security allowlist, an agent installer and a live console. Splitting makes the dependency chain — host runner → runtime → agent → approved path — visible instead of inferred from card size.</li>
+    <li><b>The page called “Models” gets model settings.</b> Today it contains none — model selection lives only in a header dropdown, so the discoverable path leads to a page about Docker.</li>
+    <li><b>The dependency chain is shown as a chain.</b> The host runner is the substrate for everything, yet renders below and smaller than the cards that depend on it.</li>
+    <li><b>Three agent states, not two.</b> Sandbox currently collapses “not installed”, “daemon down” and “needs login” into one amber “Setup needed” — three problems, three fixes, one label. Direct CLI already does this correctly; this copies it.</li>
+    <li><b>Approval says what it grants.</b> Today the words are “Add” and “Approved”, which read as list management rather than granting an AI agent filesystem access.</li>
+    <li><b>No bulk approve.</b> “Select all” + “Add” currently approves up to 50 repositories in two clicks with no confirmation — and a partial failure leaves some approved while reporting that nothing worked.</li>
+    <li><b>The approved list is visible by default</b> rather than collapsed behind “Show”. A security control users don’t see is one they don’t audit.</li>
+  </ol>
+  <p style="margin-top:9px"><b>Also not visual:</b> revoking access fails <i>silently</i> — it is the one mutation with no error handler, so the row stays and the user cannot tell whether access was actually removed. And the scan root defaults to a hardcoded <code class="i">/Users/navjyotnishant/…</code>, which is broken on every other machine.</p>
+</div>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Account &amp; Users — proposed</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:13px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#0f172a;background:#eef1f5;padding:20px}
+  .frame{max-width:1000px;margin:0 auto 16px;background:#fff;border:1px solid #d8dee6;border-radius:10px;overflow:hidden;box-shadow:0 6px 28px rgba(15,23,42,.09)}
+  .hdr{padding:14px 20px;border-bottom:1px solid #e8ecf1}
+  .hdr h1{font-size:19px;font-weight:850}
+  .hdr p{font-size:12px;color:#7c8798;margin-top:2px}
+  .tabs{display:flex;padding:0 20px;border-bottom:1px solid #e8ecf1;background:#fbfcfd}
+  .tb{padding:10px 15px;font-size:12px;font-weight:700;color:#94a3b8;cursor:pointer;border-bottom:2px solid transparent}
+  .tb.on{color:#0f1117;border-bottom-color:#0f1117}
+  .sec{padding:16px 20px;border-bottom:1px solid #f1f5f9}
+  .sec h2{font-size:12.5px;font-weight:800;margin-bottom:2px}
+  .sec .sub{font-size:11.5px;color:#94a3b8;margin-bottom:12px}
+  .intg{display:flex;align-items:center;gap:11px;border:1px solid #e8ecf1;border-radius:8px;padding:12px 14px}
+  .intg .ic{width:34px;height:34px;border-radius:8px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none}
+  .intg .nm{font-size:12.5px;font-weight:700}
+  .intg .st{font-size:11px;color:#16a34a;margin-top:1px;font-weight:600}
+  .intg .ac{margin-left:auto;display:flex;gap:6px}
+  .btn{height:28px;padding:0 11px;font-size:11px;font-weight:600;border:1px solid #d3dae3;background:#fff;border-radius:6px;cursor:pointer;color:#334155}
+  .btn.dark{background:#0f1117;color:#fff;border-color:#0f1117}
+  .btn.danger{color:#dc2626;border-color:#fecaca}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:9px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#94a3b8;padding:6px 0;border-bottom:1px solid #eef2f6}
+  td{padding:10px 0;border-bottom:1px solid #f6f8fa;font-size:12.5px;vertical-align:middle}
+  .badge{font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2.5px 8px;border-radius:4px}
+  .badge.adm{background:#ede9fe;color:#5b21b6}
+  .badge.opr{background:#f1f5f9;color:#64748b}
+  .badge.you{background:#dcfce7;color:#166534}
+  .ra{display:flex;gap:5px;justify-content:flex-end}
+  .gate{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:14px;font-size:11.5px;color:#64748b;text-align:center}
+  .note{max-width:1000px;margin:0 auto;font-size:11.5px;color:#64748b;line-height:1.65}
+  .note b{color:#0f172a}.note ol{margin:8px 0 0 18px}.note li{margin-bottom:5px}
+  code{font:10.5px ui-monospace,monospace;background:#f1f5f9;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="hdr"><h1>Account</h1><p>admin@local.dev</p></div>
+  <div class="tabs"><div class="tb on">My account</div><div class="tb">Users &amp; roles</div></div>
+
+  <div class="sec">
+    <h2>My integrations</h2>
+    <div class="sub">Credentials stored against your account, shared by every workflow you run. Encrypted at rest.</div>
+    <div class="intg">
+      <div class="ic">✈</div>
+      <div><div class="nm">Telegram</div><div class="st">● Connected · …AwwY · 1 allowed chat</div></div>
+      <div class="ac"><button class="btn">Change</button><button class="btn danger">Disconnect…</button></div>
+    </div>
+  </div>
+
+  <div class="sec" style="border-bottom:none">
+    <h2>Password</h2>
+    <div class="sub">Change your own sign-in password.</div>
+    <button class="btn">Change password…</button>
+  </div>
+</div>
+
+<div class="frame">
+  <div class="hdr"><h1>Users &amp; roles</h1><p>Local accounts on this instance</p></div>
+  <div class="sec">
+    <table>
+      <tr><th>Account</th><th>Role</th><th>Created</th><th>Last seen</th><th></th></tr>
+      <tr><td>admin@local.dev <span class="badge you">you</span></td><td><span class="badge adm">admin</span></td><td>19 Jun 2026</td><td>now</td><td><div class="ra"><button class="btn" disabled style="opacity:.35">Delete</button></div></td></tr>
+      <tr><td>ops@local.dev</td><td><span class="badge opr">operator</span></td><td>04 Jul 2026</td><td>2d ago</td><td><div class="ra"><button class="btn">Change role</button><button class="btn">Reset password</button><button class="btn danger">Delete…</button></div></td></tr>
+    </table>
+  </div>
+  <div class="sec" style="border-bottom:none">
+    <h2>Add a user</h2>
+    <div class="sub">Admins can create operators or additional admins.</div>
+    <div class="gate">Visible to admins only — operators do not see this form.</div>
+  </div>
+</div>
+
+<div class="note">
+  <b>What changed.</b>
+  <ol>
+    <li><b>Split into “My account” and “Users &amp; roles”.</b> Personal credentials currently sit wedged between the create-user form and the account list, under an org-admin heading, splitting admin work in half.</li>
+    <li><b>The admin form and Delete buttons are gated on role.</b> Today <code>role</code> is read once — for a badge — so an operator sees the full admin UI, fills it in, and gets a raw backend error. The page’s own copy already says “Admins can create…” while showing the form to everyone.</li>
+    <li><b>Delete confirms.</b> One click currently deletes a user account permanently — no dialog, no undo. The highest-risk interaction in the app.</li>
+    <li><b>Change role and reset password exist.</b> Neither does today: changing a role means delete-and-recreate, and a locked-out operator has no recovery path at all.</li>
+    <li><b>Created and last-seen columns,</b> so an admin can tell a live account from an abandoned one.</li>
+    <li><b>Self-service password change</b> on the account tab.</li>
+  </ol>
+  <p style="margin-top:9px"><b>Also not visual:</b> when the users query fails, the page falls back to rendering <i>just the current user</i>, presented identically to a real list — so a 403 looks like “everyone else was deleted”. And delete failures are silent: the mutation has no error handler, so a refused delete leaves the row in place with no message.</p>
+</div>
+</body>
+</html>

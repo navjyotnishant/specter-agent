@@ -42,3 +42,4 @@ codebases/*
 
 # Playwright MCP console dumps (local debugging)
 .playwright-mcp/
+.nj-agents-reports/

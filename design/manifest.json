@@ -1,0 +1,1081 @@
+{
+  "designProject": "dc11c32c-c3b1-49f0-af2d-ff469bbc4e15",
+  "directionProject": "f295db8e-0fae-424a-b052-9291148fcf5b",
+  "baseUrl": "http://localhost:8080",
+  "pages": {
+    "workflows": {
+      "route": "/workflows",
+      "mockup": "mockups/workflows.html",
+      "pairs": [
+        {
+          "key": "mini",
+          "mock": ".mini",
+          "live": ".sp-btn-sm:not(.sp-btn-primary)"
+        },
+        {
+          "key": "wd",
+          "mock": ".wd",
+          "live": ".sp-wd"
+        },
+        {
+          "key": "chipf",
+          "mock": ".chipf",
+          "live": ".sp-chip"
+        },
+        {
+          "key": "wn",
+          "mock": ".wn",
+          "live": ".sp-wn"
+        },
+        {
+          "key": "st",
+          "mock": ".st.bad",
+          "live": ".sp-st-bad"
+        },
+        {
+          "key": "ra",
+          "mock": ".ra",
+          "live": ".sp-ra"
+        },
+        {
+          "key": "spark",
+          "mock": ".spark",
+          "live": ".sp-spark"
+        },
+        {
+          "key": "btn",
+          "mock": ".btn",
+          "live": ".sp-btn:not(.sp-btn-primary)"
+        },
+        {
+          "key": "tb",
+          "mock": ".tb",
+          "live": ".sp-tb"
+        },
+        {
+          "key": "hdr",
+          "mock": ".hdr",
+          "live": ".sp-top"
+        },
+        {
+          "key": "acts",
+          "mock": ".acts",
+          "live": ".sp-acts"
+        },
+        {
+          "key": "primary",
+          "mock": ".primary",
+          "live": ".sp-btn-primary"
+        },
+        {
+          "key": "banner",
+          "mock": ".banner",
+          "live": ".sp-banner"
+        },
+        {
+          "key": "toolbar",
+          "mock": ".toolbar",
+          "live": ".sp-toolbar"
+        },
+        {
+          "key": "find",
+          "mock": ".find",
+          "live": ".sp-find"
+        },
+        {
+          "key": "tabs",
+          "mock": ".tabs",
+          "live": ".sp-tabs"
+        }
+      ],
+      "sequences": [
+        {
+          "key": "columns",
+          "mock": "th",
+          "live": ".sp-table th"
+        },
+        {
+          "key": "tabs",
+          "mock": ".tb",
+          "live": ".sp-tb"
+        }
+      ],
+      "require": [
+        ".sp-acts",
+        ".sp-banner",
+        ".sp-btn-primary",
+        ".sp-chip",
+        ".sp-find",
+        ".sp-ra",
+        ".sp-spark",
+        ".sp-st",
+        ".sp-tabs",
+        ".sp-tb",
+        ".sp-toolbar",
+        ".sp-top",
+        ".sp-wd",
+        ".sp-wn"
+      ],
+      "waivers": [
+        {
+          "selector": ".failure-reason",
+          "reason": "WorkflowRun carries no error field; it lives on RunStep, so the inline failure reason cannot be supplied by the current API",
+          "tracked": "GH#14"
+        }
+      ],
+      "harnessRoute": "/__parity/workflows"
+    },
+    "skills": {
+      "route": "/skills",
+      "mockup": "mockups/skills.html",
+      "pairs": [
+        {
+          "key": "it",
+          "mock": ".it",
+          "live": ".sp-it"
+        },
+        {
+          "key": "n",
+          "mock": ".n",
+          "live": ".sp-it-n"
+        },
+        {
+          "key": "src",
+          "mock": ".src",
+          "live": ".sp-src"
+        },
+        {
+          "key": "d",
+          "mock": ".d",
+          "live": ".sp-it-d"
+        },
+        {
+          "key": "btn",
+          "mock": ".btn",
+          "live": ".sp-btn:not(.sp-btn-primary)"
+        },
+        {
+          "key": "rl",
+          "mock": ".rl",
+          "live": ".sp-rl"
+        },
+        {
+          "key": "fld",
+          "mock": ".fld",
+          "live": ".sp-fld"
+        },
+        {
+          "key": "grp",
+          "mock": ".grp",
+          "live": ".sp-grp"
+        },
+        {
+          "key": "ct",
+          "mock": ".ct",
+          "live": ".sp-grp-ct"
+        },
+        {
+          "key": "primary",
+          "mock": ".primary",
+          "live": ".sp-btn-primary"
+        },
+        {
+          "key": "hint",
+          "mock": ".hint",
+          "live": ".sp-fld-hint"
+        },
+        {
+          "key": "hdr",
+          "mock": ".hdr",
+          "live": ".sp-top"
+        },
+        {
+          "key": "acts",
+          "mock": ".acts",
+          "live": ".sp-acts"
+        },
+        {
+          "key": "list",
+          "mock": ".list",
+          "live": ".sp-rail"
+        },
+        {
+          "key": "find",
+          "mock": ".find",
+          "live": ".sp-find"
+        },
+        {
+          "key": "ed",
+          "mock": ".ed",
+          "live": ".sp-ed"
+        },
+        {
+          "key": "meta",
+          "mock": ".meta",
+          "live": ".sp-meta"
+        },
+        {
+          "key": "roles",
+          "mock": ".roles",
+          "live": ".sp-roles"
+        },
+        {
+          "key": "foot",
+          "mock": ".foot",
+          "live": ".sp-foot"
+        }
+      ],
+      "sequences": [
+        {
+          "key": "groups",
+          "mock": ".grp",
+          "live": ".sp-grp"
+        }
+      ],
+      "require": [
+        ".sp-acts",
+        ".sp-btn-primary",
+        ".sp-ed",
+        ".sp-find",
+        ".sp-fld",
+        ".sp-fld-hint",
+        ".sp-foot",
+        ".sp-grp",
+        ".sp-grp-ct",
+        ".sp-it",
+        ".sp-it-d",
+        ".sp-it-n",
+        ".sp-meta",
+        ".sp-rail",
+        ".sp-rl",
+        ".sp-roles",
+        ".sp-src",
+        ".sp-top"
+      ],
+      "harnessRoute": "/__parity/skills"
+    },
+    "models": {
+      "route": "/settings/models",
+      "mockup": "mockups/models.html",
+      "pairs": [
+        {
+          "key": "st",
+          "mock": ".frame:first-of-type .st",
+          "live": ".sp-st"
+        },
+        {
+          "key": "tb",
+          "mock": ".frame:first-of-type .tb",
+          "live": "[role=tab]"
+        },
+        {
+          "key": "lk",
+          "mock": ".frame:first-of-type .lk",
+          "live": ".sp-chain-lk"
+        },
+        {
+          "key": "p",
+          "mock": ".frame:first-of-type .p",
+          "live": ".sp-chain-pip"
+        },
+        {
+          "key": "n",
+          "mock": ".frame:first-of-type .n",
+          "live": ".sp-chain-n"
+        },
+        {
+          "key": "s",
+          "mock": ".frame:first-of-type .s",
+          "live": ".sp-chain-s"
+        },
+        {
+          "key": "ag",
+          "mock": ".frame:first-of-type .ag",
+          "live": ".sp-ag"
+        },
+        {
+          "key": "pathrow",
+          "mock": ".frame:first-of-type .pathrow",
+          "live": ".sp-pathrow"
+        },
+        {
+          "key": "rm",
+          "mock": ".frame:first-of-type .rm",
+          "live": ".sp-rm"
+        },
+        {
+          "key": "arw",
+          "mock": ".frame:first-of-type .arw",
+          "live": ".sp-chain-arw"
+        },
+        {
+          "key": "sub",
+          "mock": ".frame:first-of-type .sub",
+          "live": ".sp-sub"
+        },
+        {
+          "key": "fix",
+          "mock": ".frame:first-of-type .fix",
+          "live": ".sp-fix"
+        },
+        {
+          "key": "hdr",
+          "mock": ".frame:first-of-type .hdr",
+          "live": ".sp-top"
+        },
+        {
+          "key": "sec",
+          "mock": ".frame:first-of-type .sec",
+          "live": ".sp-sec"
+        },
+        {
+          "key": "tabs",
+          "mock": ".frame:first-of-type .tabs",
+          "live": "[role=tablist]"
+        },
+        {
+          "key": "chain",
+          "mock": ".frame:first-of-type .chain",
+          "live": ".sp-chain"
+        },
+        {
+          "key": "warnbox",
+          "mock": ".frame:first-of-type .warnbox",
+          "live": ".sp-warnbox"
+        }
+      ],
+      "sequences": [
+        {
+          "key": "tabs",
+          "mock": ".frame:first-of-type .tb",
+          "live": "[role=tab]"
+        },
+        {
+          "key": "columns",
+          "mock": ".frame:first-of-type th",
+          "live": "th"
+        }
+      ],
+      "require": [
+        ".sp-ag",
+        ".sp-chain",
+        ".sp-chain-arw",
+        ".sp-chain-lk",
+        ".sp-chain-n",
+        ".sp-chain-pip",
+        ".sp-chain-s",
+        ".sp-fix",
+        ".sp-pathrow",
+        ".sp-rm",
+        ".sp-sec",
+        ".sp-st",
+        ".sp-sub",
+        ".sp-top",
+        ".sp-warnbox"
+      ],
+      "harnessRoute": "/__parity/models"
+    },
+    "users": {
+      "route": "/settings/users",
+      "mockup": "mockups/users.html",
+      "pairs": [
+        {
+          "key": "btn",
+          "mock": ".frame:first-of-type .btn",
+          "live": ".sp-btn:not(.sp-btn-danger)"
+        },
+        {
+          "key": "sec",
+          "mock": ".frame:first-of-type .sec",
+          "live": ".sp-sec"
+        },
+        {
+          "key": "sub",
+          "mock": ".frame:first-of-type .sub",
+          "live": ".sp-sub"
+        },
+        {
+          "key": "badge",
+          "mock": ".frame:first-of-type .badge",
+          "live": ".sp-badge"
+        },
+        {
+          "key": "hdr",
+          "mock": ".frame:first-of-type .hdr",
+          "live": ".sp-top"
+        },
+        {
+          "key": "tb",
+          "mock": ".frame:first-of-type .tb",
+          "live": "[role=tab]"
+        },
+        {
+          "key": "danger",
+          "mock": ".frame:first-of-type .danger",
+          "live": ".sp-btn-danger"
+        },
+        {
+          "key": "ra",
+          "mock": ".frame:first-of-type .ra",
+          "live": ".sp-ra"
+        },
+        {
+          "key": "tabs",
+          "mock": ".frame:first-of-type .tabs",
+          "live": "[role=tablist]"
+        },
+        {
+          "key": "intg",
+          "mock": ".frame:first-of-type .intg",
+          "live": ".sp-intg"
+        },
+        {
+          "key": "ic",
+          "mock": ".frame:first-of-type .ic",
+          "live": ".sp-intg-ic"
+        },
+        {
+          "key": "nm",
+          "mock": ".frame:first-of-type .nm",
+          "live": ".sp-intg-nm"
+        },
+        {
+          "key": "st",
+          "mock": ".frame:first-of-type .st",
+          "live": ".sp-intg-st"
+        },
+        {
+          "key": "ac",
+          "mock": ".frame:first-of-type .ac",
+          "live": ".sp-intg-ac"
+        },
+        {
+          "key": "gate",
+          "mock": ".frame:first-of-type .gate",
+          "live": ".sp-gate"
+        }
+      ],
+      "sequences": [
+        {
+          "key": "tabs",
+          "mock": ".frame:first-of-type .tb",
+          "live": "[role=tab]"
+        },
+        {
+          "key": "columns",
+          "mock": ".frame:first-of-type th",
+          "live": "th"
+        }
+      ],
+      "require": [
+        ".sp-badge",
+        ".sp-btn-danger",
+        ".sp-gate",
+        ".sp-intg",
+        ".sp-intg-ac",
+        ".sp-intg-ic",
+        ".sp-intg-nm",
+        ".sp-intg-st",
+        ".sp-ra",
+        ".sp-sec",
+        ".sp-sub",
+        ".sp-top"
+      ],
+      "harnessRoute": "/__parity/users"
+    },
+    "dashboard": {
+      "route": "/dashboard",
+      "mockup": "mockups/dashboard.html",
+      "pairs": [
+        {
+          "key": "row",
+          "mock": ".row",
+          "live": ".sp-row"
+        },
+        {
+          "key": "dot",
+          "mock": ".dot",
+          "live": ".sp-dot"
+        },
+        {
+          "key": "nm",
+          "mock": ".nm",
+          "live": ".sp-row-nm"
+        },
+        {
+          "key": "mt",
+          "mock": ".mt",
+          "live": ".sp-row-mt"
+        },
+        {
+          "key": "rt",
+          "mock": ".rt",
+          "live": ".sp-row-rt"
+        },
+        {
+          "key": "el",
+          "mock": ".el",
+          "live": ".sp-row-el"
+        },
+        {
+          "key": "st",
+          "mock": ".st",
+          "live": ".sp-st"
+        },
+        {
+          "key": "tile",
+          "mock": ".tile",
+          "live": ".sp-tile"
+        },
+        {
+          "key": "k",
+          "mock": ".k",
+          "live": ".sp-tile-k"
+        },
+        {
+          "key": "v",
+          "mock": ".v",
+          "live": ".sp-tile-v"
+        },
+        {
+          "key": "d",
+          "mock": ".d",
+          "live": ".sp-tile-d"
+        },
+        {
+          "key": "hl",
+          "mock": ".hl",
+          "live": ".sp-hl"
+        },
+        {
+          "key": "p",
+          "mock": ".p",
+          "live": ".sp-p"
+        },
+        {
+          "key": "st2",
+          "mock": ".st2",
+          "live": ".sp-st2"
+        },
+        {
+          "key": "qa",
+          "mock": ".qa",
+          "live": ".sp-qa"
+        },
+        {
+          "key": "hb",
+          "mock": ".hb",
+          "live": ".sp-hb"
+        },
+        {
+          "key": "t",
+          "mock": ".t",
+          "live": ".sp-t"
+        },
+        {
+          "key": "hdr",
+          "mock": ".hdr",
+          "live": ".sp-top"
+        },
+        {
+          "key": "att",
+          "mock": ".att",
+          "live": ".sp-att"
+        },
+        {
+          "key": "ic",
+          "mock": ".ic",
+          "live": ".sp-att-ic"
+        },
+        {
+          "key": "tx",
+          "mock": ".tx",
+          "live": ".sp-att-tx"
+        },
+        {
+          "key": "sb",
+          "mock": ".sb",
+          "live": ".sp-att-sb"
+        },
+        {
+          "key": "go",
+          "mock": ".go",
+          "live": ".sp-att-go"
+        },
+        {
+          "key": "tiles",
+          "mock": ".tiles",
+          "live": ".sp-tiles"
+        },
+        {
+          "key": "cols",
+          "mock": ".cols",
+          "live": ".sp-cols"
+        },
+        {
+          "key": "main",
+          "mock": ".main",
+          "live": ".sp-main"
+        },
+        {
+          "key": "sh",
+          "mock": ".sh",
+          "live": ".sp-sh"
+        },
+        {
+          "key": "more",
+          "mock": ".more",
+          "live": ".sp-more"
+        },
+        {
+          "key": "side",
+          "mock": ".side",
+          "live": ".sp-side"
+        }
+      ],
+      "sequences": [
+        {
+          "key": "tiles",
+          "mock": ".tile .k",
+          "live": ".sp-tile-k"
+        }
+      ],
+      "require": [
+        ".sp-att",
+        ".sp-att-go",
+        ".sp-att-ic",
+        ".sp-att-sb",
+        ".sp-att-tx",
+        ".sp-cols",
+        ".sp-dot",
+        ".sp-hb",
+        ".sp-hl",
+        ".sp-main",
+        ".sp-more",
+        ".sp-p",
+        ".sp-qa",
+        ".sp-row",
+        ".sp-row-el",
+        ".sp-row-mt",
+        ".sp-row-nm",
+        ".sp-row-rt",
+        ".sp-sh",
+        ".sp-side",
+        ".sp-st",
+        ".sp-st2",
+        ".sp-t",
+        ".sp-tile",
+        ".sp-tile-d",
+        ".sp-tile-k",
+        ".sp-tile-v",
+        ".sp-tiles",
+        ".sp-top"
+      ],
+      "harnessRoute": "/__parity/dashboard"
+    },
+    "builder": {
+      "route": "/workflows/:workflowId/builder",
+      "harnessRoute": "/__parity/builder/wf-prepush",
+      "mockup": "mockups/builder.html",
+      "pairs": [
+        {
+          "key": "pitem",
+          "mock": ".pitem",
+          "live": ".sp-si"
+        },
+        {
+          "key": "dot",
+          "mock": ".dot",
+          "live": ".sp-dot"
+        },
+        {
+          "key": "nm",
+          "mock": ".nm",
+          "live": ".sp-si-t"
+        },
+        {
+          "key": "ds",
+          "mock": ".ds",
+          "live": ".sp-si-d"
+        },
+        {
+          "key": "add",
+          "mock": ".add",
+          "live": ".sp-si-add"
+        },
+        {
+          "key": "btn",
+          "mock": ".btn",
+          "live": ".sp-btn:not(.sp-btn-primary)"
+        },
+        {
+          "key": "chip",
+          "mock": ".chip",
+          "live": ".sp-chip"
+        },
+        {
+          "key": "fld",
+          "mock": ".fld",
+          "live": ".sp-fld"
+        },
+        {
+          "key": "node",
+          "mock": ".node",
+          "live": ".sp-node"
+        },
+        {
+          "key": "accent",
+          "mock": ".accent",
+          "live": ".sp-accent--absent"
+        },
+        {
+          "key": "in",
+          "mock": ".in",
+          "live": ".sp-port"
+        },
+        {
+          "key": "nt",
+          "mock": ".nt",
+          "live": ".sp-node-tt"
+        },
+        {
+          "key": "nl",
+          "mock": ".nl",
+          "live": ".sp-node-hd"
+        },
+        {
+          "key": "mn",
+          "mock": ".mn",
+          "live": ".sp-node-ic"
+        },
+        {
+          "key": "cat",
+          "mock": ".cat",
+          "live": ".sp-si-cat"
+        },
+        {
+          "key": "meta",
+          "mock": ".meta",
+          "live": ".sp-meta"
+        },
+        {
+          "key": "issue",
+          "mock": ".issue",
+          "live": ".sp-issue"
+        },
+        {
+          "key": "on",
+          "mock": ".on",
+          "live": ".sp-port-on"
+        },
+        {
+          "key": "isec",
+          "mock": ".isec",
+          "live": ".sp-isec"
+        },
+        {
+          "key": "ihdr",
+          "mock": ".ihdr",
+          "live": ".sp-ihdr"
+        },
+        {
+          "key": "row",
+          "mock": ".row",
+          "live": ".sp-row"
+        },
+        {
+          "key": "ck",
+          "mock": ".ck",
+          "live": ".sp-ck"
+        },
+        {
+          "key": "sn",
+          "mock": ".sn",
+          "live": ".sp-sn"
+        },
+        {
+          "key": "sd",
+          "mock": ".sd",
+          "live": ".sp-sd"
+        },
+        {
+          "key": "pv",
+          "mock": ".pv",
+          "live": ".sp-pv"
+        },
+        {
+          "key": "pill",
+          "mock": ".pill",
+          "live": ".sp-pill"
+        },
+        {
+          "key": "badge-n",
+          "mock": ".badge-n",
+          "live": ".sp-badge-n"
+        },
+        {
+          "key": "warn",
+          "mock": ".warn",
+          "live": ".sp-warn"
+        },
+        {
+          "key": "tab",
+          "mock": ".tab",
+          "live": ".sp-tb"
+        },
+        {
+          "key": "req",
+          "mock": ".req",
+          "live": ".sp-req"
+        },
+        {
+          "key": "hint",
+          "mock": ".hint",
+          "live": ".sp-fld-hint"
+        },
+        {
+          "key": "grp",
+          "mock": ".grp",
+          "live": ".sp-grp"
+        },
+        {
+          "key": "hdr",
+          "mock": ".hdr",
+          "live": ".sp-top"
+        },
+        {
+          "key": "crumb",
+          "mock": ".crumb",
+          "live": ".sp-crumb"
+        },
+        {
+          "key": "title",
+          "mock": ".title",
+          "live": ".sp-title"
+        },
+        {
+          "key": "sub",
+          "mock": ".sub",
+          "live": ".sp-sub"
+        },
+        {
+          "key": "hdr-actions",
+          "mock": ".hdr-actions",
+          "live": ".sp-acts"
+        },
+        {
+          "key": "strip",
+          "mock": ".strip",
+          "live": ".sp-strip"
+        },
+        {
+          "key": "who",
+          "mock": ".who",
+          "live": ".sp-who"
+        },
+        {
+          "key": "pal",
+          "mock": ".pal",
+          "live": ".sp-rail"
+        },
+        {
+          "key": "pal-h",
+          "mock": ".pal-h",
+          "live": ".sp-rail-h"
+        },
+        {
+          "key": "lbl",
+          "mock": ".lbl",
+          "live": ".sp-lbl"
+        },
+        {
+          "key": "search",
+          "mock": ".search",
+          "live": ".sp-rail-search"
+        },
+        {
+          "key": "canvas",
+          "mock": ".canvas",
+          "live": ".sp-canvas"
+        },
+        {
+          "key": "wires",
+          "mock": ".wires",
+          "live": ".react-flow__edges"
+        },
+        {
+          "key": "mini",
+          "mock": ".mini",
+          "live": ".sp-btn-sm"
+        },
+        {
+          "key": "mini-cap",
+          "mock": ".mini-cap",
+          "live": ".sp-btn-sm-cap"
+        },
+        {
+          "key": "cbar",
+          "mock": ".cbar",
+          "live": ".sp-cbar"
+        },
+        {
+          "key": "sep",
+          "mock": ".sep",
+          "live": ".sp-sep"
+        },
+        {
+          "key": "insp",
+          "mock": ".insp",
+          "live": ".sp-insp"
+        },
+        {
+          "key": "tabs",
+          "mock": ".tabs",
+          "live": ".sp-tabs"
+        },
+        {
+          "key": "expand",
+          "mock": ".expand",
+          "live": ".sp-expand"
+        },
+        {
+          "key": "skl",
+          "mock": ".skl",
+          "live": ".sp-skl"
+        },
+        {
+          "key": "sh",
+          "mock": ".sh",
+          "live": ".sp-sh"
+        },
+        {
+          "key": "adv",
+          "mock": ".adv",
+          "live": ".sp-adv"
+        },
+        {
+          "key": "advbody",
+          "mock": ".advbody",
+          "live": ".sp-advbody"
+        },
+        {
+          "key": "cal",
+          "mock": ".cal",
+          "live": ".sp-cal"
+        },
+        {
+          "key": "pill.amber",
+          "mock": ".pill.amber",
+          "live": ".sp-pill-amber"
+        },
+        {
+          "key": "btn.primary",
+          "mock": ".btn.primary",
+          "live": ".sp-btn-primary"
+        },
+        {
+          "key": "node.bad",
+          "mock": ".node.bad",
+          "live": ".sp-node.bad"
+        },
+        {
+          "key": "node.sel",
+          "mock": ".node.sel",
+          "live": ".sp-node.sel"
+        },
+        {
+          "key": "tab.on",
+          "mock": ".tab.on",
+          "live": ".sp-tb-on"
+        },
+        {
+          "key": "pill.grey",
+          "mock": ".pill.grey",
+          "live": ".sp-pill-grey"
+        },
+        {
+          "key": "row.on",
+          "mock": ".row.on",
+          "live": ".sp-row-on"
+        }
+      ],
+      "sequences": [
+        {
+          "key": "inspector-tabs",
+          "mock": ".tab",
+          "live": ".sp-tb"
+        }
+      ],
+      "require": [
+        ".react-flow__edges",
+        ".sp-accent--absent",
+        ".sp-acts",
+        ".sp-adv",
+        ".sp-advbody",
+        ".sp-badge-n",
+        ".sp-btn-primary",
+        ".sp-btn-sm",
+        ".sp-btn-sm-cap",
+        ".sp-cal",
+        ".sp-canvas",
+        ".sp-cbar",
+        ".sp-chip",
+        ".sp-ck",
+        ".sp-crumb",
+        ".sp-dot",
+        ".sp-expand",
+        ".sp-fld",
+        ".sp-fld-hint",
+        ".sp-grp",
+        ".sp-ihdr",
+        ".sp-insp",
+        ".sp-isec",
+        ".sp-issue",
+        ".sp-lbl",
+        ".sp-meta",
+        ".sp-node",
+        ".sp-node-hd",
+        ".sp-node-ic",
+        ".sp-node-tt",
+        ".sp-pill",
+        ".sp-pill-amber",
+        ".sp-pill-grey",
+        ".sp-port",
+        ".sp-port-on",
+        ".sp-pv",
+        ".sp-rail",
+        ".sp-rail-h",
+        ".sp-rail-search",
+        ".sp-req",
+        ".sp-row",
+        ".sp-row-on",
+        ".sp-sd",
+        ".sp-sep",
+        ".sp-sh",
+        ".sp-si",
+        ".sp-si-add",
+        ".sp-si-cat",
+        ".sp-si-d",
+        ".sp-si-t",
+        ".sp-skl",
+        ".sp-sn",
+        ".sp-strip",
+        ".sp-sub",
+        ".sp-tabs",
+        ".sp-tb",
+        ".sp-tb-on",
+        ".sp-title",
+        ".sp-top",
+        ".sp-warn",
+        ".sp-who"
+      ]
+    }
+  },
+  "harnessBaseUrl": "http://127.0.0.1:5174",
+  "harnessNote": "harnessRoute renders the page against fixture data with no session; see src/dev/ParityHarness.tsx. Dev-server only.",
+  "notMeasured": {
+    "mockups/index.html": "gap-analysis index — a document about the redesign, not a page of the app",
+    "mockups/dark.html": "proposed dark theme; the app has no dark mode yet, so there is nothing to compare",
+    "mockups/direction-c.html": "the visual direction itself, source of src/styles/mockup.css — not a page"
+  }
+}

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C — Workflow-tool native (n8n / Retool)</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#f4f5f7; --panel:#fff; --line:#dfe3e8; --line2:#eef1f4;
+    --fg:#1a1f26; --dim:#5c6673; --faint:#8b95a3;
+    --accent:#ff6d5a; --ok:#12b886; --bad:#e03131; --warn:#f59f00; --run:#4c6ef5;
+  }
+  body{background:var(--bg);color:var(--fg);font:13.5px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:18px}
+  .wrap{max-width:1360px;margin:0 auto}
+  .lede{color:var(--dim);font-size:13px;margin:0 0 14px}
+  .lede b{color:var(--fg)}
+
+  .app{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel);box-shadow:0 1px 3px rgba(26,31,38,.06)}
+  .top{display:flex;align-items:center;gap:12px;padding:0 16px;height:50px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .nm{font-size:15px;font-weight:700}
+  .tag{font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;background:#fff4e6;color:#e8590c;text-transform:uppercase;letter-spacing:.04em}
+  .acts{margin-left:auto;display:flex;gap:7px}
+  .b{height:32px;padding:0 13px;font-size:13px;font-weight:600;background:#fff;color:var(--dim);border:1px solid var(--line);border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .b:hover{background:#f8f9fa;color:var(--fg)}
+  .b.p{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .b:disabled{opacity:.4;cursor:not-allowed}
+
+  .body{display:grid;grid-template-columns:210px 1fr;height:560px}
+  .side{border-right:1px solid var(--line);background:#fafbfc;overflow:auto}
+  .srch{padding:10px}
+  .srch input{width:100%;height:32px;border:1px solid var(--line);border-radius:6px;padding:0 10px;font:13px inherit;outline:none;background:#fff}
+  .sh{font-size:11px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;padding:12px 12px 5px}
+  .si{display:flex;align-items:center;gap:9px;padding:8px 12px;cursor:grab}
+  .si:hover{background:#fff}
+  .si .ic{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;flex:none;color:#fff}
+  .si .t{font-size:13px;font-weight:500}
+  .si .d{font-size:11.5px;color:var(--faint)}
+
+  .main{display:flex;flex-direction:column}
+  .cv{flex:1;position:relative;background:var(--bg);background-image:radial-gradient(#cdd3da 1.2px,transparent 1.2px);background-size:20px 20px;overflow:hidden}
+
+  .nd{position:absolute;width:230px;background:#fff;border:2px solid var(--line);border-radius:10px;box-shadow:0 2px 6px rgba(26,31,38,.07)}
+  .nd .hd{display:flex;align-items:center;gap:9px;padding:11px 12px;border-bottom:1px solid var(--line2)}
+  .nd .hd .ic{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;color:#fff;flex:none}
+  .nd .hd .tt{font-size:13.5px;font-weight:650;line-height:1.25}
+  .nd .hd .sb{font-size:11px;color:var(--faint)}
+  .nd .out{padding:8px 12px;font-size:11.5px;color:var(--dim);background:#fafbfc;border-radius:0 0 8px 8px;font-family:ui-monospace,monospace}
+  .nd .out .ok{color:var(--ok);font-weight:600}
+  .nd .out .er{color:var(--bad);font-weight:600}
+  .nd.sel{border-color:var(--accent);box-shadow:0 0 0 4px rgba(255,109,90,.12)}
+  .nd.bad{border-color:var(--bad)}
+  .port{position:absolute;width:11px;height:11px;border-radius:50%;background:#fff;border:2.5px solid var(--faint);top:50%;transform:translateY(-50%)}
+  .port.i{left:-6px}.port.o{right:-6px}
+  .port.on{border-color:var(--run);background:var(--run)}
+
+  .exec{height:150px;border-top:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column}
+  .eh{display:flex;align-items:center;gap:12px;padding:0 14px;height:34px;border-bottom:1px solid var(--line2);font-size:12px}
+  .eh .tb{font-weight:650;color:var(--fg);border-bottom:2px solid var(--accent);height:100%;display:flex;align-items:center;padding:0 2px}
+  .eh .tb2{color:var(--faint)}
+  .eh .rt{margin-left:auto;font-family:ui-monospace,monospace;font-size:11.5px;color:var(--dim)}
+  .et{flex:1;overflow:auto;font:11.5px/1.7 ui-monospace,monospace;padding:8px 14px}
+  .er{display:flex;gap:12px}
+  .er .n{width:120px;color:var(--dim)}
+  .er .s{width:64px}
+  .er .d{width:60px;color:var(--faint)}
+  .er .m{color:var(--dim)}
+</style></head><body>
+<div class="wrap">
+  <p class="lede"><b>Option C — Workflow-tool native.</b> Light, node-forward, with icon tiles, visible connection ports and per-node run output on the card. A docked execution panel replaces the status line. Reads as a purpose-built automation tool — n8n or Retool.</p>
+
+  <div class="app">
+    <div class="top">
+      <span class="nm">blog_post</span>
+      <span class="tag">unsaved</span>
+      <span class="acts">
+        <button class="b">↶ Undo</button>
+        <button class="b" disabled>↷ Redo</button>
+        <button class="b">⧉ Duplicate</button>
+        <button class="b">Save</button>
+        <button class="b p">▶ Execute workflow</button>
+      </span>
+    </div>
+
+    <div class="body">
+      <div class="side">
+        <div class="srch"><input placeholder="Search nodes…"></div>
+        <div class="sh">Triggers</div>
+        <div class="si"><span class="ic" style="background:#15aabf">⚡</span><span><span class="t">Telegram</span><br><span class="d">On chat message</span></span></div>
+        <div class="sh">Agents</div>
+        <div class="si"><span class="ic" style="background:#495057">◆</span><span><span class="t">Supervisor</span><br><span class="d">Delegates work</span></span></div>
+        <div class="si"><span class="ic" style="background:#4c6ef5">●</span><span><span class="t">Specialist</span><br><span class="d">Runs one task</span></span></div>
+        <div class="si"><span class="ic" style="background:#7950f2">⊞</span><span><span class="t">Aggregator</span><br><span class="d">Merges branches</span></span></div>
+        <div class="sh">Control</div>
+        <div class="si"><span class="ic" style="background:#f59f00">⏸</span><span><span class="t">Approval</span><br><span class="d">Waits for a human</span></span></div>
+        <div class="si"><span class="ic" style="background:#12b886">↗</span><span><span class="t">Webhook</span><br><span class="d">POSTs a payload</span></span></div>
+      </div>
+
+      <div class="main">
+        <div class="cv">
+          <svg style="position:absolute;inset:0;width:100%;height:100%">
+            <g stroke="#adb5bd" stroke-width="2" fill="none">
+              <path d="M272,86 C300,86 300,86 328,86"/>
+              <path d="M562,86 C596,86 596,206 630,206"/>
+              <path d="M562,86 C596,86 596,326 630,326"/>
+            </g>
+          </svg>
+
+          <div class="nd" style="left:40px;top:48px">
+            <div class="hd"><span class="ic" style="background:#15aabf">⚡</span>
+              <span><span class="tt">Telegram Trigger</span><br><span class="sb">chat 5637304447</span></span></div>
+            <div class="out">topic: <span class="ok">"How we built repo import"</span></div>
+            <span class="port o"></span>
+          </div>
+
+          <div class="nd" style="left:328px;top:48px">
+            <div class="hd"><span class="ic" style="background:#495057">◆</span>
+              <span><span class="tt">Blog Supervisor</span><br><span class="sb">Claude Opus · fan-out</span></span></div>
+            <div class="out"><span class="ok">✓ 1.41s</span> · 4,118 tokens · 2 branches</div>
+            <span class="port i on"></span><span class="port o on"></span>
+          </div>
+
+          <div class="nd" style="left:630px;top:168px">
+            <div class="hd"><span class="ic" style="background:#4c6ef5">●</span>
+              <span><span class="tt">Research</span><br><span class="sb">Claude Opus · 2 skills</span></span></div>
+            <div class="out" style="color:#4c6ef5">▶ running · 4m12s elapsed</div>
+            <span class="port i on"></span><span class="port o"></span>
+          </div>
+
+          <div class="nd bad" style="left:630px;top:288px">
+            <div class="hd"><span class="ic" style="background:#e03131">●</span>
+              <span><span class="tt">Fact-check</span><br><span class="sb">Claude Opus</span></span></div>
+            <div class="out"><span class="er">! objective is empty</span></div>
+            <span class="port i on"></span><span class="port o"></span>
+          </div>
+        </div>
+
+        <div class="exec">
+          <div class="eh">
+            <span class="tb">Execution</span><span class="tb2">Output</span><span class="tb2">Logs</span>
+            <span class="rt">run_8a3f21 · started 08:42:11 · 4m18s</span>
+          </div>
+          <div class="et">
+            <div class="er"><span class="n">telegram_in</span><span class="s" style="color:#12b886">success</span><span class="d">0.01s</span><span class="m">topic received</span></div>
+            <div class="er"><span class="n">blog_supervisor</span><span class="s" style="color:#12b886">success</span><span class="d">1.41s</span><span class="m">planned 2 branches · 4,118 tok</span></div>
+            <div class="er"><span class="n">research</span><span class="s" style="color:#4c6ef5">running</span><span class="d">4m12s</span><span class="m">gathering sources…</span></div>
+            <div class="er"><span class="n">fact_check</span><span class="s" style="color:#e03131">blocked</span><span class="d">—</span><span class="m">objective is empty</span></div>
+            <div class="er"><span class="n">merge_findings</span><span class="s" style="color:#8b95a3">waiting</span><span class="d">—</span><span class="m">2 inputs pending</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Workflows — proposed</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:13px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#0f172a;background:#eef1f5;padding:20px}
+  .frame{max-width:1240px;margin:0 auto;background:#fff;border:1px solid #d8dee6;border-radius:10px;overflow:hidden;box-shadow:0 6px 28px rgba(15,23,42,.09)}
+  .hdr{padding:14px 20px;border-bottom:1px solid #e8ecf1;display:flex;align-items:flex-start;gap:14px}
+  .hdr h1{font-size:19px;font-weight:850}
+  .hdr p{font-size:12px;color:#7c8798;margin-top:2px}
+  .hdr .acts{margin-left:auto;display:flex;gap:7px}
+  .btn{height:30px;padding:0 12px;font-size:11.5px;font-weight:600;border:1px solid #d3dae3;background:#fff;border-radius:6px;cursor:pointer;color:#334155;display:inline-flex;align-items:center;gap:5px}
+  .btn.primary{background:#0f1117;color:#fff;border-color:#0f1117}
+  .toolbar{display:flex;align-items:center;gap:9px;padding:10px 20px;border-bottom:1px solid #e8ecf1;background:#fbfcfd;flex-wrap:wrap}
+  .find{position:relative;flex:1;min-width:220px;max-width:340px}
+  .find input{width:100%;height:29px;border:1px solid #dde3ea;border-radius:6px;padding:0 10px 0 27px;font-size:11.5px;font-family:inherit;outline:none}
+  .find span{position:absolute;left:9px;top:6px;color:#94a3b8;font-size:12px}
+  .chipf{font-size:11px;padding:4px 10px;border:1px solid #dde3ea;border-radius:999px;background:#fff;cursor:pointer;color:#475569}
+  .chipf.on{background:#0f1117;color:#fff;border-color:#0f1117}
+  .tabs{display:flex;gap:0;padding:0 20px;border-bottom:1px solid #e8ecf1}
+  .tb{padding:9px 14px;font-size:12px;font-weight:700;color:#94a3b8;cursor:pointer;border-bottom:2px solid transparent}
+  .tb.on{color:#0f1117;border-bottom-color:#0f1117}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:9px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#94a3b8;padding:8px 20px;border-bottom:1px solid #eef2f6;background:#fbfcfd}
+  td{padding:11px 20px;border-bottom:1px solid #f4f6f9;font-size:12.5px;vertical-align:middle}
+  .wn{font-weight:700}
+  .wd{font-size:11px;color:#94a3b8;margin-top:1px}
+  .st{font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2.5px 8px;border-radius:4px;display:inline-flex;align-items:center;gap:4px}
+  .st.ok{background:#dcfce7;color:#166534}.st.bad{background:#fee2e2;color:#991b1b}
+  .st.run{background:#dbeafe;color:#1e40af}.st.never{background:#f1f5f9;color:#64748b}
+  .spark{display:inline-flex;gap:2px;align-items:flex-end;height:15px;margin-left:7px}
+  .spark i{width:4px;border-radius:1px;display:block}
+  .ra{display:flex;gap:5px;justify-content:flex-end}
+  .mini{height:24px;padding:0 9px;font-size:10.5px;border:1px solid #dde3ea;background:#fff;border-radius:5px;cursor:pointer;color:#475569}
+  .mini.dark{background:#0f1117;color:#fff;border-color:#0f1117}
+  .banner{display:flex;align-items:center;gap:9px;padding:9px 20px;background:#fef2f2;border-bottom:1px solid #fecaca;font-size:12px;color:#991b1b}
+  .note{max-width:1240px;margin:16px auto 0;font-size:11.5px;color:#64748b;line-height:1.65}
+  .note b{color:#0f172a}.note ol{margin:8px 0 0 18px}.note li{margin-bottom:5px}
+  code{font:10.5px ui-monospace,monospace;background:#f1f5f9;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="hdr">
+    <div><h1>Workflows</h1><p>14 workflows · 3 templates</p></div>
+    <div class="acts"><button class="btn">⤓ Import from repo</button><button class="btn primary">+ New workflow</button></div>
+  </div>
+
+  <div class="banner">⚠ Couldn’t reach the backend — showing the last known list. <b style="margin-left:4px">Retry</b></div>
+
+  <div class="toolbar">
+    <div class="find"><span>⌕</span><input placeholder="Filter by name or description…"></div>
+    <span class="chipf on">All</span><span class="chipf">Failing</span><span class="chipf">Running</span><span class="chipf">Never run</span>
+    <span style="margin-left:auto;font-size:11px;color:#94a3b8">Sort: recently run ▾</span>
+  </div>
+
+  <div class="tabs"><div class="tb on">My workflows · 14</div><div class="tb">Templates · 3</div></div>
+
+  <table>
+    <tr><th>Workflow</th><th>Last 5 runs</th><th>Last run</th><th>Repo</th><th></th></tr>
+    <tr>
+      <td><div class="wn">blog_post</div><div class="wd">Research, draft, fact-check and publish</div></td>
+      <td><span class="st bad">● failed</span><span class="spark"><i style="height:11px;background:#16a34a"></i><i style="height:8px;background:#16a34a"></i><i style="height:14px;background:#dc2626"></i><i style="height:9px;background:#16a34a"></i><i style="height:14px;background:#dc2626"></i></span></td>
+      <td>12m ago · 2m14s<div class="wd">rate limit — Codex</div></td>
+      <td>nj-agents</td>
+      <td><div class="ra"><button class="mini dark">Run</button><button class="mini">Edit</button><button class="mini">⋯</button></div></td>
+    </tr>
+    <tr>
+      <td><div class="wn">pre-push-review</div><div class="wd">Secrets, correctness, tests, deps, style</div></td>
+      <td><span class="st run">● running</span><span class="spark"><i style="height:10px;background:#16a34a"></i><i style="height:12px;background:#16a34a"></i><i style="height:9px;background:#16a34a"></i><i style="height:11px;background:#16a34a"></i><i style="height:13px;background:#2563eb"></i></span></td>
+      <td>started 1m ago · 1m03s<div class="wd">step 3 of 6</div></td>
+      <td>specter-agent</td>
+      <td><div class="ra"><button class="mini">View</button><button class="mini">⋯</button></div></td>
+    </tr>
+    <tr>
+      <td><div class="wn">changelog</div><div class="wd">Keep a Changelog entries from commits</div></td>
+      <td><span class="st ok">● passed</span><span class="spark"><i style="height:9px;background:#16a34a"></i><i style="height:11px;background:#16a34a"></i><i style="height:10px;background:#16a34a"></i><i style="height:12px;background:#16a34a"></i><i style="height:10px;background:#16a34a"></i></span></td>
+      <td>2h ago · 41s</td><td>specter-agent</td>
+      <td><div class="ra"><button class="mini dark">Run</button><button class="mini">Edit</button><button class="mini">⋯</button></div></td>
+    </tr>
+    <tr>
+      <td><div class="wn">arch-diagram</div><div class="wd">Presentation-quality SVG from the repo</div></td>
+      <td><span class="st never">never run</span></td>
+      <td style="color:#94a3b8">—</td><td style="color:#dc2626">no repo set</td>
+      <td><div class="ra"><button class="mini" style="opacity:.4" title="Set a repository before running">Run</button><button class="mini">Edit</button><button class="mini">⋯</button></div></td>
+    </tr>
+  </table>
+</div>
+
+<div class="note">
+  <b>What changed.</b>
+  <ol>
+    <li><b>Filter + status chips + sort.</b> None exist today — the list renders in whatever order the API returned, and descriptions are clipped so even Cmd-F misses them.</li>
+    <li><b>Sparkline of the last 5 runs</b> replaces a single status word. “3 of the last 5 failed” is the question operators actually ask; today it needs five clicks to answer.</li>
+    <li><b>Failure reason inline</b> (“rate limit — Codex”). <code>RunStep.error</code> exists in the type and is never surfaced on this page.</li>
+    <li><b>Live progress</b> (“step 3 of 6”) and elapsed time for running rows.</li>
+    <li><b>Run disabled with a reason</b> when the workflow has no repo. Today <code>canRun</code> checks only that a workspace exists — an empty graph runs happily.</li>
+    <li><b>An error banner that says the backend is unreachable.</b> Today a failed query renders “No workflows yet” — outage and empty account are indistinguishable.</li>
+  </ol>
+  <p style="margin-top:9px"><b>Not visual:</b> each row currently runs its own poll every 8 s — at 50 workflows that’s 50 requests per 8 s forever, on both tabs, including templates whose column is hidden. One shared query, polled only while something is running.</p>
+</div>
+</body>
+</html>

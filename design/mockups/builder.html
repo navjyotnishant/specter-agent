@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Workflow Builder — proposed</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#0f172a;background:#eef1f5;padding:20px}
+  .frame{max-width:1520px;margin:0 auto;background:#fff;border:1px solid #d8dee6;border-radius:10px;overflow:hidden;box-shadow:0 6px 28px rgba(15,23,42,.09)}
+  .hdr{display:flex;align-items:flex-start;gap:16px;padding:12px 18px;border-bottom:1px solid #e8ecf1}
+  .crumb{font-size:10px;color:#94a3b8;letter-spacing:.09em;text-transform:uppercase}
+  .title{font-size:17px;font-weight:800;margin-top:3px;display:flex;align-items:center;gap:8px}
+  .sub{font-size:11px;color:#7c8798;margin-top:2px}
+  .hdr-actions{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .btn{height:29px;padding:0 11px;font-size:11px;font-weight:600;border:1px solid #d3dae3;background:#fff;border-radius:6px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:#334155;white-space:nowrap}
+  .btn.primary{background:#0f1117;color:#fff;border-color:#0f1117}
+  .btn.primary[disabled]{background:#cbd5e1;border-color:#cbd5e1;cursor:not-allowed}
+  .pill{font-size:9.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;padding:2.5px 8px;border-radius:999px}
+  .pill.amber{background:#fef3c7;color:#92400e}
+  .pill.grey{background:#f1f5f9;color:#64748b}
+  .strip{display:flex;align-items:center;gap:14px;padding:8px 18px;background:#fffbeb;border-bottom:1px solid #fde68a;font-size:11px;flex-wrap:wrap}
+  .strip .who{font-weight:700;color:#92400e;display:flex;align-items:center;gap:6px}
+  .issue{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #fcd34d;border-radius:5px;padding:2.5px 8px;color:#92400e;cursor:pointer;font-size:10.5px}
+  .issue b{font-weight:700;border-bottom:1px dotted #b45309}
+  .body{display:grid;grid-template-columns:186px 1fr 320px;min-height:560px}
+  .pal{border-right:1px solid #e8ecf1;background:#fcfdfe}
+  .pal-h{padding:9px 12px;border-bottom:1px solid #eef2f6}
+  .pal-h .lbl{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#64748b}
+  .search{margin:8px 10px;position:relative}
+  .search input{width:100%;height:26px;border:1px solid #dde3ea;border-radius:5px;padding:0 8px 0 24px;font-size:11px;font-family:inherit;outline:none}
+  .search span{position:absolute;left:7px;top:5px;font-size:11px;color:#94a3b8}
+  .cat{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#9aa5b4;padding:9px 12px 3px}
+  .pitem{display:flex;gap:7px;padding:5px 12px;cursor:grab;align-items:flex-start}
+  .pitem:hover{background:#f1f5f9}
+  .pitem .dot{width:7px;height:7px;border-radius:2px;margin-top:4px;flex:none}
+  .pitem .nm{font-size:11px;color:#334155;font-weight:500;display:block}
+  .pitem .ds{font-size:9.5px;color:#94a3b8;line-height:1.35;display:block}
+  .pitem .add{margin-left:auto;font-size:13px;color:#cbd5e1;line-height:1}
+  .pitem:hover .add{color:#4f46e5}
+  .canvas{position:relative;background:#f8fafc;background-image:radial-gradient(#dde3ea 1px,transparent 1px);background-size:22px 22px;overflow:hidden}
+  .node{position:absolute;width:196px;background:#fff;border:1px solid #dde3ea;border-radius:8px;box-shadow:0 1px 3px rgba(15,23,42,.07)}
+  .node .accent{height:3px;border-radius:7px 7px 0 0}
+  .node .in{padding:8px 10px}
+  .node .nt{font-size:8.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#94a3b8}
+  .node .nl{font-size:12px;font-weight:700;margin-top:1px}
+  .node .meta{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
+  .chip{font-size:9px;padding:1.5px 5px;border-radius:3px;background:#f1f5f9;color:#64748b}
+  .node.bad{border-color:#fca5a5;box-shadow:0 0 0 2.5px rgba(252,165,165,.28)}
+  .node .warn{margin-top:6px;font-size:9.5px;color:#b91c1c;display:flex;gap:4px;align-items:center;background:#fef2f2;border-radius:4px;padding:3px 5px}
+  .node.sel{border-color:#4f46e5;box-shadow:0 0 0 2.5px rgba(79,70,229,.16)}
+  .badge-n{position:absolute;top:-7px;right:-7px;width:17px;height:17px;border-radius:50%;background:#dc2626;color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid #fff}
+  svg.wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .mini{position:absolute;right:12px;bottom:22px;width:150px;height:92px;background:#fff;border:1px solid #dde3ea;border-radius:6px}
+  .mini .mn{position:absolute;height:7px;border-radius:2px}
+  .mini-cap{position:absolute;bottom:-15px;right:0;font-size:9px;color:#94a3b8}
+  .cbar{position:absolute;left:12px;bottom:12px;display:flex;gap:3px;background:#fff;border:1px solid #dde3ea;border-radius:6px;padding:3px}
+  .cbar button{width:25px;height:25px;border:none;background:transparent;cursor:pointer;color:#64748b;font-size:13px;border-radius:4px}
+  .cbar button:hover{background:#f1f5f9}
+  .cbar .sep{width:1px;background:#e8ecf1;margin:3px 1px}
+  .insp{border-left:1px solid #e8ecf1;display:flex;flex-direction:column}
+  .tabs{display:flex;border-bottom:1px solid #e8ecf1}
+  .tab{flex:1;padding:7px;font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#94a3b8;text-align:center;cursor:pointer;border-right:1px solid #e8ecf1}
+  .tab.on{background:#f8fafc;color:#0f1117;box-shadow:inset 0 -2px 0 #4f46e5}
+  .isec{padding:11px 13px;border-bottom:1px solid #f1f5f9}
+  .ihdr{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#9aa5b4;margin-bottom:7px;display:flex;align-items:center;gap:6px}
+  .fld{margin-bottom:9px}
+  .fld label{display:block;font-size:10px;font-weight:700;color:#475569;margin-bottom:3px}
+  .fld .req{color:#dc2626}
+  .fld input,.fld textarea,.fld select{width:100%;border:1px solid #dde3ea;border-radius:5px;padding:5px 7px;font-size:11px;font-family:inherit;outline:none;color:#0f172a;background:#fff}
+  .fld textarea{resize:vertical;min-height:74px}
+  .fld .hint{font-size:9.5px;color:#94a3b8;margin-top:2.5px;line-height:1.45}
+  .expand{float:right;font-size:9.5px;color:#4f46e5;cursor:pointer;font-weight:600}
+  details.adv{border-top:1px solid #f1f5f9}
+  details.adv summary{padding:9px 13px;font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#64748b;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px}
+  details.adv summary::-webkit-details-marker{display:none}
+  details.adv summary::before{content:"▸";font-size:9px;color:#94a3b8}
+  details.adv[open] summary::before{content:"▾"}
+  .advbody{padding:0 13px 11px}
+  .skl{border:1px solid #e8ecf1;border-radius:6px;overflow:hidden}
+  .skl .sh{display:flex;align-items:center;gap:6px;padding:5px 8px;background:#f8fafc;border-bottom:1px solid #eef2f6;font-size:11px;color:#94a3b8}
+  .skl .sh input{flex:1;border:none;background:transparent;font-size:10.5px;outline:none;font-family:inherit}
+  .skl .grp{font-size:8.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#9aa5b4;padding:6px 8px 2px;background:#fcfdfe}
+  .skl .row{display:flex;gap:6px;padding:4px 8px;align-items:flex-start}
+  .skl .row:hover{background:#f8fafc}
+  .skl .row.on{background:#eef2ff}
+  .skl .row .ck{width:12px;height:12px;border:1.5px solid #cbd5e1;border-radius:3px;margin-top:1.5px;flex:none;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center}
+  .skl .row.on .ck{background:#4f46e5;border-color:#4f46e5}
+  .skl .row .sn{font-size:10.5px;color:#334155;font-weight:500;display:block}
+  .skl .row .sd{font-size:9.5px;color:#94a3b8;line-height:1.35;display:block}
+  .skl .row .pv{margin-left:auto;font-size:9.5px;color:#4f46e5;cursor:pointer;flex:none}
+  .cal{margin:0 13px 11px;background:#f8fafc;border:1px solid #e8ecf1;border-radius:6px;padding:8px 9px;font-size:10px;color:#64748b;line-height:1.5}
+  .note{max-width:1520px;margin:16px auto 0;font-size:11.5px;color:#64748b;line-height:1.65}
+  .note b{color:#0f172a}
+  .note ol{margin:8px 0 0 18px}
+  .note li{margin-bottom:5px}
+  code{font:10.5px ui-monospace,monospace;background:#f1f5f9;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="hdr">
+    <div>
+      <div class="crumb">Workflows › blog_post</div>
+      <div class="title">blog_post <span class="pill amber">● unsaved changes</span></div>
+      <div class="sub">Research, draft, fact-check and publish a technical post · nj-agents</div>
+    </div>
+    <div class="hdr-actions">
+      <button class="btn">↶ Undo</button>
+      <button class="btn">↷ Redo</button>
+      <button class="btn">⧉ Duplicate</button>
+      <button class="btn">⌗ Tidy</button>
+      <button class="btn">Apply to selected ▾</button>
+      <button class="btn">⌸ Save</button>
+      <button class="btn primary" disabled title="3 issues must be resolved before this workflow can run">▶ Run workflow</button>
+    </div>
+  </div>
+
+  <div class="strip">
+    <span class="who">⚠ 3 issues block this run</span>
+    <span class="issue"><b>fact-check</b> — no objective set</span>
+    <span class="issue"><b>publish</b> — not connected to the graph</span>
+    <span class="issue"><b>notify</b> — webhook URL empty</span>
+    <span style="margin-left:auto;color:#a16207;font-size:10.5px">Click an issue to jump to that node</span>
+  </div>
+
+  <div class="body">
+    <div class="pal">
+      <div class="pal-h"><div class="lbl">Palette</div></div>
+      <div class="search"><span>⌕</span><input placeholder="Search nodes…"></div>
+      <div class="cat">Triggers</div>
+      <div class="pitem"><span class="dot" style="background:#0891b2"></span><span><span class="nm">Manual / Telegram</span><span class="ds">Starts the run</span></span><span class="add">+</span></div>
+      <div class="cat">Agents</div>
+      <div class="pitem"><span class="dot" style="background:#0f1117"></span><span><span class="nm">Supervisor</span><span class="ds">Delegates to specialists</span></span><span class="add">+</span></div>
+      <div class="pitem"><span class="dot" style="background:#4f46e5"></span><span><span class="nm">Specialist</span><span class="ds">Does one job</span></span><span class="add">+</span></div>
+      <div class="pitem"><span class="dot" style="background:#7c3aed"></span><span><span class="nm">Aggregator</span><span class="ds">Merges parallel branches</span></span><span class="add">+</span></div>
+      <div class="cat">Control flow</div>
+      <div class="pitem"><span class="dot" style="background:#d97706"></span><span><span class="nm">Human approval</span><span class="ds">Pauses for a decision</span></span><span class="add">+</span></div>
+      <div class="pitem"><span class="dot" style="background:#6366f1"></span><span><span class="nm">Conditional</span><span class="ds">Branches on yes/no</span></span><span class="add">+</span></div>
+      <div class="cat">Output</div>
+      <div class="pitem"><span class="dot" style="background:#0891b2"></span><span><span class="nm">Write memory</span><span class="ds">Persists a result</span></span><span class="add">+</span></div>
+      <div class="pitem"><span class="dot" style="background:#059669"></span><span><span class="nm">Webhook</span><span class="ds">POSTs to a URL</span></span><span class="add">+</span></div>
+    </div>
+
+    <div class="canvas">
+      <svg class="wires">
+        <defs><marker id="a" markerWidth="7" markerHeight="7" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#94a3b8"/></marker></defs>
+        <path d="M232,78 C258,78 258,78 284,78" stroke="#94a3b8" stroke-width="1.4" fill="none" marker-end="url(#a)"/>
+        <path d="M480,78 C508,78 508,180 536,180" stroke="#94a3b8" stroke-width="1.4" fill="none" marker-end="url(#a)"/>
+        <path d="M480,78 C508,78 508,296 536,296" stroke="#94a3b8" stroke-width="1.4" fill="none" marker-end="url(#a)"/>
+        <path d="M732,180 C760,180 760,240 788,240" stroke="#94a3b8" stroke-width="1.4" fill="none" marker-end="url(#a)"/>
+        <path d="M732,296 C760,296 760,240 788,240" stroke="#94a3b8" stroke-width="1.4" fill="none" marker-end="url(#a)"/>
+      </svg>
+      <div class="node" style="left:36px;top:44px"><div class="accent" style="background:#0891b2"></div><div class="in"><div class="nt">Trigger</div><div class="nl">Topic from Telegram</div><div class="meta"><span class="chip">chat 5637…</span></div></div></div>
+      <div class="node" style="left:284px;top:44px"><div class="accent" style="background:#0f1117"></div><div class="in"><div class="nt">Supervisor</div><div class="nl">blog supervisor</div><div class="meta"><span class="chip">claude · opus</span><span class="chip">fan-out</span></div></div></div>
+      <div class="node" style="left:536px;top:146px"><div class="accent" style="background:#4f46e5"></div><div class="in"><div class="nt">Specialist</div><div class="nl">research</div><div class="meta"><span class="chip">claude</span><span class="chip">2 skills</span></div></div></div>
+      <div class="node bad" style="left:536px;top:262px"><div class="badge-n">!</div><div class="accent" style="background:#4f46e5"></div><div class="in"><div class="nt">Specialist</div><div class="nl">fact-check</div><div class="warn">▲ Objective is empty</div></div></div>
+      <div class="node sel" style="left:788px;top:206px"><div class="accent" style="background:#7c3aed"></div><div class="in"><div class="nt">Aggregator</div><div class="nl">merge findings</div><div class="meta"><span class="chip">claude</span><span class="chip">fan-in ×2</span></div></div></div>
+      <div class="node bad" style="left:788px;top:360px"><div class="badge-n">!</div><div class="accent" style="background:#4f46e5"></div><div class="in"><div class="nt">Specialist</div><div class="nl">publish</div><div class="warn">▲ Not connected — will never run</div></div></div>
+      <div class="mini">
+        <div class="mn" style="left:8px;top:14px;width:16px;background:#0891b2"></div>
+        <div class="mn" style="left:34px;top:14px;width:16px;background:#0f1117"></div>
+        <div class="mn" style="left:62px;top:30px;width:16px;background:#4f46e5"></div>
+        <div class="mn" style="left:62px;top:46px;width:16px;background:#4f46e5"></div>
+        <div class="mn" style="left:92px;top:38px;width:16px;background:#7c3aed"></div>
+        <div class="mn" style="left:92px;top:62px;width:16px;background:#4f46e5"></div>
+        <div class="mini-cap">coloured by node type</div>
+      </div>
+      <div class="cbar"><button title="Zoom in">+</button><button title="Zoom out">−</button><div class="sep"></div><button title="Fit view">⤢</button><button title="Find a node">⌕</button></div>
+    </div>
+
+    <div class="insp">
+      <div class="tabs"><div class="tab on">Configure</div><div class="tab">Preview prompt</div></div>
+      <div class="isec">
+        <div class="ihdr">Identity</div>
+        <div class="fld"><label>Label <span class="req">*</span></label><input value="merge findings"></div>
+        <div class="fld"><label>Role</label><input value="Combines the research and fact-check branches"></div>
+      </div>
+      <div class="isec">
+        <div class="ihdr">Instructions</div>
+        <div class="fld">
+          <label>Objective <span class="req">*</span><span class="expand">⤢ Expand</span></label>
+          <textarea>Combine the outputs of the parallel branches feeding into this node into a single, de-duplicated summary. Note any conflicts or disagreements between branches explicitly.</textarea>
+          <div class="hint">Drag the corner to resize, or expand to a full-screen editor.</div>
+        </div>
+      </div>
+      <div class="isec">
+        <div class="ihdr">Skills <span class="pill grey">2 attached</span></div>
+        <div class="skl">
+          <div class="sh">⌕ <input placeholder="Search 18 skills…"></div>
+          <div class="grp">Attached</div>
+          <div class="row on"><span class="ck">✓</span><span><span class="sn">standard-report-format</span><span class="sd">Consistent headings and summary block</span></span><span class="pv">view</span></div>
+          <div class="row on"><span class="ck">✓</span><span><span class="sn">tech-blog</span><span class="sd">Writer → fact-checker → reviewer chain</span></span><span class="pv">view</span></div>
+          <div class="grp">Suggested for aggregator</div>
+          <div class="row"><span class="ck"></span><span><span class="sn">changelog</span><span class="sd">Keep a Changelog entries from commits</span></span><span class="pv">view</span></div>
+        </div>
+      </div>
+      <details class="adv">
+        <summary>Runtime &amp; advanced</summary>
+        <div class="advbody">
+          <div class="fld"><label>Execution mode</label><select><option>Docker Sandbox — isolated</option><option>Direct CLI — runs as host user</option></select></div>
+          <div class="fld"><label>Agent</label><select><option>Claude Code</option><option>Codex</option><option>Cursor</option></select></div>
+          <div class="fld"><label>Model</label><select><option>Auto — let the CLI choose</option></select></div>
+          <div class="fld"><label>Memory scope</label><select><option>workflow — shared across run</option></select><div class="hint">Written when the node finishes; readable by later nodes in the same scope.</div></div>
+        </div>
+      </details>
+      <div class="cal"><b style="color:#334155">Fan-in.</b> This node waits for <b style="color:#334155">research</b> and <b style="color:#334155">fact-check</b> to finish, then runs once with both outputs.</div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>What changed, and which gap each one closes.</b>
+  <ol>
+    <li><b>Readiness strip + disabled Run.</b> Today <code>executionReady</code> is only “is a repo selected”, so a graph with empty objectives, orphan nodes or no edges starts a real run. Every blocking issue is named and clickable.</li>
+    <li><b>Invalid nodes marked on the canvas.</b> Red ring, corner badge, reason inline — so “what’s left to configure?” is answerable without opening all 15 nodes.</li>
+    <li><b>Header says <span class="pill amber">unsaved changes</span>.</b> <code>isDirty</code> is already computed and currently feeds only the nav guards, never the UI.</li>
+    <li><b>Undo / Redo / Duplicate</b> — the three missing direct-manipulation primitives.</li>
+    <li><b>“Apply to <u>selected</u>”</b> rather than to everything, covering skills and memory scope, not just the three runtime fields.</li>
+    <li><b>Palette gains search and click-to-add.</b> It is drag-only today, so every node type is unreachable by keyboard.</li>
+    <li><b>Skill picker gains search, grouping and preview</b> — mirroring <code>ModelPicker</code>, which already solves this exact problem 175 lines away.</li>
+    <li><b>Prompt fields resize and expand.</b> Capped at 240px in a 300px rail today, with <code>resize-none</code> disabling the browser’s own affordance.</li>
+    <li><b>Runtime folded into “advanced”</b> so set-once fields stop competing with the objective.</li>
+    <li><b>Minimap coloured by node type</b> — one line; the accent palette already exists in every node component.</li>
+  </ol>
+  <p style="margin-top:9px">Not shown, because they are behavioural rather than visual: the eight P0 data-loss fixes (template-load confirmation, draft baseline, awaiting the save on “Save and leave”, node-id collisions). Those ship first.</p>
+</div>
+</body>
+</html>

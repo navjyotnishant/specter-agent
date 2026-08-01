@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dark theme — proposed</title>
+<style>
+  /* Tokens taken verbatim from src/globals.css — both blocks already exist in the repo. */
+  :root{
+    --background:205 100% 98%; --foreground:222 47% 11%;
+    --card:0 0% 100%; --muted:210 40% 96%; --muted-fg:215 16% 47%;
+    --border:214 32% 91%; --primary:239 84% 67%;
+    --canvas:210 40% 98%; --dot:214 32% 88%; --shadow:15 23 42;
+    --amber-bg:38 92% 50% / .13; --amber-fg:38 95% 35%;
+  }
+  .dark{
+    --background:222 47% 11%; --foreground:210 40% 98%;
+    --card:222 39% 15%; --muted:222 34% 22%; --muted-fg:213 20% 72%;
+    --border:222 34% 24%; --primary:190 95% 68%;
+    --canvas:222 45% 13%; --dot:222 30% 26%; --shadow:0 0 0;
+    --amber-bg:38 92% 50% / .12; --amber-fg:38 95% 68%;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:13px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;
+       background:hsl(var(--background));color:hsl(var(--foreground));
+       padding:20px;transition:background .18s,color .18s}
+  .bar{max-width:1300px;margin:0 auto 14px;display:flex;align-items:center;gap:12px}
+  .bar h1{font-size:19px;font-weight:850}
+  .bar p{font-size:12px;color:hsl(var(--muted-fg))}
+  .tog{margin-left:auto;display:flex;gap:3px;background:hsl(var(--muted));border-radius:8px;padding:3px}
+  .tog button{border:none;background:transparent;font:inherit;font-size:11.5px;font-weight:600;
+              padding:5px 13px;border-radius:6px;cursor:pointer;color:hsl(var(--muted-fg))}
+  .tog button.on{background:hsl(var(--card));color:hsl(var(--foreground));box-shadow:0 1px 3px rgba(var(--shadow),.14)}
+  .frame{max-width:1300px;margin:0 auto;background:hsl(var(--card));border:1px solid hsl(var(--border));
+         border-radius:10px;overflow:hidden;box-shadow:0 6px 28px rgba(var(--shadow),.10);transition:background .18s,border-color .18s}
+  .hdr{display:flex;align-items:flex-start;gap:16px;padding:12px 18px;border-bottom:1px solid hsl(var(--border))}
+  .crumb{font-size:10px;color:hsl(var(--muted-fg));letter-spacing:.09em;text-transform:uppercase}
+  .title{font-size:17px;font-weight:800;margin-top:3px;display:flex;align-items:center;gap:8px}
+  .sub{font-size:11px;color:hsl(var(--muted-fg));margin-top:2px}
+  .acts{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .btn{height:29px;padding:0 11px;font-size:11px;font-weight:600;border:1px solid hsl(var(--border));
+       background:hsl(var(--card));border-radius:6px;cursor:pointer;color:hsl(var(--foreground));
+       display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+  .btn.primary{background:hsl(var(--primary));border-color:hsl(var(--primary));color:hsl(var(--background));font-weight:700}
+  .btn.primary[disabled]{opacity:.4;cursor:not-allowed}
+  .pill{font-size:9.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;padding:2.5px 8px;
+        border-radius:999px;background:hsl(var(--amber-bg));color:hsl(var(--amber-fg))}
+  .strip{display:flex;align-items:center;gap:13px;padding:8px 18px;font-size:11px;flex-wrap:wrap;
+         background:hsl(var(--amber-bg));border-bottom:1px solid hsl(38 92% 50% / .28)}
+  .strip .who{font-weight:700;color:hsl(var(--amber-fg));display:flex;align-items:center;gap:6px}
+  .issue{display:inline-flex;gap:5px;background:hsl(var(--card));border:1px solid hsl(38 92% 50% / .38);
+         border-radius:5px;padding:2.5px 8px;font-size:10.5px;color:hsl(var(--amber-fg));cursor:pointer}
+  .issue b{border-bottom:1px dotted currentColor}
+  .body{display:grid;grid-template-columns:180px 1fr 300px;min-height:460px}
+  .pal{border-right:1px solid hsl(var(--border));background:hsl(var(--background))}
+  .search{margin:9px 10px;position:relative}
+  .search input{width:100%;height:26px;border:1px solid hsl(var(--border));border-radius:5px;
+                padding:0 8px 0 24px;font-size:11px;font-family:inherit;outline:none;
+                background:hsl(var(--card));color:hsl(var(--foreground))}
+  .search span{position:absolute;left:7px;top:5px;font-size:11px;color:hsl(var(--muted-fg))}
+  .cat{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+       color:hsl(var(--muted-fg));padding:9px 12px 3px}
+  .pitem{display:flex;gap:7px;padding:5px 12px;cursor:grab;align-items:flex-start}
+  .pitem:hover{background:hsl(var(--muted))}
+  .pitem .dot{width:7px;height:7px;border-radius:2px;margin-top:4px;flex:none}
+  .pitem .nm{font-size:11px;font-weight:500;display:block}
+  .pitem .ds{font-size:9.5px;color:hsl(var(--muted-fg));line-height:1.35;display:block}
+  .canvas{position:relative;background:hsl(var(--canvas));overflow:hidden;
+          background-image:radial-gradient(hsl(var(--dot)) 1px,transparent 1px);background-size:22px 22px}
+  .node{position:absolute;width:190px;background:hsl(var(--card));border:1px solid hsl(var(--border));
+        border-radius:8px;box-shadow:0 1px 3px rgba(var(--shadow),.20)}
+  .node .accent{height:3px;border-radius:7px 7px 0 0}
+  .node .in{padding:8px 10px}
+  .node .nt{font-size:8.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:hsl(var(--muted-fg))}
+  .node .nl{font-size:12px;font-weight:700;margin-top:1px}
+  .node .meta{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
+  .chip{font-size:9px;padding:1.5px 5px;border-radius:3px;background:hsl(var(--muted));color:hsl(var(--muted-fg))}
+  .node.bad{border-color:hsl(0 72% 51% / .65);box-shadow:0 0 0 2.5px hsl(0 72% 51% / .20)}
+  .node .warn{margin-top:6px;font-size:9.5px;color:hsl(0 80% 62%);display:flex;gap:4px;
+              background:hsl(0 72% 51% / .12);border-radius:4px;padding:3px 5px}
+  .node.sel{border-color:hsl(var(--primary));box-shadow:0 0 0 2.5px hsl(var(--primary)/.22)}
+  .badge-n{position:absolute;top:-7px;right:-7px;width:17px;height:17px;border-radius:50%;
+           background:hsl(0 72% 51%);color:#fff;font-size:10px;font-weight:800;
+           display:flex;align-items:center;justify-content:center;border:2px solid hsl(var(--card))}
+  svg.wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .mini{position:absolute;right:12px;bottom:12px;width:142px;height:86px;background:hsl(var(--card));
+        border:1px solid hsl(var(--border));border-radius:6px}
+  .mini .mn{position:absolute;height:6px;border-radius:2px}
+  .insp{border-left:1px solid hsl(var(--border))}
+  .tabs{display:flex;border-bottom:1px solid hsl(var(--border))}
+  .tab{flex:1;padding:7px;font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+       color:hsl(var(--muted-fg));text-align:center;cursor:pointer;border-right:1px solid hsl(var(--border))}
+  .tab.on{background:hsl(var(--muted));color:hsl(var(--foreground));box-shadow:inset 0 -2px 0 hsl(var(--primary))}
+  .isec{padding:11px 13px;border-bottom:1px solid hsl(var(--border))}
+  .ihdr{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+        color:hsl(var(--muted-fg));margin-bottom:7px}
+  .fld{margin-bottom:9px}
+  .fld label{display:block;font-size:10px;font-weight:700;color:hsl(var(--muted-fg));margin-bottom:3px}
+  .fld input,.fld textarea{width:100%;border:1px solid hsl(var(--border));border-radius:5px;padding:5px 7px;
+        font-size:11px;font-family:inherit;outline:none;background:hsl(var(--background));color:hsl(var(--foreground))}
+  .fld textarea{min-height:70px;resize:vertical}
+  .fld .hint{font-size:9.5px;color:hsl(var(--muted-fg));margin-top:2.5px}
+  .req{color:hsl(0 80% 62%)}
+  .note{max-width:1300px;margin:16px auto 0;font-size:11.5px;color:hsl(var(--muted-fg));line-height:1.65}
+  .note b{color:hsl(var(--foreground))}
+  .note ol{margin:8px 0 0 18px}.note li{margin-bottom:5px}
+  code{font:10.5px ui-monospace,monospace;background:hsl(var(--muted));padding:1px 5px;border-radius:3px;color:hsl(var(--foreground))}
+  .warnbox{background:hsl(var(--amber-bg));border:1px solid hsl(38 92% 50% / .3);border-radius:8px;
+           padding:12px 14px;margin-top:14px;color:hsl(var(--foreground))}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div><h1>Dark theme</h1><p>Same builder, both themes — toggle to compare</p></div>
+  <div class="tog">
+    <button id="bl" onclick="setT('light')">☀ Light</button>
+    <button id="bd" class="on" onclick="setT('dark')">☾ Dark</button>
+  </div>
+</div>
+
+<div class="frame">
+  <div class="hdr">
+    <div>
+      <div class="crumb">Workflows › blog_post</div>
+      <div class="title">blog_post <span class="pill">● unsaved changes</span></div>
+      <div class="sub">Research, draft, fact-check and publish · nj-agents</div>
+    </div>
+    <div class="acts">
+      <button class="btn">↶ Undo</button><button class="btn">↷ Redo</button>
+      <button class="btn">⧉ Duplicate</button><button class="btn">⌗ Tidy</button>
+      <button class="btn">⌸ Save</button>
+      <button class="btn primary" disabled>▶ Run workflow</button>
+    </div>
+  </div>
+
+  <div class="strip">
+    <span class="who">⚠ 3 issues block this run</span>
+    <span class="issue"><b>fact-check</b> — no objective set</span>
+    <span class="issue"><b>publish</b> — not connected</span>
+    <span class="issue"><b>notify</b> — webhook URL empty</span>
+  </div>
+
+  <div class="body">
+    <div class="pal">
+      <div class="search"><span>⌕</span><input placeholder="Search nodes…"></div>
+      <div class="cat">Triggers</div>
+      <div class="pitem"><span class="dot" style="background:#22d3ee"></span><span><span class="nm">Manual / Telegram</span><span class="ds">Starts the run</span></span></div>
+      <div class="cat">Agents</div>
+      <div class="pitem"><span class="dot" style="background:#94a3b8"></span><span><span class="nm">Supervisor</span><span class="ds">Delegates to specialists</span></span></div>
+      <div class="pitem"><span class="dot" style="background:#818cf8"></span><span><span class="nm">Specialist</span><span class="ds">Does one job</span></span></div>
+      <div class="pitem"><span class="dot" style="background:#a78bfa"></span><span><span class="nm">Aggregator</span><span class="ds">Merges branches</span></span></div>
+      <div class="cat">Control flow</div>
+      <div class="pitem"><span class="dot" style="background:#fbbf24"></span><span><span class="nm">Human approval</span><span class="ds">Pauses for a decision</span></span></div>
+      <div class="pitem"><span class="dot" style="background:#818cf8"></span><span><span class="nm">Conditional</span><span class="ds">Branches on yes/no</span></span></div>
+      <div class="cat">Output</div>
+      <div class="pitem"><span class="dot" style="background:#22d3ee"></span><span><span class="nm">Write memory</span><span class="ds">Persists a result</span></span></div>
+      <div class="pitem"><span class="dot" style="background:#34d399"></span><span><span class="nm">Webhook</span><span class="ds">POSTs to a URL</span></span></div>
+    </div>
+
+    <div class="canvas">
+      <svg class="wires">
+        <defs><marker id="a" markerWidth="7" markerHeight="7" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="currentColor"/></marker></defs>
+        <g style="color:hsl(var(--muted-fg))" stroke="currentColor" stroke-width="1.3" fill="none">
+          <path d="M224,74 C250,74 250,74 276,74" marker-end="url(#a)"/>
+          <path d="M466,74 C494,74 494,164 522,164" marker-end="url(#a)"/>
+          <path d="M466,74 C494,74 494,272 522,272" marker-end="url(#a)"/>
+          <path d="M712,164 C740,164 740,218 768,218" marker-end="url(#a)"/>
+          <path d="M712,272 C740,272 740,218 768,218" marker-end="url(#a)"/>
+        </g>
+      </svg>
+      <div class="node" style="left:34px;top:42px"><div class="accent" style="background:#22d3ee"></div><div class="in"><div class="nt">Trigger</div><div class="nl">Topic from Telegram</div><div class="meta"><span class="chip">chat 5637…</span></div></div></div>
+      <div class="node" style="left:276px;top:42px"><div class="accent" style="background:#94a3b8"></div><div class="in"><div class="nt">Supervisor</div><div class="nl">blog supervisor</div><div class="meta"><span class="chip">claude · opus</span><span class="chip">fan-out</span></div></div></div>
+      <div class="node" style="left:522px;top:132px"><div class="accent" style="background:#818cf8"></div><div class="in"><div class="nt">Specialist</div><div class="nl">research</div><div class="meta"><span class="chip">claude</span><span class="chip">2 skills</span></div></div></div>
+      <div class="node bad" style="left:522px;top:240px"><div class="badge-n">!</div><div class="accent" style="background:#818cf8"></div><div class="in"><div class="nt">Specialist</div><div class="nl">fact-check</div><div class="warn">▲ Objective is empty</div></div></div>
+      <div class="node sel" style="left:768px;top:186px"><div class="accent" style="background:#a78bfa"></div><div class="in"><div class="nt">Aggregator</div><div class="nl">merge findings</div><div class="meta"><span class="chip">claude</span><span class="chip">fan-in ×2</span></div></div></div>
+      <div class="mini">
+        <div class="mn" style="left:8px;top:13px;width:15px;background:#22d3ee"></div>
+        <div class="mn" style="left:32px;top:13px;width:15px;background:#94a3b8"></div>
+        <div class="mn" style="left:58px;top:29px;width:15px;background:#818cf8"></div>
+        <div class="mn" style="left:58px;top:44px;width:15px;background:#818cf8"></div>
+        <div class="mn" style="left:86px;top:36px;width:15px;background:#a78bfa"></div>
+      </div>
+    </div>
+
+    <div class="insp">
+      <div class="tabs"><div class="tab on">Configure</div><div class="tab">Preview prompt</div></div>
+      <div class="isec">
+        <div class="ihdr">Identity</div>
+        <div class="fld"><label>Label <span class="req">*</span></label><input value="merge findings"></div>
+        <div class="fld"><label>Role</label><input value="Combines research and fact-check"></div>
+      </div>
+      <div class="isec">
+        <div class="ihdr">Instructions</div>
+        <div class="fld"><label>Objective <span class="req">*</span></label>
+          <textarea>Combine the outputs of the parallel branches into a single, de-duplicated summary. Note any conflicts explicitly.</textarea>
+          <div class="hint">Drag the corner to resize, or expand to full screen.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>The palette is already in the repo.</b> Every colour above is read from <code>src/globals.css</code>, which
+  already defines a complete <code>.dark</code> block — background <code>222 47% 11%</code>, cyan primary
+  <code>190 95% 68%</code>. <code>darkMode: ["class"]</code> is configured in Tailwind and
+  <code>next-themes</code> is in <code>package.json</code>. The foundation was scaffolded and never wired up.
+
+  <div class="warnbox">
+    <b>⚠ The real work is 945 hardcoded hex colours.</b>
+    Against only 41 uses of the theme tokens. Those are inline <code>style={{color:"#0f172a"}}</code> and
+    Tailwind arbitrary values like <code>bg-[#fafafa]</code> — neither responds to a theme class, so flipping
+    the toggle today would darken the chrome and leave 945 light-mode colours sitting on top of it.
+    <div style="margin-top:9px;font-size:11px">
+      <code>WorkflowRun.tsx</code> 248 · <code>Workflows.tsx</code> 185 · <code>WorkflowBuilder.tsx</code> 137 ·
+      <code>AgentInspector.tsx</code> 77 · <code>Models.tsx</code> <b>0</b> — already clean, would go dark almost for free.
+    </div>
+  </div>
+
+  <b style="display:block;margin-top:14px">Three stages, each shippable.</b>
+  <ol>
+    <li><b>Toggle, provider, persistence.</b> Mount <code>next-themes</code>, add the switch, respect
+      <code>prefers-color-scheme</code>. Small — and it immediately themes every shadcn component and the Models page.</li>
+    <li><b>Convert the four heavy files</b> to semantic tokens. Mechanical but large:
+      <code>#0f172a</code> → <code>text-foreground</code>, <code>#e5e7eb</code> → <code>border-border</code>.</li>
+    <li><b>Canvas and node components.</b> React Flow takes explicit colours for edge strokes, background dots
+      and the minimap. Node accents need dark variants too — note the palette above lightens them
+      (<code>#4f46e5</code> → <code>#818cf8</code>) so they hold contrast on a dark card.</li>
+  </ol>
+  <p style="margin-top:9px">Sequenced as its own epic <b>after</b> the P0 data-loss and authz fixes — those are
+    actively harming users; a theme is not.</p>
+</div>
+
+<script>
+  function setT(t){
+    document.documentElement.classList.toggle('dark', t==='dark');
+    document.getElementById('bd').classList.toggle('on', t==='dark');
+    document.getElementById('bl').classList.toggle('on', t!=='dark');
+  }
+  setT('dark');
+</script>
+</body>
+</html>

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard — proposed</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:13px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#0f172a;background:#eef1f5;padding:20px}
+  .frame{max-width:1240px;margin:0 auto;background:#fff;border:1px solid #d8dee6;border-radius:10px;overflow:hidden;box-shadow:0 6px 28px rgba(15,23,42,.09)}
+  .hdr{padding:14px 20px;border-bottom:1px solid #e8ecf1}
+  .hdr h1{font-size:19px;font-weight:850}
+  .hdr p{font-size:12px;color:#7c8798;margin-top:2px}
+  .att{display:flex;align-items:center;gap:11px;padding:12px 20px;background:#fef2f2;border-bottom:1px solid #fecaca}
+  .att .ic{width:30px;height:30px;border-radius:8px;background:#dc2626;color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
+  .att .tx{font-size:13px;font-weight:700;color:#991b1b}
+  .att .sb{font-size:11.5px;color:#b91c1c;margin-top:1px}
+  .att .go{margin-left:auto;height:28px;padding:0 12px;font-size:11.5px;font-weight:600;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#eef2f6;border-bottom:1px solid #e8ecf1}
+  .tile{background:#fff;padding:13px 16px}
+  .tile .k{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8}
+  .tile .v{font-size:24px;font-weight:850;margin-top:3px;letter-spacing:-.02em}
+  .tile .d{font-size:11px;color:#94a3b8;margin-top:1px}
+  .tile .v.bad{color:#dc2626}.tile .v.ok{color:#16a34a}
+  .cols{display:grid;grid-template-columns:1fr 300px}
+  .main{border-right:1px solid #e8ecf1}
+  .sh{padding:10px 20px;border-bottom:1px solid #eef2f6;display:flex;align-items:center;background:#fbfcfd}
+  .sh h2{font-size:12px;font-weight:800}
+  .sh .more{margin-left:auto;font-size:11px;color:#4f46e5;cursor:pointer;font-weight:600}
+  .row{display:flex;align-items:center;gap:11px;padding:10px 20px;border-bottom:1px solid #f4f6f9}
+  .row .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .row .nm{font-size:12.5px;font-weight:600}
+  .row .mt{font-size:11px;color:#94a3b8}
+  .row .rt{margin-left:auto;text-align:right}
+  .row .el{font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums}
+  .st{font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2px 6px;border-radius:3px}
+  .st.run{background:#dbeafe;color:#1e40af}.st.bad{background:#fee2e2;color:#991b1b}
+  .st.wait{background:#fef3c7;color:#92400e}.st.ok{background:#dcfce7;color:#166534}
+  .side{padding:0}
+  .hb{padding:12px 16px;border-bottom:1px solid #f4f6f9}
+  .hb .t{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8;margin-bottom:7px}
+  .hl{display:flex;align-items:center;gap:7px;font-size:11.5px;padding:3px 0}
+  .hl .p{width:6px;height:6px;border-radius:50%;flex:none}
+  .hl .st2{margin-left:auto;font-size:10.5px;color:#94a3b8}
+  .qa{display:block;width:100%;text-align:left;padding:7px 10px;font-size:11.5px;border:1px solid #dde3ea;border-radius:6px;background:#fff;margin-bottom:6px;cursor:pointer;color:#334155}
+  .note{max-width:1240px;margin:16px auto 0;font-size:11.5px;color:#64748b;line-height:1.65}
+  .note b{color:#0f172a}.note ol{margin:8px 0 0 18px}.note li{margin-bottom:5px}
+  code{font:10.5px ui-monospace,monospace;background:#f1f5f9;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="hdr"><h1>Dashboard</h1><p>Local runtime · admin@local.dev</p></div>
+
+  <div class="att">
+    <div class="ic">!</div>
+    <div><div class="tx">2 runs failed in the last hour</div><div class="sb">blog_post · rate limit (Codex, resets Aug 7) — and 1 more</div></div>
+    <button class="go">Review failures</button>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">Running now</div><div class="v">3</div><div class="d">oldest 4m12s</div></div>
+    <div class="tile"><div class="k">Failed · 24h</div><div class="v bad">7</div><div class="d">of 112 runs · 6.3%</div></div>
+    <div class="tile"><div class="k">Waiting on you</div><div class="v">1</div><div class="d">approval · expires 2h</div></div>
+    <div class="tile"><div class="k">Median duration</div><div class="v">1m48s</div><div class="d">↓ 12s vs last week</div></div>
+  </div>
+
+  <div class="cols">
+    <div class="main">
+      <div class="sh"><h2>Work queue</h2><span class="more">View all 12 →</span></div>
+      <div class="row"><span class="dot" style="background:#2563eb"></span><div><div class="nm">pre-push-review</div><div class="mt">step 3 of 6 · correctness-reviewer</div></div><div class="rt"><div class="el">4m12s</div><span class="st run">running</span></div></div>
+      <div class="row"><span class="dot" style="background:#d97706"></span><div><div class="nm">blog_post</div><div class="mt">waiting for your approval · publish step</div></div><div class="rt"><div class="el">2h left</div><span class="st wait">approval</span></div></div>
+      <div class="row"><span class="dot" style="background:#dc2626"></span><div><div class="nm">blog_post</div><div class="mt">rate limit — Codex quota resets Aug 7</div></div><div class="rt"><div class="el">12m ago</div><span class="st bad">failed</span></div></div>
+      <div class="row"><span class="dot" style="background:#2563eb"></span><div><div class="nm">changelog</div><div class="mt">step 1 of 2 · changelog-writer</div></div><div class="rt"><div class="el">0m38s</div><span class="st run">running</span></div></div>
+      <div class="row"><span class="dot" style="background:#16a34a"></span><div><div class="nm">arch-diagram</div><div class="mt">completed · diagram-architect</div></div><div class="rt"><div class="el">1h ago</div><span class="st ok">passed</span></div></div>
+    </div>
+
+    <div class="side">
+      <div class="hb">
+        <div class="t">Runtime</div>
+        <div class="hl"><span class="p" style="background:#16a34a"></span>Host runner<span class="st2">online</span></div>
+        <div class="hl"><span class="p" style="background:#16a34a"></span>Docker sandbox<span class="st2">ready</span></div>
+        <div class="hl"><span class="p" style="background:#dc2626"></span>Codex CLI<span class="st2">rate limited</span></div>
+        <div class="hl"><span class="p" style="background:#16a34a"></span>Claude Code<span class="st2">ready</span></div>
+      </div>
+      <div class="hb">
+        <div class="t">Quick actions</div>
+        <button class="qa">▶ Run a workflow…</button>
+        <button class="qa">⤓ Import from a repo</button>
+        <button class="qa">☷ Browse run history</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>What changed.</b>
+  <ol>
+    <li><b>Counts are windowed and honest.</b> Today runs are capped at 20 server-side and the tile is labelled as a total — so after 20 runs it reads “20” forever. Worse, the attention banner can say <b>“All clear”</b> while failures sit outside that window.</li>
+    <li><b>Failure rate replaces the skill count.</b> “Reusable skills” never changes and never needs action; its subtitle counted workflows, an unrelated number.</li>
+    <li><b>Elapsed time on running rows.</b> <code>formatDuration</code> currently returns <code>–</code> whenever <code>completed_at</code> is null — i.e. for exactly the rows an operator watches.</li>
+    <li><b>Failure reason inline,</b> so triage doesn’t require opening the run.</li>
+    <li><b>Runtime health names the agents,</b> not CPU/memory/disk — which on a local single-user runtime are near-constant. “Codex rate limited” is the health fact that changes behaviour.</li>
+    <li><b>“View all 12”</b> — the queue silently caps at 8 today with no indication that anything was cut.</li>
+  </ol>
+</div>
+</body>
+</html>

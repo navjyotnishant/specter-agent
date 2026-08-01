@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Specter — UX gap analysis &amp; proposed designs</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:14px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#0f172a;background:#eef1f5;padding:32px 20px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:26px;font-weight:850;letter-spacing:-.02em}
+  .lede{color:#64748b;margin-top:8px;font-size:14px;max-width:70ch}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:26px}
+  .card{background:#fff;border:1px solid #dde3ea;border-radius:10px;padding:16px 17px;text-decoration:none;color:inherit;display:block;transition:.13s}
+  .card:hover{border-color:#94a3b8;box-shadow:0 5px 18px rgba(15,23,42,.09);transform:translateY(-1px)}
+  .card h2{font-size:15px;font-weight:800;display:flex;align-items:center;gap:8px}
+  .card p{font-size:12.5px;color:#64748b;margin-top:5px;line-height:1.55}
+  .sev{display:flex;gap:5px;margin-top:11px;flex-wrap:wrap}
+  .b{font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2.5px 7px;border-radius:4px}
+  .b.hi{background:#fee2e2;color:#991b1b}
+  .b.me{background:#fef3c7;color:#92400e}
+  .b.lo{background:#f1f5f9;color:#64748b}
+  .sec{margin-top:34px;background:#fff;border:1px solid #dde3ea;border-radius:10px;padding:20px 22px}
+  .sec h3{font-size:15px;font-weight:800;margin-bottom:4px}
+  .sec .sub{font-size:12.5px;color:#64748b;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8;padding:6px 8px;border-bottom:1px solid #e8ecf1}
+  td{padding:7px 8px;border-bottom:1px solid #f4f6f9;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  code{font:11.5px ui-monospace,monospace;background:#f1f5f9;padding:1.5px 5px;border-radius:3px;color:#334155}
+  .who{font-weight:700;color:#0f172a;white-space:nowrap}
+  .note{font-size:12.5px;color:#64748b;margin-top:14px;padding-top:13px;border-top:1px solid #f1f5f9;line-height:1.65}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Specter — UX gap analysis</h1>
+  <p class="lede">Six pages reviewed by independent agents, every finding re-verified against the source by hand. The recurring pattern across all six: <b>the correct logic usually already exists and isn’t wired to the path that needs it.</b></p>
+
+  <div class="grid">
+    <a class="card" href="?file=builder.html">
+      <h2>◱ Workflow Builder</h2>
+      <p>Eight data-loss paths, a Run button that starts unrunnable graphs, and no undo. The page you flagged.</p>
+      <div class="sev"><span class="b hi">8 data-loss</span><span class="b hi">9 high</span><span class="b me">11 medium</span></div>
+    </a>
+    <a class="card" href="?file=workflows.html">
+      <h2>☷ Workflows</h2>
+      <p>N+1 polling storm, run history that states a falsehood, and a hardcoded path to one developer’s laptop.</p>
+      <div class="sev"><span class="b hi">5 high</span><span class="b me">8 medium</span></div>
+    </a>
+    <a class="card" href="?file=models.html">
+      <h2>⚙ Models</h2>
+      <p>A page called “Models” with no model settings. Bulk filesystem approval in two clicks, no confirmation.</p>
+      <div class="sev"><span class="b hi">9 high</span><span class="b me">16 medium</span></div>
+    </a>
+    <a class="card" href="?file=dashboard.html">
+      <h2>▤ Dashboard</h2>
+      <p>Counts freeze at 20 forever, and “All clear” can show green while runs are failing.</p>
+      <div class="sev"><span class="b hi">1 false-green</span><span class="b me">5 medium</span></div>
+    </a>
+    <a class="card" href="?file=skills.html">
+      <h2>✦ Skills</h2>
+      <p>Frontend ships 11 skills the backend has never heard of. Saving any skill wipes its metadata.</p>
+      <div class="sev"><span class="b hi">2 high</span><span class="b me">4 medium</span></div>
+    </a>
+    <a class="card" href="?file=users.html">
+      <h2>⚿ Users &amp; Connectors</h2>
+      <p>Operators see the full admin UI. Deleting a user takes one click, no confirmation.</p>
+      <div class="sev"><span class="b hi">4 high</span><span class="b me">5 medium</span></div>
+    </a>
+  </div>
+
+  <div class="sec">
+    <h3>The ten that matter most</h3>
+    <p class="sub">Ranked by what actually goes wrong for a user. Every line verified against the source.</p>
+    <table>
+      <tr><th>Page</th><th>What breaks</th><th>Where</th></tr>
+      <tr><td class="who">Builder</td><td><b>Loading a template wipes your workflow.</b> One click replaces the canvas with no confirm; autosave then persists it over the real thing — canvas, database and local draft all gone.</td><td><code>:684</code></td></tr>
+      <tr><td class="who">Builder</td><td><b>A restored draft is marked “clean”,</b> so its edits vanish with no prompt at any point. The guard exists in a comment; the ref it describes is set and never read.</td><td><code>:339</code></td></tr>
+      <tr><td class="who">Builder</td><td><b>“Save and leave” doesn’t wait for the save.</b> Navigates after 200 ms regardless — a duplicate-name rejection is swallowed and the work is lost.</td><td><code>:1330</code></td></tr>
+      <tr><td class="who">Dashboard</td><td><b>“All clear” can be a lie.</b> Runs are capped at 20 server-side, so a failure 25 runs ago is invisible and the banner shows green.</td><td><code>runs.py:216</code></td></tr>
+      <tr><td class="who">Skills</td><td><b>Saving any skill wipes its compatibility metadata.</b> <code>metadataFromDraft</code> returns <code>[]</code> unconditionally — and no UI shows the field, so the loss is invisible.</td><td><code>:165</code></td></tr>
+      <tr><td class="who">Skills</td><td><b>The frontend ships 11 skills the backend never seeded.</b> Zero name overlap, so the dedupe never fires and users see two unrelated libraries.</td><td><code>:51-140</code></td></tr>
+      <tr><td class="who">Users</td><td><b>Operators see the full admin UI.</b> <code>role</code> is read once — for a badge. The create form and every Delete button render for everyone, then fail at the backend.</td><td><code>:16</code></td></tr>
+      <tr><td class="who">Users</td><td><b>Deleting a user account takes one click.</b> No dialog, no undo. The highest-risk interaction in the app.</td><td><code>:135</code></td></tr>
+      <tr><td class="who">Models</td><td><b>Two clicks grant agents filesystem access to up to 50 repos.</b> No confirmation, no preview, and a partial failure leaves some approved while reporting total failure.</td><td><code>:862</code></td></tr>
+      <tr><td class="who">Workflows</td><td><b>A backend outage renders as “No workflows yet”.</b> Every query is <code>retry:false</code> and no page reads <code>isError</code> — so “down” and “empty” are indistinguishable.</td><td><code>:1069</code></td></tr>
+    </table>
+    <p class="note"><b>Two personal paths ship to every user.</b> <code>Workflows.tsx:190</code> and <code>Models.tsx:95</code> both hardcode <code>/Users/navjyotnishant/…</code> as a fallback — broken on any other machine, and it leaks the developer’s directory layout into the product.</p>
+  </div>
+
+  <div class="sec">
+    <h3>What’s genuinely good</h3>
+    <p class="sub">Worth stating, so the list above reads in proportion.</p>
+    <table>
+      <tr><td class="who">Builder</td><td>Dirty tracking fingerprints node positions and rolls back the snapshot on save error — a detail most implementations miss. The empty-canvas decision is deliberate, with a comment naming the bug it prevents.</td></tr>
+      <tr><td class="who">Workflows</td><td>The delete dialog enumerates exactly what cascades <i>and</i> what survives. The import flow warns, by name, which skills will act without human approval.</td></tr>
+      <tr><td class="who">Models</td><td>Direct CLI distinguishes not-installed / not-authed / ready with the correct remedy for each — the pattern the rest of the page should copy. The log viewer is real operator UI.</td></tr>
+      <tr><td class="who">Connectors</td><td>The only page with a correct error state that names the likely cause. OAuth guidance is per-client, not generic.</td></tr>
+      <tr><td class="who">Inspector</td><td>Inline help beats most commercial tools — including a security warning that appears only when Direct CLI is selected. <code>ModelPicker</code> is exemplary and is the in-repo template for fixing the skill picker.</td></tr>
+      <tr><td class="who">Backend</td><td>Path-traversal guards, <code>require_admin</code> on every filesystem-touching route, and output truncation before insert so a runaway agent can’t blow up a row.</td></tr>
+    </table>
+  </div>
+</div>
+</body>
+</html>

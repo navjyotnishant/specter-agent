@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skills — proposed</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:13px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#0f172a;background:#eef1f5;padding:20px}
+  .frame{max-width:1240px;margin:0 auto;background:#fff;border:1px solid #d8dee6;border-radius:10px;overflow:hidden;box-shadow:0 6px 28px rgba(15,23,42,.09)}
+  .hdr{padding:14px 20px;border-bottom:1px solid #e8ecf1;display:flex;align-items:flex-start}
+  .hdr h1{font-size:19px;font-weight:850}
+  .hdr p{font-size:12px;color:#7c8798;margin-top:2px}
+  .hdr .acts{margin-left:auto;display:flex;gap:7px}
+  .btn{height:30px;padding:0 12px;font-size:11.5px;font-weight:600;border:1px solid #d3dae3;background:#fff;border-radius:6px;cursor:pointer;color:#334155}
+  .btn.primary{background:#0f1117;color:#fff;border-color:#0f1117}
+  .body{display:grid;grid-template-columns:290px 1fr;min-height:520px}
+  .list{border-right:1px solid #e8ecf1;background:#fcfdfe}
+  .find{margin:10px;position:relative}
+  .find input{width:100%;height:28px;border:1px solid #dde3ea;border-radius:6px;padding:0 9px 0 26px;font-size:11.5px;font-family:inherit;outline:none}
+  .find span{position:absolute;left:8px;top:5px;color:#94a3b8;font-size:12px}
+  .grp{font-size:9px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#9aa5b4;padding:9px 12px 3px;display:flex;align-items:center;gap:6px}
+  .grp .ct{color:#cbd5e1}
+  .it{padding:7px 12px;cursor:pointer;border-left:2px solid transparent}
+  .it:hover{background:#f4f6f9}
+  .it.on{background:#eef2ff;border-left-color:#4f46e5}
+  .it .n{font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .it .d{font-size:10.5px;color:#94a3b8;line-height:1.35;margin-top:1px}
+  .src{font-size:8.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:1.5px 5px;border-radius:3px}
+  .src.seed{background:#f1f5f9;color:#64748b}
+  .src.repo{background:#eef2ff;color:#4338ca}
+  .src.mine{background:#dcfce7;color:#166534}
+  .ed{padding:16px 20px}
+  .fld{margin-bottom:13px}
+  .fld label{display:block;font-size:10px;font-weight:700;color:#475569;margin-bottom:3px}
+  .fld input,.fld textarea{width:100%;border:1px solid #dde3ea;border-radius:6px;padding:6px 9px;font-size:12px;font-family:inherit;outline:none}
+  .fld textarea{min-height:170px;resize:vertical;font:11.5px/1.6 ui-monospace,monospace}
+  .fld .hint{font-size:10.5px;color:#94a3b8;margin-top:3px}
+  .roles{display:flex;gap:6px;flex-wrap:wrap}
+  .rl{font-size:10.5px;padding:3px 9px;border:1px solid #dde3ea;border-radius:999px;background:#fff;cursor:pointer;color:#475569}
+  .rl.on{background:#0f1117;color:#fff;border-color:#0f1117}
+  .meta{background:#f8fafc;border:1px solid #eef2f6;border-radius:7px;padding:10px 12px;font-size:11px;color:#64748b;line-height:1.6;margin-bottom:13px}
+  .meta b{color:#334155}
+  .foot{display:flex;gap:7px;padding-top:4px}
+  .note{max-width:1240px;margin:16px auto 0;font-size:11.5px;color:#64748b;line-height:1.65}
+  .note b{color:#0f172a}.note ol{margin:8px 0 0 18px}.note li{margin-bottom:5px}
+  code{font:10.5px ui-monospace,monospace;background:#f1f5f9;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="hdr">
+    <div><h1>Skills</h1><p>Reusable prompt fragments attached to agent nodes · 18 skills</p></div>
+    <div class="acts"><button class="btn">Restore built-ins</button><button class="btn primary">+ New skill</button></div>
+  </div>
+
+  <div class="body">
+    <div class="list">
+      <div class="find"><span>⌕</span><input placeholder="Search name, description, role…"></div>
+
+      <div class="grp">Built-in <span class="ct">11</span></div>
+      <div class="it"><div class="n">standard-report-format <span class="src seed">built-in</span></div><div class="d">Consistent headings and a summary block</div></div>
+      <div class="it on"><div class="n">secure-code-review <span class="src seed">built-in</span></div><div class="d">Injection, authz, secrets, unsafe deserialization</div></div>
+      <div class="it"><div class="n">pr-readiness-review <span class="src seed">built-in</span></div><div class="d">Is this branch ready to open as a PR</div></div>
+
+      <div class="grp">From nj-agents <span class="ct">5</span></div>
+      <div class="it"><div class="n">tech-blog <span class="src repo">imported</span></div><div class="d">Writer → fact-checker → reviewer → editor</div></div>
+      <div class="it"><div class="n">changelog <span class="src repo">imported</span></div><div class="d">Keep a Changelog entries from commit history</div></div>
+      <div class="it"><div class="n">arch-diagram <span class="src repo">imported</span></div><div class="d">Presentation-quality SVG into docs/architecture</div></div>
+
+      <div class="grp">Mine <span class="ct">2</span></div>
+      <div class="it"><div class="n">house-style <span class="src mine">hand-written</span></div><div class="d">Tone and formatting rules for all output</div></div>
+    </div>
+
+    <div class="ed">
+      <div class="meta">
+        <b>Built-in skill.</b> Seeded by Specter and used by 3 workflows. Editing creates your own copy — the original can be restored at any time.
+      </div>
+
+      <div class="fld"><label>Name</label><input value="secure-code-review"></div>
+      <div class="fld"><label>Description</label><input value="Injection, authz, secrets, unsafe deserialization"></div>
+
+      <div class="fld">
+        <label>Compatible agent roles</label>
+        <div class="roles"><span class="rl on">reviewer</span><span class="rl on">specialist</span><span class="rl">supervisor</span><span class="rl">writer</span><span class="rl">aggregator</span></div>
+        <div class="hint">Filters which nodes offer this skill. Currently wiped to empty on every save.</div>
+      </div>
+
+      <div class="fld">
+        <label>Prompt template</label>
+        <textarea>Review only the changed lines and their blast radius.
+
+Report only high-confidence findings. For each:
+- the concrete failure scenario (inputs → wrong output)
+- file:line
+- severity
+
+Do not report style issues. Do not report findings you cannot
+demonstrate with a specific input.</textarea>
+        <div class="hint">Applied to the agent’s prompt before its System Instructions.</div>
+      </div>
+
+      <div class="foot"><button class="btn primary">Save changes</button><button class="btn">Duplicate</button><button class="btn" style="color:#dc2626;border-color:#fecaca">Delete…</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>What changed.</b>
+  <ol>
+    <li><b>Provenance is visible.</b> Three groups — built-in, imported (named by repo), hand-written. <code>source_repo</code> is already fetched and never read; today the only split is “in the database or not”.</li>
+    <li><b>The frontend’s 11 hardcoded skills are deleted.</b> They share <i>zero</i> names with the 11 the backend seeds, so nothing dedupes and users see two unrelated libraries — one of which is inert and cannot be attached to a node until saved.</li>
+    <li><b>Compatible agent roles becomes a real editable field.</b> Today <code>metadataFromDraft</code> returns <code>[]</code> unconditionally, so every save silently wipes it — and no UI displays the field, so the loss is invisible.</li>
+    <li><b>“Restore built-ins”.</b> Seeds are insert-if-missing, so a deleted built-in never returns — and a template referencing it breaks silently.</li>
+    <li><b>Delete confirms;</b> editing a built-in forks a copy instead of overwriting.</li>
+    <li><b>Search stays, grouping is added.</b> A single flat list is already long at 18 and unusable at 100.</li>
+  </ol>
+  <p style="margin-top:9px"><b>Also not visual:</b> a background refetch can re-resolve the selection and reset an in-progress edit, discarding unsaved changes with no warning — there is no dirty-state tracking on this page.</p>
+</div>
+</body>
+</html>
