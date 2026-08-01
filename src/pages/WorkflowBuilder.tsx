@@ -935,9 +935,9 @@ function BuilderInner({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <nav className="mr-1 flex items-center gap-1 text-[10px] uppercase tracking-[0.09em] text-[#94a3b8]">
-              <Link to="/workflows" className="hover:text-[#374151]">Workflows</Link>
+              <Link to="/workflows" className="text-[10px] uppercase tracking-[0.09em] hover:text-[#374151]">Workflows</Link>
               <ChevronRight className="h-3 w-3" />
-              <span className="max-w-[240px] truncate text-[#374151]">{workflowName || "Untitled"}</span>
+              <span className="max-w-[240px] truncate text-[10px] uppercase tracking-[0.09em] text-[#374151]">{workflowName || "Untitled"}</span>
             </nav>
             <span className="rounded-full bg-[#f1f5f9] px-2.5 py-[3px] text-[9.5px] font-extrabold uppercase tracking-[0.07em] text-[#64748b]">
               {isNew ? "unsaved" : workflowQuery.data?.is_template ? "template" : "editable"}
@@ -989,15 +989,15 @@ function BuilderInner({
           {/* Bulk edit: applies to every agent-bearing node so you don't have to
               open the inspector once per node on an imported graph. */}
           <Button onClick={doUndo} disabled={!canUndo(history.current)} variant="outline"
-            className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Undo (⌘Z)">
+            className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Undo (⌘Z)">
             <Undo2 className="mr-1.5 h-3 w-3" /> Undo
           </Button>
           <Button onClick={doRedo} disabled={!canRedo(history.current)} variant="outline"
-            className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Redo (⇧⌘Z)">
+            className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Redo (⇧⌘Z)">
             <Redo2 className="mr-1.5 h-3 w-3" /> Redo
           </Button>
           <Button onClick={duplicateSelection} disabled={!hasSelection} variant="outline"
-            className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Duplicate selection (⌘D)">
+            className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Duplicate selection (⌘D)">
             <CopyPlus className="mr-1.5 h-3 w-3" /> Duplicate
           </Button>
           {agentNodeCount > 0 && (
@@ -1006,7 +1006,7 @@ function BuilderInner({
                 variant="outline"
                 onClick={() => setBulkMenuOpen((v) => !v)}
                 title="Apply a setting to every agent node on this canvas"
-                className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
+                className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
               >
                 <Layers className="mr-1.5 h-3 w-3" /> Apply to all
                 <ChevronDown className="ml-1.5 h-3 w-3" />
@@ -1057,7 +1057,7 @@ function BuilderInner({
             </div>
           )}
           <Button onClick={tidyLayout} variant="outline"
-            className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
+            className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
             title="Auto-arrange nodes into topological columns">
             <LayoutGrid className="mr-1.5 h-3 w-3" /> Tidy layout
           </Button>
@@ -1067,7 +1067,7 @@ function BuilderInner({
               <Button
                 variant="outline"
                 onClick={() => setTemplateMenuOpen((v) => !v)}
-                className="h-[30px] rounded-[6px] border-[#d3dae3] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
+                className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
                
               >
                 <Copy className="mr-1.5 h-3 w-3" />
@@ -1110,7 +1110,7 @@ function BuilderInner({
           <button
             onClick={toggleAutoSaveDb}
             title={autoSaveDb ? "Auto-save is on — changes are saved as you edit" : "Auto-save is off — edits stay in draft until you save"}
-            className={`flex h-[30px] items-center gap-1.5 rounded-[6px] border px-2.5 text-[10px] font-semibold transition-colors ${
+            className={`flex h-[29px] items-center gap-1.5 rounded-[6px] border px-2.5 text-[10px] font-semibold transition-colors ${
               autoSaveDb ? "border-[#6ee7b7] bg-[#ecfdf5] text-[#065f46]" : "border-[#d1d5db] bg-white text-[#6b7280] hover:bg-[#f9fafb]"
             }`}
            
@@ -1127,7 +1127,7 @@ function BuilderInner({
             Auto-save
           </button>
           <Button onClick={() => void saveGraph().catch(() => {})} disabled={saveMutation.isPending} variant="outline"
-            className={`h-[30px] rounded-[6px] px-3 text-[11px] font-semibold transition-colors ${
+            className={`h-[29px] rounded-[6px] px-3 text-[11px] font-semibold transition-colors ${
               saveStatus === "saved" ? "border-[#6ee7b7] bg-[#ecfdf5] text-[#065f46]" :
               saveStatus === "error" ? "border-[#fca5a5] bg-[#fef2f2] text-[#dc2626]" :
               "border-[#d1d5db] bg-white text-[#374151] hover:bg-[#f9fafb]"
@@ -1141,7 +1141,7 @@ function BuilderInner({
           <Button
             disabled={isNew || !executionReady || runMutation.isPending}
             onClick={() => (triggerNodes.length ? setRunInputOpen(true) : runMutation.mutate({}))}
-            className="h-[30px] rounded-[6px] bg-[#0f1117] px-3.5 text-[11px] font-bold text-white hover:bg-[#1f2937] disabled:opacity-35"
+            className="h-[29px] rounded-[6px] bg-[#0f1117] px-3.5 text-[11px] font-bold text-white hover:bg-[#1f2937] disabled:opacity-35"
             title={
               isNew ? "Save the workflow first before running"
               : !selectedWorkspace ? "Select a repository first"
@@ -1155,7 +1155,7 @@ function BuilderInner({
           <Button
             onClick={() => guardedNavigate("/runs")}
             variant="outline"
-            className="h-[30px] rounded-[6px] border-[#d3dae3] px-3 text-[11px] font-semibold text-[#64748b] hover:bg-[#f8fafc]">
+            className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] px-3 text-[11px] font-semibold text-[#64748b] hover:bg-[#f8fafc]">
             <History className="mr-1.5 h-3 w-3" />
             Run history
           </Button>
@@ -1163,7 +1163,7 @@ function BuilderInner({
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline"
-                  className="h-[30px] rounded-[6px] border-[#fca5a5] bg-white px-3 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]">
+                  className="h-[29px] rounded-[6px] border-[#fca5a5] bg-white px-3 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]">
                   <Trash2 className="mr-1.5 h-3 w-3" /> Delete
                 </Button>
               </AlertDialogTrigger>
@@ -1265,7 +1265,7 @@ function BuilderInner({
         {/* ── palette ── */}
         <div
           className="relative shrink-0 border-r border-[#e8ecf1] bg-[#fcfdfe] transition-all duration-200 overflow-hidden"
-          style={{ width: paletteCollapsed ? 28 : 190 }}
+          style={{ width: paletteCollapsed ? 28 : 186 }}
         >
           {/* collapse toggle */}
           <button
@@ -1288,7 +1288,7 @@ function BuilderInner({
                   value={paletteQuery}
                   onChange={(e) => setPaletteQuery(e.target.value)}
                   placeholder="Search nodes…"
-                  className="w-full border border-[#e5e7eb] bg-white py-1 pl-6 pr-2 text-[10px] text-[#374151] outline-none focus:border-[#374151]"
+                  className="h-[26px] w-full rounded-[5px] border border-[#dde3ea] bg-white pl-6 pr-2 text-[11px] text-[#374151] outline-none focus:border-[#374151]"
                 />
               </div>
               <div className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
@@ -1312,7 +1312,7 @@ function BuilderInner({
                         draggable
                         onDragStart={(e) => onDragStart(e, nodeType, label, presetKey)}
                         title={description}
-                        className="flex cursor-grab items-start gap-2 px-3 py-[7px] hover:bg-[#f1f5f9] active:cursor-grabbing select-none"
+                        className="flex cursor-grab items-start gap-[7px] px-3 py-[5px] hover:bg-[#f1f5f9] active:cursor-grabbing select-none"
                        
                       >
                         <span

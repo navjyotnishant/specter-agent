@@ -32,7 +32,7 @@ export function SpecialistAgentNode({ data, selected }: NodeProps) {
         </span>
       )}
       <div
-      className={`w-[220px] overflow-hidden rounded-[8px] bg-white shadow-[0_1px_3px_rgba(15,23,42,0.07)] ${
+      className={`w-[196px] overflow-hidden rounded-[8px] bg-white shadow-[0_1px_3px_rgba(15,23,42,0.07)] ${
         selected ? "border border-[#4f46e5] ring-2 ring-[#4f46e5]/20" : "border border-[#dde3ea]"
       }`}
     >

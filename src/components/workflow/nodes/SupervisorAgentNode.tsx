@@ -23,7 +23,7 @@ export function SupervisorAgentNode({ data, selected }: NodeProps) {
         </span>
       )}
       <div
-      className={`w-[220px] overflow-hidden rounded-[8px] border bg-[#0f1117] text-white shadow-[0_1px_3px_rgba(15,23,42,0.18)] ${
+      className={`w-[196px] overflow-hidden rounded-[8px] border bg-[#0f1117] text-white shadow-[0_1px_3px_rgba(15,23,42,0.18)] ${
         isPlanning ? "specter-supervisor-planning border-[#4f8ef7]"
         : selected ? "border-[#4f8ef7] ring-2 ring-[#4f8ef7]/25" : "border-[#2a2d36]"
       }`}
