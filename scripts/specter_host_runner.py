@@ -1316,6 +1316,26 @@ def _claude_path() -> str | None:
 def _cursor_agent_path() -> str | None:
     return _resolve_cli("cursor-agent", "cursor")
 
+def _gemini_path() -> str | None:
+    return _resolve_cli("gemini")
+
+def _check_gemini_auth() -> tuple[bool, str]:
+    """Gemini CLI stores its signed-in Google accounts in ~/.gemini.
+
+    Read the credential file rather than invoking the CLI: a real prompt costs a
+    quota call on every status poll, and this endpoint is polled.
+    """
+    if not _gemini_path():
+        return False, "gemini not found on PATH"
+    accounts = Path.home() / ".gemini" / "google_accounts.json"
+    if accounts.exists():
+        try:
+            if json.loads(accounts.read_text() or "{}"):
+                return True, ""
+        except Exception:
+            pass
+    return False, "Run `gemini` once and sign in with your Google account."
+
 def _check_claude_auth() -> tuple[bool, str]:
     exe = _claude_path()
     if not exe:
@@ -1353,6 +1373,18 @@ def _check_cursor_auth() -> tuple[bool, str]:
         return False, str(exc)
 
 _DIRECT_CLI_AGENTS: dict[str, dict[str, Any]] = {
+    # Gemini CLI. Installed via homebrew as `gemini`; auth lives in
+    # ~/.gemini/google_accounts.json.
+    "gemini": {
+        "key": "gemini",
+        "display_name": "Gemini",
+        "binary": "gemini",
+        "find_exe": _gemini_path,
+        "cmd_fn": lambda exe, ws, p, model="": [exe, *(["-m", model] if model else []), "-p", p],
+        "check_auth": _check_gemini_auth,
+        "auth_note": "Run `gemini` once and sign in with your Google account.",
+        "docs_url": "https://github.com/google-gemini/gemini-cli",
+    },
     "codex": {
         "key": "codex",
         "display_name": "Codex",
@@ -1392,9 +1424,18 @@ _DIRECT_CLI_AGENTS: dict[str, dict[str, Any]] = {
 }
 
 
+# The order the agents are listed in. Stable so the table does not reshuffle
+# when a new agent is added to the dict above.
+_DIRECT_CLI_ORDER = ["claude", "codex", "cursor", "gemini"]
+
+
 def direct_cli_agent_status() -> list[dict[str, Any]]:
     result = []
-    for key, agent in _DIRECT_CLI_AGENTS.items():
+    ordered = sorted(
+        _DIRECT_CLI_AGENTS.items(),
+        key=lambda kv: (_DIRECT_CLI_ORDER.index(kv[0]) if kv[0] in _DIRECT_CLI_ORDER else 99, kv[0]),
+    )
+    for key, agent in ordered:
         exe = agent["find_exe"]()
         installed = bool(exe and (Path(exe).exists() if exe != agent["binary"] else shutil.which(exe)))
         if installed:

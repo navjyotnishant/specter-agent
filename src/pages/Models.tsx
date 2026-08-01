@@ -477,18 +477,26 @@ export default function Models() {
         .slice(-20)
         .map((l) => l.message)
     : [];
-  // "3 of 4 ready" in the chain. Counts the runtimes the page already queries
-  // rather than inventing a new endpoint; an adapter is ready when the backend
-  // says `ready`, which is the same signal each card renders.
-  const agentReadiness = (() => {
-    const adapters = [codexRuntime, dockerSandboxRuntime, directCliRuntime].filter(Boolean);
-    return {
-      ready: adapters.filter((a) => a?.status === "ready").length,
-      total: adapters.length,
-    };
-  })();
-
   const agentRows = directCliRuntime?.agent_status ?? [];
+
+  // "3 of 4 ready" in the chain — the AGENTS, matching the table directly below
+  // it. This previously counted runtime adapters (codex-cli, docker-sandbox,
+  // direct-cli), so the chain said one number while the table under it listed a
+  // different set of things under the same word.
+  //
+  // "Ready" here means USABLE — installed, so it can run once whatever is in the
+  // way clears. The mockup's own sample reads "3 of 4" against one uninstalled
+  // agent, one rate-limited and one needing a login, which is the useful
+  // reading: a quota resets and a login takes a moment, but an agent that is not
+  // installed cannot run at all. Counting only fully-green agents would say
+  // "1 of 4" and imply three are broken.
+  //
+  // The per-row states below stay strict — that is where you see WHICH thing is
+  // in the way. The chain answers "how much of my fleet is real".
+  const agentReadiness = {
+    ready: agentRows.filter((a) => a.installed).length,
+    total: agentRows.length,
+  };
 
   /** What an approved path is actually used for. An approved repository nobody
    *  runs is still granted access, so saying "unused" is the useful signal —
@@ -630,30 +638,6 @@ export default function Models() {
               {agentRows.length === 0 && (
                 <tr><td colSpan={5} className="text-slate-400">No agent status reported by the host runner.</td></tr>
               )}
-              {/* The sandbox runtime itself heads the table. Every agent row
-                  below depends on it, so a reader seeing four "daemon down"
-                  rows can see why in the row above rather than inferring it. */}
-              <tr>
-                <td className="sp-ag">Docker sandbox</td>
-                <td>
-                  {sandboxReady
-                    ? <span className="sp-st sp-st-ok">ready</span>
-                    : <span className="sp-st sp-st-no">{dockerSandboxBadge.label}</span>}
-                </td>
-                <td style={{ color: "#94a3b8" }}>n/a</td>
-                <td style={dockerSandboxRuntime?.sbx_version ? undefined : { color: "#94a3b8" }}>
-                  {dockerSandboxRuntime?.sbx_version ?? dockerSandboxRuntime?.current_version ?? "—"}
-                </td>
-                <td>
-                  {!sandboxReady && (
-                    <button type="button" className="sp-fix"
-                      disabled={!canUseBackend || startSandboxDaemon.isPending}
-                      onClick={() => startSandboxDaemon.mutate()}>
-                      {startSandboxDaemon.isPending ? "Starting…" : "Start the daemon →"}
-                    </button>
-                  )}
-                </td>
-              </tr>
               {agentRows.map((ag) => (
                 <tr key={ag.key}>
                   <td className="sp-ag">{ag.display_name}</td>
