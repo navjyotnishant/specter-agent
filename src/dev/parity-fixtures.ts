@@ -158,6 +158,29 @@ export const DOCKER_SANDBOX = {
 
 export const HOST_RUNNER_VERSION = { version: "v1.4" };
 
+
+/** Model catalogue, as the host runner reports it — each installed CLI is asked
+ *  what it supports. Lets the Models tab render without a backend. */
+export const AGENT_MODELS = {
+  ok: true,
+  agents: {
+    claude: {
+      agent: "claude", source: "cli", cached: true, error: "", count: 3,
+      families: ["opus", "sonnet", "haiku"],
+      models: [
+        { slug: "claude-opus-5",    display_name: "Opus 5",    family: "opus" },
+        { slug: "claude-sonnet-5",  display_name: "Sonnet 5",  family: "sonnet" },
+        { slug: "claude-haiku-4-5", display_name: "Haiku 4.5", family: "haiku" },
+      ],
+    },
+    codex: {
+      agent: "codex", source: "cli", cached: true, error: "", count: 1,
+      families: ["codex"],
+      models: [{ slug: "gpt-5-codex", display_name: "GPT-5 Codex", family: "codex" }],
+    },
+  },
+};
+
 /** The workflow the builder harness route opens. Exported so the route, the
  *  fixture, and the cache key cannot drift apart. */
 export const FIXTURE_WORKFLOW_ID = "wf-prepush";
@@ -194,6 +217,7 @@ export const SEED: Array<[readonly unknown[], unknown]> = [
   [["workspaces"], WORKSPACES],
   [["runtime-workspaces"], WORKSPACES],
   [["mcp-list"], []],
+  [["agent-models"], AGENT_MODELS],
   [["runtime-adapter", "direct-cli"], DIRECT_CLI],
   [["runtime-adapter", "docker-sandbox"], DOCKER_SANDBOX],
   [["host-runner", "version"], HOST_RUNNER_VERSION],

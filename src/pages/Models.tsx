@@ -37,6 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { useModelPreference } from "@/lib/model-preference";
 
 const codexSigninCommand = "codex";
 const dockerSandboxMacInstallCommand = "brew install docker/tap/sbx";
@@ -253,6 +254,16 @@ export default function Models() {
     enabled: canUseBackend,
     retry: false,
   });
+  const modelsQuery = useQuery({
+    queryKey: ["agent-models"],
+    queryFn: () => api.agentModels(token ?? ""),
+    enabled: canUseBackend,
+    retry: false,
+    staleTime: 55 * 60 * 1000,   // the host runner caches for an hour
+  });
+  const agentModelSets = modelsQuery.data?.agents ?? {};
+  const [preference, setPreference] = useModelPreference();
+
   const { data: allWorkflows = [] } = useQuery({
     queryKey: ["workflows"],
     queryFn: () => api.workflows(token ?? ""),
@@ -663,7 +674,7 @@ export default function Models() {
                     {/* Quota reset time when the provider gives one. */}
                     {ag.rate_limited && ag.rate_limit_resets_at && (
                       <span className="sp-fix">
-                        quota resets {new Date(ag.rate_limit_resets_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })} →
+                        quota resets {new Date(ag.rate_limit_resets_at).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })} →
                       </span>
                     )}
                     {ag.installed && !ag.authenticated && (
@@ -874,113 +885,6 @@ export default function Models() {
           </CardContent>
         </Card>
 
-        {/* ── Direct CLI ── */}
-        <Card className="sp-frame">
-          <CardContent className="p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[8px] bg-amber-100 text-amber-800">
-                  <TerminalSquare className="h-6 w-6" />
-                </span>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-xl font-black text-slate-950">Direct CLI</h3>
-                    <Badge className="rounded-full bg-amber-100 text-amber-800 hover:bg-amber-100">No isolation</Badge>
-                    <Badge className={`rounded-full ${directCliRuntime?.available ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"} hover:bg-current/0`}>
-                      {directCliLoading && canUseBackend ? "Checking…" : directCliRuntime?.available ? "Ready" : "Setup needed"}
-                    </Badge>
-                  </div>
-                  <p className="mt-0.5 text-sm font-semibold text-slate-500">Runs agents directly on your host · no microVM overhead · fast path</p>
-                </div>
-              </div>
-              <Button
-                type="button" size="sm" variant="outline" className="rounded-[6px] bg-white shrink-0"
-                disabled={!canUseBackend || directCliLoading}
-                onClick={() => queryClient.invalidateQueries({ queryKey: ["runtime-adapter", "direct-cli"] })}
-              >
-                {directCliLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              </Button>
-            </div>
-
-            {/* Agent status table */}
-            <div className="mt-4 rounded-[8px] border border-slate-100 bg-slate-50 overflow-hidden">
-              {(directCliRuntime?.agent_status ?? []).length === 0 && (
-                <p className="px-3 py-3 text-sm font-semibold text-slate-500">Start the host runner to see agent status.</p>
-              )}
-              {(directCliRuntime?.agent_status ?? []).map((ag, idx) => {
-                const isSelected = cliAgent === ag.key;
-                return (
-                  <button
-                    key={ag.key}
-                    type="button"
-                    onClick={() => { setCliAgent(ag.key); try { localStorage.setItem("specter_cli_agent", ag.key); } catch {} }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-white/60 ${idx !== 0 ? "border-t border-slate-100" : ""} ${isSelected ? "bg-white" : ""}`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className={`text-xs font-black ${ag.authenticated ? "text-emerald-500" : ag.installed ? "text-amber-400" : "text-red-400"}`}>
-                        {ag.authenticated ? "✓" : ag.installed ? "○" : "✕"}
-                      </span>
-                      <span className={`text-sm font-bold ${isSelected ? "text-slate-950" : "text-slate-600"}`}>{ag.display_name}</span>
-                      {isSelected && <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-black text-white">selected</span>}
-                      {ag.version && <span className="text-[10px] text-slate-400 font-mono">{ag.version.split(" ")[0]}</span>}
-                    </div>
-                    <span className={`text-[10px] font-semibold ${ag.authenticated ? "text-emerald-600" : ag.installed ? "text-amber-500" : "text-red-500"}`}>
-                      {ag.authenticated ? "Ready" : ag.installed ? "Login needed" : "Not installed"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button type="button" variant="outline" className="rounded-[8px] bg-white">Setup</Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl rounded-[10px]">
-                  <DialogHeader>
-                    <DialogTitle>Direct CLI Setup</DialogTitle>
-                    <DialogDescription>Install each agent CLI and authenticate once. Agents run directly on your host machine.</DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-3">
-                    {(directCliRuntime?.agent_status ?? []).map((ag) => {
-                      const authInstructions: Record<string, { install: string; login: string }> = {
-                        codex: { install: "curl -fsSL https://chatgpt.com/codex/install.sh | sh", login: "codex  # sign in when prompted" },
-                        claude: { install: "npm install -g @anthropic-ai/claude-code", login: "claude /login" },
-                        cursor: { install: "# Install Cursor from cursor.com, then enable cursor-agent in PATH", login: "# Sign in to Cursor via the app" },
-                      };
-                      const instr = authInstructions[ag.key];
-                      return (
-                        <div key={ag.key} className="rounded-[8px] border border-slate-100 bg-slate-50 p-3 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-sm ${ag.authenticated ? "text-emerald-500" : ag.installed ? "text-amber-400" : "text-red-400"}`}>
-                              {ag.authenticated ? "✓" : ag.installed ? "○" : "✕"}
-                            </span>
-                            <p className="text-sm font-black text-slate-900">{ag.display_name}</p>
-                            {ag.authenticated && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-700">Ready</span>}
-                            {ag.version && <span className="ml-auto text-[10px] text-slate-400 font-mono">{ag.version}</span>}
-                          </div>
-                          {!ag.installed && instr && (
-                            <>
-                              <p className="text-xs text-slate-500 pl-5">Install:</p>
-                              <CommandCopy command={instr.install} copiedCommand={copiedCommand} onCopy={copyCommand} />
-                            </>
-                          )}
-                          {ag.installed && !ag.authenticated && instr && (
-                            <>
-                              <p className="text-xs text-slate-500 pl-5">{ag.auth_note}</p>
-                              <CommandCopy command={instr.login} copiedCommand={copiedCommand} onCopy={copyCommand} />
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* ── Host Runner ── */}
@@ -1340,18 +1244,60 @@ export default function Models() {
           </div>
         </TabsContent>
 
+        {/* The page called "Models" now contains model settings. Selection used
+            to live only in a header dropdown, so the discoverable path led to a
+            page about Docker. This writes the same preference the header reads,
+            so the two stay in step. */}
         <TabsContent value="models" className="mt-4">
           <div className="sp-sec">
-            <h2>Model selection</h2>
+            <h2>Default model</h2>
             <div className="sp-sub">
-              Which model each agent runs on. Selection currently lives in the header
-              dropdown, so the page named "Models" does not yet contain any — this tab is
-              where it belongs.
+              Used to seed new agent nodes. Each workflow node can still override it.
             </div>
-            <p className="text-sm text-slate-500">
-              Not built yet. Tracked separately; the header selector remains the way to
-              choose a model in the meantime.
-            </p>
+
+            {modelsQuery.isLoading && <p className="text-sm text-slate-500">Loading models…</p>}
+
+            {!modelsQuery.isLoading && !Object.keys(agentModelSets).length && (
+              <p className="text-sm text-slate-500">
+                No models reported. The host runner asks each installed CLI what it
+                supports, so an agent has to be installed and signed in before its
+                models appear here.
+              </p>
+            )}
+
+            {Object.entries(agentModelSets).map(([agentKey, set]) => (
+              <div key={agentKey} style={{ marginBottom: 14 }}>
+                <div className="sp-ag" style={{ marginBottom: 5 }}>
+                  {agentKey}
+                  <span style={{ color: "#94a3b8", fontWeight: 400, fontSize: 11, marginLeft: 7 }}>
+                    {set.models?.length ?? 0} model{set.models?.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {(set.models ?? []).map((model) => {
+                    const active = preference.agent === agentKey && preference.model === model.slug;
+                    return (
+                      <button
+                        key={model.slug}
+                        type="button"
+                        className={active ? "sp-chip sp-chip-on" : "sp-chip"}
+                        title={model.slug}
+                        onClick={() => setPreference({ agent: agentKey, model: model.slug })}
+                      >
+                        {model.display_name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            {preference.model && (
+              <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                New nodes default to <b style={{ color: "#0f172a" }}>{preference.model}</b> on{" "}
+                {preference.agent}.
+              </p>
+            )}
           </div>
         </TabsContent>
       </Tabs>
@@ -1407,7 +1353,7 @@ export default function Models() {
               ? `Found ${discoveredRepositories.length} under this root. Review before approving — there is no bulk approve.`
               : "Review before approving — there is no bulk approve."}
           </div>
-          <div className="sp-pathrow" style={{ borderBottom: "none" }}>
+          <div className="sp-pathrow" style={discoveredRepositories.length ? undefined : { borderBottom: "none" }}>
             <input
               className="flex-1 border-0 bg-transparent font-mono text-[11px] outline-none"
               value={discoveryRoot}
@@ -1424,6 +1370,59 @@ export default function Models() {
               {discoverRepositories.isPending ? "Scanning…" : "Scan"}
             </button>
           </div>
+
+          {/* Scan results. Each path is approved on its own — the confirm names
+              the single repository, so nobody grants access to fifty at once and
+              discovers afterwards which ones actually took. */}
+          {discoveredRepositories.map((repo) => {
+            const already = approvedWorkspacePaths.has(repo.path);
+            return (
+              <div className="sp-pathrow" key={repo.path}>
+                <code title={repo.path}>{repo.path}</code>
+                {already && <span style={{ color: "#16a34a", fontSize: 11 }}>already approved</span>}
+                {!already && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <button
+                        type="button"
+                        className="sp-rm"
+                        style={{ color: "#334155", borderColor: "#dde3ea" }}
+                        disabled={!canUseBackend || approveSelectedRepositories.isPending}
+                      >
+                        Approve…
+                      </button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="rounded-[10px]">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Grant agent access to this repository?</AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                          <div>
+                            <p className="font-mono text-xs text-slate-700">{repo.path}</p>
+                            <p className="mt-2">
+                              Agents will be able to read every file inside it, and in Direct CLI
+                              mode they run on this host with no isolation.
+                            </p>
+                          </div>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel className="rounded-[6px]">Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="rounded-[6px] bg-slate-900 hover:bg-slate-800"
+                          onClick={() => {
+                            setSelectedDiscoveredPaths([repo.path]);
+                            approveSelectedRepositories.mutate();
+                          }}
+                        >
+                          Grant access
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
