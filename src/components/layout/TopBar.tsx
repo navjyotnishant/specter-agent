@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ModelSelector } from "@/components/layout/ModelSelector";
 
 function SystemStatusPill() {
   const { token } = useAuth();
@@ -65,6 +66,7 @@ export function TopBar() {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-black tracking-tight text-slate-950 sm:text-2xl">Specter Agent</h1>
             <SystemStatusPill />
+            <ModelSelector />
           </div>
           <p className="mt-1 text-sm text-slate-600">Govern agent workflows, approvals, and delivery evidence.</p>
         </div>
