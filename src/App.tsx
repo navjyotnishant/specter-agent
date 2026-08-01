@@ -19,6 +19,7 @@ import Users from "./pages/Users";
 import WorkflowBuilder from "./pages/WorkflowBuilder";
 import WorkflowRun from "./pages/WorkflowRun";
 import Workflows from "./pages/Workflows";
+import { ParityHarness } from "./dev/ParityHarness";
 
 const queryClient = new QueryClient();
 
@@ -35,6 +36,17 @@ const App = () => (
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/setup" element={<Setup />} />
             <Route path="/login" element={<Login />} />
+            {/* Dev-only: renders a page against fixture data so the design-parity
+                gate can measure it without a session. `import.meta.env.DEV` is
+                statically false in a production build, so this route and the
+                harness it points at are dropped from the bundle entirely. */}
+            {import.meta.env.DEV && (
+              <>
+                <Route path="/__parity/:page" element={<ParityHarness />} />
+                {/* The builder reads :workflowId, so it needs the extra segment. */}
+                <Route path="/__parity/:page/:id" element={<ParityHarness />} />
+              </>
+            )}
             <Route path="/workflowssecurity-review-team/builder" element={<Navigate to="/workflows/security-review-team/builder" replace />} />
             <Route element={<ProtectedRoute />}>
               <Route path="/workflows/:workflowId/run/:runId" element={<WorkflowRun />} />
