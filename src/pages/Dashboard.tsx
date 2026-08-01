@@ -160,7 +160,10 @@ export default function Dashboard() {
   });
   const { data: approvalsData = [] } = useQuery({
     queryKey: ["dashboard", "approvals"],
-    queryFn: api.approvals,
+    queryFn: () => api.approvals(token),
+    // Gated like every other query on this page: it now requires auth, and an
+    // ungated call would 401 on every poll while signed out.
+    enabled: canUseBackend,
     retry: false,
     refetchInterval: 10000,
   });

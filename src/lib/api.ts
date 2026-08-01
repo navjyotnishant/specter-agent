@@ -328,16 +328,17 @@ export const api = {
     }),
   deleteConnector: (token: string, id: string) =>
     request<{ deleted: boolean; connector_id: string }>(`/connectors/${id}`, { method: "DELETE", headers: authHeaders(token) }),
-  approvals: () => request<ApprovalRequest[]>("/approvals"),
+  approvals: (token: string) => request<ApprovalRequest[]>("/approvals", { headers: authHeaders(token) }),
   runMemory: (runId: string) => request<MemoryEntry[]>(`/runs/${runId}/memory`),
   startSecurityReviewDemo: (objective: string) =>
     request<{ run_id: string; status: string }>("/runs/security-review-demo", {
       method: "POST",
       body: JSON.stringify({ workflow_id: "security-review-team", objective }),
     }),
-  resolveApproval: (id: string, action: "approve" | "reject" | "request-revision", comment: string) =>
+  resolveApproval: (token: string, id: string, action: "approve" | "reject" | "request-revision", comment: string) =>
     request<ApprovalRequest>(`/approvals/${id}/${action}`, {
       method: "POST",
+      headers: authHeaders(token),
       body: JSON.stringify({ comment }),
     }),
 };

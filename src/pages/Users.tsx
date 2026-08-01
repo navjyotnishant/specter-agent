@@ -4,6 +4,11 @@ import { Loader2, Send, Shield, Trash2, UserPlus, Users as UsersIcon } from "luc
 import { getStoredToken, useAuth } from "@/lib/auth";
 import { TelegramConfigForm } from "@/components/agents/TelegramConfigForm";
 import { api } from "@/lib/api";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,8 +26,12 @@ export default function Users() {
   const [role, setRole] = useState<"admin" | "operator">("operator");
   const [error, setError] = useState("");
 
-  const { data = [] } = useQuery({ queryKey: ["users"], queryFn: () => api.users(token ?? ""), enabled: Boolean(token), retry: false });
-  const accounts = data.length ? data : user ? [user] : [];
+  const usersQuery = useQuery({ queryKey: ["users"], queryFn: () => api.users(token ?? ""), enabled: Boolean(token), retry: false });
+  // No fallback to [user]: a failed fetch rendering "just you" is indistinguishable
+  // from a one-user system, so an admin whose request 403'd concludes the other
+  // accounts were deleted.
+  const accounts = usersQuery.data ?? [];
+  const isAdmin = user?.role === "admin";
 
   const create = useMutation({
     mutationFn: () => api.createUser(token ?? "", email, password, role),
@@ -38,7 +47,10 @@ export default function Users() {
 
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteUser(token ?? "", id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+    onSuccess: () => { setError(""); queryClient.invalidateQueries({ queryKey: ["users"] }); },
+    // Without this a refused delete (last admin, FK constraint, 403) left the row
+    // in place with no message, reading as a UI bug.
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to delete user"),
   });
 
   const onSubmit = (event: FormEvent) => {
@@ -64,6 +76,10 @@ export default function Users() {
         </CardContent>
       </Card>
 
+      {/* Admin-only. This form and the Delete buttons rendered for operators too,
+          who filled them in and got a raw backend error -- the page's own copy
+          already said "Admins can create operators or additional admins". */}
+      {isAdmin && (
       <Card className="rounded-[2rem] border-white/80 bg-white/80 shadow-sm">
         <CardContent className="p-5 sm:p-6">
           <div className="mb-5 flex items-center gap-3">
@@ -97,9 +113,12 @@ export default function Users() {
             </Button>
           </form>
           {!token && <p className="mt-3 text-sm text-slate-500">Sign in to manage users.</p>}
-          {error && <Alert variant="destructive" className="mt-4 rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
         </CardContent>
       </Card>
+      )}
+
+      {/* Outside the admin gate: delete errors must reach every viewer. */}
+      {error && <Alert variant="destructive" className="rounded-2xl"><AlertDescription>{error}</AlertDescription></Alert>}
 
       <Card className="rounded-[2rem] border-white/80 bg-white/80 shadow-sm">
         <CardContent className="p-5 sm:p-6">
@@ -117,6 +136,15 @@ export default function Users() {
       </Card>
 
       <div className="grid gap-4">
+        {usersQuery.isLoading && <p className="text-sm text-slate-500">Loading accounts…</p>}
+        {usersQuery.isError && (
+          <Alert variant="destructive" className="rounded-2xl">
+            <AlertDescription>
+              Couldn't load accounts — the list below may be incomplete.{" "}
+              {usersQuery.error instanceof Error ? usersQuery.error.message : ""}
+            </AlertDescription>
+          </Alert>
+        )}
         {accounts.map((account) => (
           <Card key={account.id} className="rounded-3xl border-white/80 bg-white/80">
             <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -132,9 +160,30 @@ export default function Users() {
                   </div>
                 </div>
               </div>
-              <Button disabled={account.id === user?.id || remove.isPending} onClick={() => remove.mutate(account.id)} variant="outline" className="rounded-2xl border-red-200 bg-white text-red-700 hover:bg-red-50">
-                <Trash2 className="mr-2 h-4 w-4" /> Delete
-              </Button>
+              {isAdmin && account.id !== user?.id && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button disabled={remove.isPending} variant="outline" className="rounded-2xl border-red-200 bg-white text-red-700 hover:bg-red-50">
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete {account.email}?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This permanently removes the {account.role} account and any integration
+                        credentials stored against it. It cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => remove.mutate(account.id)} className="bg-red-600 text-white hover:bg-red-700">
+                        Delete account
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
             </CardContent>
           </Card>
         ))}
