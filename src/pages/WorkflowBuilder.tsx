@@ -19,7 +19,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  AlertTriangle, Bot, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Copy, Database, FileText, GitBranch, GitMerge, History, Layers, LayoutGrid, Loader2, Play, Save, Send, ShieldCheck, Sparkles, Trash2, Webhook, Zap,
+  AlertTriangle, Bot, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Copy, CopyPlus, Database, FileText, GitBranch, GitMerge, History, Layers, LayoutGrid, Loader2, Play, Redo2, Save, Search, Send, ShieldCheck, Sparkles, Trash2, Undo2, Webhook, Zap,
 } from "lucide-react";
 import type { McpServer } from "@/lib/types";
 import { AgentInspector } from "@/components/agents/AgentInspector";
@@ -36,6 +36,7 @@ import { layoutGeneratedSubgraph, topoLayout } from "@/lib/graph-layout";
 import { useModelPreference } from "@/lib/model-preference";
 import { newNodeId, snapshotOf as snapshotOfGraph, structureOf } from "@/lib/workflow-persistence";
 import { canConnect, graphIssues } from "@/lib/graph-validation";
+import { canRedo, canUndo, commit as commitHistory, initHistory, redo as redoHistory, undo as undoHistory } from "@/lib/graph-history";
 import type { WorkflowGraph } from "@/lib/types";
 import {
   AlertDialog,
@@ -239,6 +240,7 @@ function BuilderInner({
   const [nameTouched, setNameTouched] = useState(false);
   const [statusMessage, setStatusMessage] = useState(isNew ? "New workflow — drag nodes from the palette to get started." : "Drag from the palette to add nodes.");
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [rightWidth, setRightWidth] = useState(300);
   const rightDragging = useRef(false);
@@ -668,6 +670,93 @@ function BuilderInner({
   );
 
   // ── load template into canvas ─────────────────────────────────────────────
+  // Undo/redo. History is committed from an effect rather than at every call
+  // site so it cannot be forgotten; drags coalesce into one entry.
+  const history = useRef(initHistory({ nodes: [], edges: [] }));
+  const [historyTick, setHistoryTick] = useState(0);
+  const applyingHistory = useRef(false);
+  useEffect(() => {
+    if (!baselined) return;                 // ignore the load-phase churn
+    if (applyingHistory.current) { applyingHistory.current = false; return; }
+    const before = history.current;
+    history.current = commitHistory(before, { nodes, edges }, true);
+    if (history.current !== before) setHistoryTick((t) => t + 1);
+  }, [nodes, edges, baselined]);
+
+  const applySnapshot = useCallback((h: typeof history.current) => {
+    applyingHistory.current = true;
+    history.current = h;
+    setNodes(h.present.nodes);
+    setEdges(h.present.edges);
+    setHistoryTick((t) => t + 1);
+  }, [setNodes, setEdges]);
+
+  // Click-to-add. The palette was drag-only, so every node type in the app was
+  // behind a mouse gesture and unreachable by keyboard.
+  const addNodeFromPalette = useCallback((nodeType: string, label: string, presetKey?: string) => {
+    const baseDefaults = (presetKey && presetDefaults[presetKey]) || nodeDefaults[nodeType];
+    // Same rule as the drop handler: only agent-bearing nodes inherit the
+    // header's model preference; control-flow and memory nodes have no model.
+    const inheritsModel = "sandboxAgent" in baseDefaults;
+    const id = newNodeId(nodeType);
+    setNodes((cur) => {
+      // Place right of the furthest-right node so a new one never lands on top.
+      const x = cur.length ? Math.max(...cur.map((n) => n.position.x)) + 280 : 120;
+      const y = cur.length ? cur[cur.length - 1].position.y : 160;
+      return [
+        ...cur.map((n) => ({ ...n, selected: false })),
+        {
+          id, type: nodeType, position: { x, y }, selected: true,
+          data: {
+            ...baseDefaults,
+            label,
+            ...(inheritsModel
+              ? { sandboxAgent: modelPreference.agent, model: modelPreference.model }
+              : {}),
+          },
+        } as Node,
+      ];
+    });
+    setStatusMessage(`Added ${label}.`);
+  }, [setNodes, modelPreference]);
+
+  const duplicateSelection = useCallback(() => {
+    setNodes((cur) => {
+      const chosen = cur.filter((n) => n.selected);
+      if (!chosen.length) return cur;
+      const copies = chosen.map((n) => ({
+        ...n,
+        id: newNodeId(String(n.type)),
+        position: { x: n.position.x + 40, y: n.position.y + 40 },
+        selected: true,
+        data: { ...(n.data as Record<string, unknown>) },
+      }));
+      return [...cur.map((n) => ({ ...n, selected: false })), ...copies];
+    });
+  }, [setNodes]);
+
+  const doUndo = useCallback(() => {
+    if (canUndo(history.current)) applySnapshot(undoHistory(history.current));
+  }, [applySnapshot]);
+  const doRedo = useCallback(() => {
+    if (canRedo(history.current)) applySnapshot(redoHistory(history.current));
+  }, [applySnapshot]);
+
+  const onShortcut = useCallback((e: KeyboardEvent) => {
+    const el = e.target as HTMLElement | null;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+    if (e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); doUndo(); }
+    else if ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y") { e.preventDefault(); doRedo(); }
+    else if (e.key.toLowerCase() === "d") { e.preventDefault(); duplicateSelection(); }
+    else if (e.key.toLowerCase() === "s") { e.preventDefault(); void saveGraph().catch(() => {}); }
+  }, [doUndo, doRedo, duplicateSelection]);
+  useEffect(() => {
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, [onShortcut]);
+
   const [pendingTemplate, setPendingTemplate] = useState<{ graph?: { nodes?: unknown[]; edges?: unknown[] }; name: string; description: string } | null>(null);
 
   const loadTemplate = (tpl: { graph?: { nodes?: unknown[]; edges?: unknown[] }; name: string; description: string }) => {
@@ -949,6 +1038,18 @@ function BuilderInner({
               )}
             </div>
           )}
+          <Button onClick={doUndo} disabled={!canUndo(history.current)} variant="outline"
+            className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:opacity-35" title="Undo (⌘Z)">
+            <Undo2 className="h-3 w-3" />
+          </Button>
+          <Button onClick={doRedo} disabled={!canRedo(history.current)} variant="outline"
+            className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:opacity-35" title="Redo (⇧⌘Z)">
+            <Redo2 className="h-3 w-3" />
+          </Button>
+          <Button onClick={duplicateSelection} disabled={!hasSelection} variant="outline"
+            className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:opacity-35" title="Duplicate selection (⌘D)">
+            <CopyPlus className="mr-1.5 h-3 w-3" /> Duplicate
+          </Button>
           <Button onClick={tidyLayout} variant="outline"
             className="h-8 rounded-none border-[#d1d5db] bg-white px-3 text-[11px] font-medium text-[#374151] hover:bg-[#f9fafb]"
             title="Auto-arrange nodes into topological columns">
@@ -1173,10 +1274,28 @@ function BuilderInner({
             <>
               <div className="border-b border-[#e5e7eb] px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-[#6b7280]">Palette</p>
-                <p className="text-[10px] text-[#9ca3af]">Drag to canvas</p>
+                <p className="text-[10px] text-[#9ca3af]">Drag, or click + to add</p>
+              </div>
+              <div className="relative px-2 py-2">
+                <Search className="pointer-events-none absolute left-3.5 top-[13px] h-3 w-3 text-[#9ca3af]" />
+                <input
+                  value={paletteQuery}
+                  onChange={(e) => setPaletteQuery(e.target.value)}
+                  placeholder="Search nodes…"
+                  className="w-full border border-[#e5e7eb] bg-white py-1 pl-6 pr-2 text-[10px] text-[#374151] outline-none focus:border-[#374151]"
+                />
               </div>
               <div className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
-                {palette.map((group) => (
+                {palette
+                  .map((group) => ({
+                    ...group,
+                    items: group.items.filter((it) => {
+                      const q = paletteQuery.trim().toLowerCase();
+                      return !q || it.label.toLowerCase().includes(q) || it.description.toLowerCase().includes(q);
+                    }),
+                  }))
+                  .filter((group) => group.items.length > 0)
+                  .map((group) => (
                   <div key={group.category} className="border-b border-[#f3f4f6] last:border-b-0">
                     <p className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-widest text-[#9ca3af]">
                       {group.category}
@@ -1191,14 +1310,29 @@ function BuilderInner({
                        
                       >
                         <Icon className="mt-0.5 h-3 w-3 shrink-0 text-[#9ca3af]" />
-                        <span className="min-w-0">
+                        <span className="min-w-0 flex-1">
                           <span className="block text-[10px] text-[#374151]">{label}</span>
                           <span className="block text-[10px] leading-tight text-[#9ca3af]">{description}</span>
                         </span>
+                        <button
+                          onClick={(ev) => { ev.stopPropagation(); addNodeFromPalette(nodeType, label, presetKey); }}
+                          title={`Add ${label}`}
+                          aria-label={`Add ${label}`}
+                          className="shrink-0 self-center px-1 text-[13px] leading-none text-[#cbd5e1] hover:text-[#4f46e5]"
+                        >
+                          +
+                        </button>
                       </div>
                     ))}
                   </div>
                 ))}
+                {paletteQuery.trim() &&
+                  palette.every((g) =>
+                    g.items.every((it) =>
+                      !it.label.toLowerCase().includes(paletteQuery.trim().toLowerCase()) &&
+                      !it.description.toLowerCase().includes(paletteQuery.trim().toLowerCase()))) && (
+                    <p className="px-3 py-3 text-[10px] text-[#9ca3af]">No nodes match "{paletteQuery}".</p>
+                  )}
               </div>
             </>
           )}
@@ -1229,6 +1363,11 @@ function BuilderInner({
           >
             <Background color="#d1d5db" gap={24} size={1} />
             <MiniMap pannable zoomable nodeStrokeWidth={0}
+              nodeColor={(n) => ({
+                trigger: "#0891b2", supervisorAgent: "#0f1117", specialistAgent: "#4f46e5",
+                humanApproval: "#d97706", conditional: "#6366f1", memory: "#0891b2",
+                webhook: "#059669",
+              } as Record<string, string>)[String(n.type)] ?? "#94a3b8"}
               style={{ background: "#f9fafb", border: "1px solid #e5e7eb" }}
               className="!rounded-none" />
             <Controls className="!rounded-none !border !border-[#e5e7eb] !bg-white [&>button]:!rounded-none [&>button]:!border-[#e5e7eb]" />
