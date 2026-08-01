@@ -55,6 +55,7 @@ import { getStoredToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { layoutGeneratedSubgraph, topoLayout } from "@/lib/graph-layout";
 import { useModelPreference } from "@/lib/model-preference";
+import { newNodeId, snapshotOf as snapshotOfGraph, structureOf } from "@/lib/workflow-persistence";
 import type { WorkflowGraph } from "@/lib/types";
 import {
   AlertDialog,
@@ -203,7 +204,6 @@ function normalizeGraph(graph?: Partial<WorkflowGraph>): { nodes: Node[]; edges:
 }
 
 function storageKey(id: string) { return `sdlc_workflow_graph_v5_${id}`; }
-let nodeCounter = 100;
 
 // ── small presentational helpers ─────────────────────────────────────────────
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -291,17 +291,7 @@ function BuilderInner({
   // Fingerprint of the last state known to be on the server. `saveStatus` can't
   // serve as a dirty flag -- it self-clears after 3s -- so compare against this.
   const savedSnapshot = useRef<string>("");
-  const snapshotOf = useCallback(
-    (n: Node[], e: Edge[], name: string, description: string) =>
-      JSON.stringify({
-        name,
-        description,
-        // Positions count: a drag is a real change the user expects to keep.
-        nodes: n.map((x) => ({ id: x.id, type: x.type, position: x.position, data: x.data })),
-        edges: e.map((x) => ({ id: x.id, source: x.source, target: x.target })),
-      }),
-    [],
-  );
+  const snapshotOf = useCallback(snapshotOfGraph, []);
 
   const toggleAutoSaveDb = () => {
     setAutoSaveDb((v) => {
@@ -415,15 +405,18 @@ function BuilderInner({
   const saveMutation = useMutation({
     mutationFn: (graphOverride?: { nodes: Node[]; edges: Edge[] }) => {
       const graph = graphOverride ?? { nodes, edges };
-      // Record what we're about to persist, so a successful save clears "dirty".
-      savedSnapshot.current = snapshotOf(graph.nodes, graph.edges, workflowName, workflowDescription);
+      // The snapshot is recorded in onSuccess, not here: with two saves in flight
+      // a late failure would otherwise blank a snapshot belonging to a save that
+      // actually succeeded, leaving a saved workflow permanently marked dirty.
       return isNew
         // workspace_path travels with the workflow: a trigger-started run has no
         // dropdown to read, so the server copy is the only thing it can use.
         ? api.createWorkflow(token, { name: workflowName || "Untitled Workflow", description: workflowDescription, graph, workspace_path: selectedWorkspace?.path })
         : api.updateWorkflow(token, workflowId, { name: workflowName, description: workflowDescription, graph, workspace_path: selectedWorkspace?.path });
     },
-    onSuccess: (wf) => {
+    onSuccess: (wf, graphOverride) => {
+      const g = graphOverride ?? { nodes, edges };
+      savedSnapshot.current = snapshotOf(g.nodes, g.edges, wf.name, wf.description);
       setStatusMessage(`Saved "${wf.name}" at ${new Date().toLocaleTimeString()}.`);
       setSaveStatus("saved");
       queryClient.invalidateQueries({ queryKey: ["workflows"] });
@@ -440,9 +433,7 @@ function BuilderInner({
       }
     },
     onError: (err) => {
-      // The snapshot was recorded optimistically before the request; a rejected
-      // save (e.g. duplicate name) must not leave the graph looking persisted.
-      savedSnapshot.current = "";
+      // No snapshot to roll back -- it is only written on success now.
       setStatusMessage(err instanceof Error ? err.message : "Save failed.");
       setSaveStatus("error");
       if (saveStatusTimer.current) clearTimeout(saveStatusTimer.current);
@@ -557,11 +548,27 @@ function BuilderInner({
         revealTimers.current.push(timer);
       });
       const finalizeTimer = setTimeout(() => {
-        setNodes(finalNodes);
-        setEdges(mergedEdges);
+        // Merge rather than replace. The canvas stays interactive for the whole
+        // ~2.8s reveal, so assigning the pre-computed array here discarded any
+        // edit the user made during it -- and then saved the discard.
+        let saved: { nodes: Node[]; edges: Edge[] } = { nodes: finalNodes, edges: mergedEdges };
+        setNodes((cur) => {
+          const byId = new Map(cur.map((n) => [n.id, n]));
+          // Generated nodes the user has not touched take the final layout;
+          // anything already on the canvas keeps the user's version.
+          const merged = finalNodes.map((n) => byId.get(n.id) ?? n);
+          const extras = cur.filter((n) => !finalNodes.some((f) => f.id === n.id));
+          saved.nodes = [...merged, ...extras];
+          return saved.nodes;
+        });
+        setEdges((cur) => {
+          const extras = cur.filter((e) => !mergedEdges.some((m) => m.id === e.id));
+          saved.edges = [...mergedEdges, ...extras];
+          return saved.edges;
+        });
         const specialistCount = genNodes.filter((n) => n.type === "specialistAgent").length;
         setStatusMessage(`Generated ${specialistCount} specialist agents — review before running. Saving…`);
-        saveMutation.mutate({ nodes: finalNodes, edges: mergedEdges });
+        saveMutation.mutate(saved);
       }, laidOutGenNodes.length * 220 + 150);
       revealTimers.current.push(finalizeTimer);
     },
@@ -655,7 +662,7 @@ function BuilderInner({
       const presetKey = e.dataTransfer.getData("application/specter-node-preset");
       if (!nodeType || !nodeTypes[nodeType as keyof typeof nodeTypes]) return;
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      const id = `${nodeType}-${++nodeCounter}`;
+      const id = newNodeId(nodeType);
       const baseDefaults = (presetKey && presetDefaults[presetKey]) || nodeDefaults[nodeType];
       // Node types that actually run an agent inherit the header's default
       // agent/model; control-flow and memory nodes have no model to set.
@@ -681,7 +688,17 @@ function BuilderInner({
   );
 
   // ── load template into canvas ─────────────────────────────────────────────
+  const [pendingTemplate, setPendingTemplate] = useState<{ graph?: { nodes?: unknown[]; edges?: unknown[] }; name: string; description: string } | null>(null);
+
   const loadTemplate = (tpl: { graph?: { nodes?: unknown[]; edges?: unknown[] }; name: string; description: string }) => {
+    // Replacing a canvas the user has built is destructive and unrecoverable:
+    // it overwrites the canvas, and autosave then persists it over the stored
+    // workflow and the local draft. Confirm first.
+    if (nodes.length > 0) { setPendingTemplate(tpl); setTemplateMenuOpen(false); return; }
+    applyTemplate(tpl);
+  };
+
+  const applyTemplate = (tpl: { graph?: { nodes?: unknown[]; edges?: unknown[] }; name: string; description: string }) => {
     const g = normalizeGraph(tpl.graph as Partial<WorkflowGraph>);
     setNodes(g.nodes);
     setEdges(g.edges);
@@ -701,14 +718,22 @@ function BuilderInner({
   // Baseline once the initial graph has settled, whichever source it came from.
   // Without this, arriving on a workflow that has a localStorage draft would count
   // as dirty forever and prompt on every navigation away from an untouched canvas.
+  // Keyed on the STRUCTURAL fingerprint, not the full snapshot: node positions
+  // change every frame of a drag, and depending on those restarted this timer
+  // continuously -- so a user who dragged immediately after load never baselined,
+  // isDirty stayed false, and the unsaved-changes guard silently never armed.
+  const graphStructure = useMemo(() => structureOf(nodes, edges), [nodes, edges]);
+  const latestGraph = useRef({ nodes, edges, workflowName, workflowDescription });
+  latestGraph.current = { nodes, edges, workflowName, workflowDescription };
   useEffect(() => {
     if (baselined || !graphLoadedRef.current) return;
     const t = setTimeout(() => {
-      savedSnapshot.current = snapshotOf(nodes, edges, workflowName, workflowDescription);
+      const g = latestGraph.current;
+      savedSnapshot.current = snapshotOf(g.nodes, g.edges, g.workflowName, g.workflowDescription);
       setBaselined(true);
     }, 400); // after normalizeGraph/layout have applied
     return () => clearTimeout(t);
-  }, [baselined, nodes, edges, workflowName, workflowDescription, snapshotOf]);
+  }, [baselined, graphStructure, snapshotOf]);
 
   // ── unsaved-changes guard ─────────────────────────────────────────────────
   // Only meaningful once a graph has loaded; before that everything looks "changed".
@@ -781,20 +806,22 @@ function BuilderInner({
     setStatusMessage("Layout tidied.");
   }, [edges, setNodes, fitView]);
 
-  const saveGraph = () => {
+  // Returns a promise so callers that must not proceed on failure -- "Save and
+  // leave" above all -- can await the real outcome instead of guessing a delay.
+  const saveGraph = (): Promise<void> => {
     if (!isNew) {
       try { localStorage.setItem(storageKey(workflowId), JSON.stringify({ nodes, edges })); } catch { /* ignore */ }
     }
     if (!workflowName.trim()) {
       setNameTouched(true);
       setStatusMessage("Workflow name is required before saving.");
-      return;
+      return Promise.reject(new Error("Workflow name is required."));
     }
     if (!canUseBackend) {
       setStatusMessage("Changes saved locally — sign in to save to the server.");
-      return;
+      return Promise.resolve();
     }
-    saveMutation.mutate();
+    return saveMutation.mutateAsync(undefined).then(() => undefined);
   };
 
   // ── derived state ──────────────────────────────────────────────────────────
@@ -845,7 +872,7 @@ function BuilderInner({
               }`}
               value={workflowName}
               onChange={(e) => setWorkflowName(e.target.value)}
-              onBlur={() => { setNameTouched(true); saveGraph(); }}
+              onBlur={() => { setNameTouched(true); void saveGraph().catch(() => {}); }}
               placeholder="Workflow name"
               style={{
                 border: nameTouched && !workflowName.trim() ? "1px solid #fca5a5" : "none",
@@ -861,7 +888,7 @@ function BuilderInner({
             className="mt-0.5 block w-full max-w-2xl rounded bg-transparent text-[11px] leading-relaxed text-[#6b7280] outline-none ring-0 transition hover:bg-[#f1f5f9] focus:bg-white focus:px-2 focus:ring-1 focus:ring-indigo-300"
             value={workflowDescription}
             onChange={(e) => setWorkflowDescription(e.target.value)}
-            onBlur={saveGraph}
+            onBlur={() => void saveGraph().catch(() => {})}
             placeholder="Add a description…"
             style={{ border: "none", padding: 0 }}
           />
@@ -995,7 +1022,7 @@ function BuilderInner({
             </span>
             Auto-save
           </button>
-          <Button onClick={saveGraph} disabled={saveMutation.isPending} variant="outline"
+          <Button onClick={() => void saveGraph().catch(() => {})} disabled={saveMutation.isPending} variant="outline"
             className={`h-8 rounded-none px-3 text-[11px] font-medium transition-colors ${
               saveStatus === "saved" ? "border-[#6ee7b7] bg-[#ecfdf5] text-[#065f46]" :
               saveStatus === "error" ? "border-[#fca5a5] bg-[#fef2f2] text-[#dc2626]" :
@@ -1242,6 +1269,29 @@ function BuilderInner({
         </div>
       </div>
 
+      {/* Replacing a built canvas with a template is destructive -- confirm. */}
+      <AlertDialog open={Boolean(pendingTemplate)} onOpenChange={(o) => !o && setPendingTemplate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace this workflow with a template?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Loading "{pendingTemplate?.name}" discards the {nodes.length} node
+              {nodes.length === 1 ? "" : "s"} currently on the canvas. This cannot be undone,
+              and auto-save will persist the replacement.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep my workflow</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (pendingTemplate) applyTemplate(pendingTemplate); setPendingTemplate(null); }}
+              className="bg-[#dc2626] text-white hover:bg-[#b91c1c]"
+            >
+              Replace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Collect trigger values before starting the run. */}
       {runInputOpen && (
         <div
@@ -1324,11 +1374,18 @@ function BuilderInner({
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setPendingNav(null)}>Stay on this page</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
+              onClick={async () => {
                 const go = pendingNav;
+                // Await the save: navigating on a timer discarded the user's work
+                // whenever the request was slow or rejected (e.g. a duplicate name),
+                // while the button promised it had been saved.
+                try {
+                  await saveGraph();
+                } catch {
+                  return; // stay put; the error is shown in the status bar
+                }
                 setPendingNav(null);
-                saveGraph();
-                setTimeout(() => go?.(), 200); // let the save request fire first
+                go?.();
               }}
             >
               Save and leave
