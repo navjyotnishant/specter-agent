@@ -89,14 +89,14 @@ export const RUNS: WorkflowRun[] = [
 ];
 
 export const SKILLS: Skill[] = [
-  { id: "sk-1", name: "standard-report-format", description: "Consistent headings and a summary block",
+  { id: "standard-report-format", name: "standard-report-format", description: "Consistent headings and a summary block",
     prompt_template: "Use the standard report format.", compatible_agent_roles: "[]",
     created_at: T("2026-06-19 09:00:00") },
-  { id: "sk-2", name: "secure-code-review", description: "Injection, authz, secrets, unsafe deserialization",
+  { id: "secure-code-review", name: "secure-code-review", description: "Injection, authz, secrets, unsafe deserialization",
     prompt_template: "Review only the changed lines and their blast radius.",
     compatible_agent_roles: JSON.stringify(["reviewer", "specialist"]),
     created_at: T("2026-06-19 09:00:00") },
-  { id: "sk-3", name: "pr-readiness-review", description: "Is this branch ready to open as a PR",
+  { id: "pr-readiness-review", name: "pr-readiness-review", description: "Is this branch ready to open as a PR",
     prompt_template: "Assess PR readiness.", compatible_agent_roles: "[]",
     created_at: T("2026-06-19 09:00:00") },
 
@@ -141,7 +141,7 @@ const BUILDER_GRAPH = {
               systemInstructions: "", selectedSkills: [], selectedTools: [] } },
     { id: "n2", type: "specialistAgent", position: { x: 320, y: 40 },
       data: { label: "Reviewer", role: "reviewer", objective: "Review the diff", model: "claude-sonnet-5",
-              systemInstructions: "", selectedSkills: ["sk-2"], selectedTools: [] } },
+              systemInstructions: "", selectedSkills: ["secure-code-review"], selectedTools: [] } },
     { id: "n3", type: "humanApproval", position: { x: 320, y: 190 },
       data: { label: "Approve", instructions: "Approve before publishing" } },
   ],

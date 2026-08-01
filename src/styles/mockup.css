@@ -102,7 +102,7 @@
 
 /* ── side rail (palette / lists) ─────────────────────────────────────────── */
 
-.sp-rail { border-right: 1px solid var(--sp-line); background: #fafbfc; overflow: auto; }
+.sp-rail { border-right: 1px solid #e8ecf1; background: #fcfdfe; overflow: auto; }
 .sp-rail-search { padding: 10px; }
 .sp-rail-search input {
   width: 100%; height: 32px; border: 1px solid var(--sp-line); border-radius: 6px;
@@ -114,7 +114,7 @@
   text-transform: uppercase; letter-spacing: .06em; padding: 12px 12px 5px;
 }
 .sp-si {
-  display: flex; align-items: center; gap: 9px; padding: 8px 12px;
+  display: flex; align-items: flex-start; gap: 7px; padding: 5px 12px;
   cursor: grab; width: 100%; text-align: left; background: none; border: 0;
 }
 .sp-si:hover { background: #fff; }
@@ -122,15 +122,18 @@
   width: 26px; height: 26px; border-radius: 6px; display: flex;
   align-items: center; justify-content: center; font-size: 13px; flex: none; color: #fff;
 }
-.sp-si-t { font-size: 13px; font-weight: 500; color: var(--sp-fg); display: block; }
-.sp-si-d { font-size: 11.5px; color: var(--sp-faint); display: block; line-height: 1.3; }
+.sp-si-t { font-size: 11px; font-weight: 500; color: #334155; display: block; }
+.sp-si-d { font-size: 9.5px; color: #94a3b8; display: block; line-height: 1.35; }
 
 /* ── canvas ──────────────────────────────────────────────────────────────── */
 
+/* Copied from builder.html `.canvas` — a lighter ground and a finer dot grid
+   than the value that was typed here previously. */
 .sp-canvas {
-  background: var(--sp-bg);
-  background-image: radial-gradient(#cdd3da 1.2px, transparent 1.2px);
-  background-size: 20px 20px;
+  position: relative; font-size: 13px; color: var(--sp-fg);
+  background: #f8fafc;
+  background-image: radial-gradient(#dde3ea 1px, transparent 1px);
+  background-size: 22px 22px;
 }
 
 /* ── node cards ──────────────────────────────────────────────────────────── */
@@ -246,13 +249,29 @@
 
 /* ── tabs ────────────────────────────────────────────────────────────────── */
 
-.sp-tabs { display: flex; padding: 0 16px; border-bottom: 1px solid var(--sp-line); }
+/* Copied from the mockups. The active tab underline is near-black (#0f1117),
+   not the coral accent — that accent belongs to selected canvas nodes. Padding
+   is 20px, not 16px. */
+.sp-tabs {
+  display: flex; padding: 0 20px; border-bottom: 1px solid #e8ecf1;
+  background: #fbfcfd;
+}
 .sp-tb {
   padding: 9px 14px; font-size: 12px; font-weight: 700; color: #94a3b8;
   cursor: pointer; border-bottom: 2px solid transparent;
   background: none; border-top: 0; border-left: 0; border-right: 0;
 }
-.sp-tb-on { color: var(--sp-fg); border-bottom-color: var(--sp-accent); }
+.sp-tb-on,
+/* Radix/shadcn drives the active state through a data attribute rather than a
+   class, so the selector has to match it directly — a Tailwind variant cannot
+   apply .sp-tb-on. !important beats the component's own data-[state=active]
+   utilities, which land at equal specificity. */
+.sp-tb[data-state="active"] {
+  color: #0f1117 !important;
+  border-bottom-color: #0f1117 !important;
+  background: none !important;
+  box-shadow: none !important;
+}
 
 /* ── banners ─────────────────────────────────────────────────────────────── */
 
@@ -286,26 +305,26 @@
 /* ── skills list ─────────────────────────────────────────────────────────── */
 
 .sp-grp {
-  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
-  color: var(--sp-faint); padding: 12px 12px 5px; display: flex; align-items: center; gap: 6px;
+  font-size: 9px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+  color: #9aa5b4; padding: 9px 12px 3px; display: flex; align-items: center; gap: 6px;
 }
-.sp-grp-ct { color: #ced4da; }
-.sp-it { padding: 8px 12px; cursor: pointer; width: 100%; text-align: left; background: none; border: 0; border-left: 2px solid transparent; }
+.sp-grp-ct { color: #cbd5e1; }
+.sp-it { padding: 7px 12px; font-size: 13px; cursor: pointer; width: 100%; text-align: left; background: none; border: 0; border-left: 2px solid transparent; }
 .sp-it:hover { background: #fff; }
 .sp-it-on { background: #fff5f2; border-left-color: var(--sp-accent); }
-.sp-it-n { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-.sp-it-d { font-size: 11.5px; color: var(--sp-faint); line-height: 1.35; margin-top: 1px; }
+.sp-it-n { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.sp-it-d { font-size: 10.5px; color: #94a3b8; line-height: 1.35; margin-top: 1px; }
 .sp-src {
-  font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
-  padding: 2px 6px; border-radius: 4px; flex: none;
+  font-size: 8.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+  padding: 1.5px 5px; border-radius: 3px; flex: none;
 }
-.sp-src-seed    { background: #f1f3f5; color: #495057; }
-.sp-src-repo    { background: #edf2ff; color: #3b5bdb; }
-.sp-src-mine    { background: #e6fcf5; color: #087f5b; }
+.sp-src-seed    { background: #f1f5f9; color: #64748b; }
+.sp-src-repo    { background: #eef2ff; color: #4338ca; }
+.sp-src-mine    { background: #dcfce7; color: #166534; }
 .sp-src-unsaved { background: #fff4e6; color: #e8590c; }
 
 .sp-meta {
-  background: #fafbfc; border: 1px solid var(--sp-line2); border-radius: 8px;
-  padding: 11px 13px; font-size: 12.5px; color: var(--sp-dim); line-height: 1.6;
+  background: #f8fafc; border: 1px solid #eef2f6; border-radius: 7px;
+  padding: 10px 12px; font-size: 11px; color: #64748b; line-height: 1.6;
 }
 .sp-meta b { color: var(--sp-fg); }

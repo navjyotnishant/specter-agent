@@ -142,7 +142,7 @@
         {
           "key": "src",
           "mock": ".src",
-          "live": ".sp-src"
+          "live": ".sp-src-seed"
         },
         {
           "key": "d",
@@ -195,6 +195,11 @@
           "live": ".sp-acts"
         },
         {
+          "key": "body",
+          "mock": ".body",
+          "live": ".sp-body"
+        },
+        {
           "key": "list",
           "mock": ".list",
           "live": ".sp-rail"
@@ -223,6 +228,36 @@
           "key": "foot",
           "mock": ".foot",
           "live": ".sp-foot"
+        },
+        {
+          "key": "btn.primary",
+          "mock": ".btn.primary",
+          "live": ".sp-btn-primary"
+        },
+        {
+          "key": "src.seed",
+          "mock": ".src.seed",
+          "live": ".sp-src-seed"
+        },
+        {
+          "key": "it.on",
+          "mock": ".it.on",
+          "live": ".sp-it-on"
+        },
+        {
+          "key": "src.repo",
+          "mock": ".src.repo",
+          "live": ".sp-src-repo"
+        },
+        {
+          "key": "src.mine",
+          "mock": ".src.mine",
+          "live": ".sp-src-mine"
+        },
+        {
+          "key": "rl.on",
+          "mock": ".rl.on",
+          "live": ".sp-rl-on"
         }
       ],
       "sequences": [
@@ -706,7 +741,7 @@
         {
           "key": "btn",
           "mock": ".btn",
-          "live": ".sp-btn:not(.sp-btn-primary)"
+          "live": ".sp-btn:not(.sp-btn-sm):not(.sp-btn-primary)"
         },
         {
           "key": "chip",
@@ -906,12 +941,12 @@
         {
           "key": "mini",
           "mock": ".mini",
-          "live": ".sp-btn-sm"
+          "live": ".react-flow__minimap"
         },
         {
           "key": "mini-cap",
           "mock": ".mini-cap",
-          "live": ".sp-btn-sm-cap"
+          "live": ".sp-mini-cap"
         },
         {
           "key": "cbar",
@@ -946,7 +981,7 @@
         {
           "key": "sh",
           "mock": ".sh",
-          "live": ".sp-sh"
+          "live": ".sp-rail-search"
         },
         {
           "key": "adv",
@@ -971,7 +1006,7 @@
         {
           "key": "btn.primary",
           "mock": ".btn.primary",
-          "live": ".sp-btn-primary"
+          "live": ".sp-btn-primary:not(.sp-btn-sm)"
         },
         {
           "key": "node.bad",
@@ -1008,14 +1043,12 @@
       ],
       "require": [
         ".react-flow__edges",
+        ".react-flow__minimap",
         ".sp-accent--absent",
         ".sp-acts",
         ".sp-adv",
         ".sp-advbody",
         ".sp-badge-n",
-        ".sp-btn-primary",
-        ".sp-btn-sm",
-        ".sp-btn-sm-cap",
         ".sp-cal",
         ".sp-canvas",
         ".sp-cbar",
@@ -1033,6 +1066,7 @@
         ".sp-issue",
         ".sp-lbl",
         ".sp-meta",
+        ".sp-mini-cap",
         ".sp-node",
         ".sp-node-hd",
         ".sp-node-ic",
@@ -1051,7 +1085,6 @@
         ".sp-row-on",
         ".sp-sd",
         ".sp-sep",
-        ".sp-sh",
         ".sp-si",
         ".sp-si-add",
         ".sp-si-cat",

@@ -460,12 +460,16 @@ export default function Models() {
         </Alert>
       )}
 
+      {/* Underline tabs, per the design — not shadcn's pill group. The mockup
+          specifies a bottom-border indicator on a flat bar; the pill variant
+          carried its own radius, background and font-size, none of which
+          matched. `.sp-tb` / `.sp-tb-on` are the shared classes. */}
       <Tabs defaultValue="infrastructure">
-        <TabsList className="rounded-[8px] bg-slate-100 p-1">
-          <TabsTrigger value="infrastructure" className="rounded-[6px] px-5 font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+        <TabsList className="sp-tabs h-auto justify-start rounded-none bg-transparent p-0">
+          <TabsTrigger value="infrastructure" className="sp-tb rounded-none">
             Infrastructure
           </TabsTrigger>
-          <TabsTrigger value="logs" className="rounded-[6px] px-5 font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+          <TabsTrigger value="logs" className="sp-tb rounded-none">
             <span className="flex items-center gap-2">
               Logs
               {!hostRunnerOffline && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
