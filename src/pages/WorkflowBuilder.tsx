@@ -989,15 +989,15 @@ function BuilderInner({
           {/* Bulk edit: applies to every agent-bearing node so you don't have to
               open the inspector once per node on an imported graph. */}
           <Button onClick={doUndo} disabled={!canUndo(history.current)} variant="outline"
-            className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Undo (⌘Z)">
+            className="sp-btn sp-btn-sm" title="Undo (⌘Z)">
             <Undo2 className="mr-1.5 h-3 w-3" /> Undo
           </Button>
           <Button onClick={doRedo} disabled={!canRedo(history.current)} variant="outline"
-            className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Redo (⇧⌘Z)">
+            className="sp-btn sp-btn-sm" title="Redo (⇧⌘Z)">
             <Redo2 className="mr-1.5 h-3 w-3" /> Redo
           </Button>
           <Button onClick={duplicateSelection} disabled={!hasSelection} variant="outline"
-            className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc] disabled:opacity-35" title="Duplicate selection (⌘D)">
+            className="sp-btn sp-btn-sm" title="Duplicate selection (⌘D)">
             <CopyPlus className="mr-1.5 h-3 w-3" /> Duplicate
           </Button>
           {agentNodeCount > 0 && (
@@ -1006,7 +1006,7 @@ function BuilderInner({
                 variant="outline"
                 onClick={() => setBulkMenuOpen((v) => !v)}
                 title="Apply a setting to every agent node on this canvas"
-                className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
+                className="sp-btn sp-btn-sm"
               >
                 <Layers className="mr-1.5 h-3 w-3" /> Apply to all
                 <ChevronDown className="ml-1.5 h-3 w-3" />
@@ -1057,7 +1057,7 @@ function BuilderInner({
             </div>
           )}
           <Button onClick={tidyLayout} variant="outline"
-            className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
+            className="sp-btn sp-btn-sm"
             title="Auto-arrange nodes into topological columns">
             <LayoutGrid className="mr-1.5 h-3 w-3" /> Tidy layout
           </Button>
@@ -1067,7 +1067,7 @@ function BuilderInner({
               <Button
                 variant="outline"
                 onClick={() => setTemplateMenuOpen((v) => !v)}
-                className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] bg-white px-3 text-[11px] font-semibold text-[#334155] hover:bg-[#f8fafc]"
+                className="sp-btn sp-btn-sm"
                
               >
                 <Copy className="mr-1.5 h-3 w-3" />
@@ -1127,11 +1127,7 @@ function BuilderInner({
             Auto-save
           </button>
           <Button onClick={() => void saveGraph().catch(() => {})} disabled={saveMutation.isPending} variant="outline"
-            className={`h-[29px] rounded-[6px] px-3 text-[11px] font-semibold transition-colors ${
-              saveStatus === "saved" ? "border-[#6ee7b7] bg-[#ecfdf5] text-[#065f46]" :
-              saveStatus === "error" ? "border-[#fca5a5] bg-[#fef2f2] text-[#dc2626]" :
-              "border-[#d1d5db] bg-white text-[#374151] hover:bg-[#f9fafb]"
-            }`}>
+            className="sp-btn sp-btn-sm">
             {saveMutation.isPending
               ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
               : saveStatus === "saved" ? <CheckCircle2 className="mr-1.5 h-3 w-3" />
@@ -1141,7 +1137,7 @@ function BuilderInner({
           <Button
             disabled={isNew || !executionReady || runMutation.isPending}
             onClick={() => (triggerNodes.length ? setRunInputOpen(true) : runMutation.mutate({}))}
-            className="h-[29px] rounded-[6px] bg-[#0f1117] px-3.5 text-[11px] font-bold text-white hover:bg-[#1f2937] disabled:opacity-35"
+            className="sp-btn sp-btn-sm sp-btn-primary"
             title={
               isNew ? "Save the workflow first before running"
               : !selectedWorkspace ? "Select a repository first"
@@ -1155,7 +1151,7 @@ function BuilderInner({
           <Button
             onClick={() => guardedNavigate("/runs")}
             variant="outline"
-            className="h-[29px] rounded-[6px] border-[#d3dae3] px-[11px] px-3 text-[11px] font-semibold text-[#64748b] hover:bg-[#f8fafc]">
+            className="sp-btn sp-btn-sm">
             <History className="mr-1.5 h-3 w-3" />
             Run history
           </Button>
@@ -1163,7 +1159,7 @@ function BuilderInner({
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline"
-                  className="h-[29px] rounded-[6px] border-[#fca5a5] bg-white px-3 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]">
+                  className="sp-btn sp-btn-sm sp-btn-danger">
                   <Trash2 className="mr-1.5 h-3 w-3" /> Delete
                 </Button>
               </AlertDialogTrigger>
@@ -1264,8 +1260,8 @@ function BuilderInner({
 
         {/* ── palette ── */}
         <div
-          className="relative shrink-0 border-r border-[#e8ecf1] bg-[#fcfdfe] transition-all duration-200 overflow-hidden"
-          style={{ width: paletteCollapsed ? 28 : 186 }}
+          className="sp-rail relative shrink-0 transition-all duration-200"
+          style={{ width: paletteCollapsed ? 28 : 210 }}
         >
           {/* collapse toggle */}
           <button
@@ -1288,7 +1284,7 @@ function BuilderInner({
                   value={paletteQuery}
                   onChange={(e) => setPaletteQuery(e.target.value)}
                   placeholder="Search nodes…"
-                  className="h-[26px] w-full rounded-[5px] border border-[#dde3ea] bg-white pl-6 pr-2 text-[11px] text-[#374151] outline-none focus:border-[#374151]"
+                  className="h-8 w-full rounded-[6px] border border-[#dfe3e8] bg-white pl-7 pr-2 text-[13px] text-[#1a1f26] outline-none focus:border-[#8b95a3]"
                 />
               </div>
               <div className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
@@ -1303,25 +1299,22 @@ function BuilderInner({
                   .filter((group) => group.items.length > 0)
                   .map((group) => (
                   <div key={group.category} className="border-b border-[#f3f4f6] last:border-b-0">
-                    <p className="px-3 pb-1 pt-2.5 text-[9px] font-extrabold uppercase tracking-[0.1em] text-[#9aa5b4]">
-                      {group.category}
-                    </p>
+                    <p className="sp-sh">{group.category}</p>
                     {group.items.map(({ icon: Icon, label, nodeType, presetKey, description }) => (
                       <div
                         key={label}
                         draggable
                         onDragStart={(e) => onDragStart(e, nodeType, label, presetKey)}
                         title={description}
-                        className="flex cursor-grab items-start gap-[7px] px-3 py-[5px] hover:bg-[#f1f5f9] active:cursor-grabbing select-none"
+                        className="sp-si select-none active:cursor-grabbing"
                        
                       >
-                        <span
-                          className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-[2px]"
-                          style={{ background: nodeAccent(nodeType) }}
-                        />
+                        <span className="sp-si-ic" style={{ background: nodeAccent(nodeType) }}>
+                          <Icon className="h-3.5 w-3.5" />
+                        </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-[11px] font-medium text-[#334155]">{label}</span>
-                          <span className="block text-[9.5px] leading-[1.35] text-[#94a3b8]">{description}</span>
+                          <span className="sp-si-t truncate">{label}</span>
+                          <span className="sp-si-d truncate">{description}</span>
                         </span>
                         <button
                           onClick={(ev) => { ev.stopPropagation(); addNodeFromPalette(nodeType, label, presetKey); }}
@@ -1350,7 +1343,7 @@ function BuilderInner({
         {/* ── canvas ── */}
         <div
           ref={canvasRef}
-          className="flex-1 overflow-hidden border-r border-[#e8ecf1] bg-[#f8fafc]"
+          className="sp-canvas flex-1 overflow-hidden border-r border-[#dfe3e8]"
           onDragOver={onDragOver}
           onDrop={onDrop}
         >
@@ -1368,9 +1361,9 @@ function BuilderInner({
             fitViewOptions={fitViewOptions}
             proOptions={{ hideAttribution: true }}
             deleteKeyCode={null}
-            defaultEdgeOptions={{ style: { stroke: "#9ca3af", strokeWidth: 1 } }}
+            defaultEdgeOptions={{ style: { stroke: "#adb5bd", strokeWidth: 2 } }}
           >
-            <Background color="#dde3ea" gap={22} size={1} />
+            <Background color="#cdd3da" gap={20} size={1.2} />
             <MiniMap pannable zoomable nodeStrokeWidth={0}
               nodeColor={(n) => nodeAccent(n.type)}
               style={{ background: "#f9fafb", border: "1px solid #e5e7eb" }}

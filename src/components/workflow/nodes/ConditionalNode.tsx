@@ -13,9 +13,7 @@ export function ConditionalNode({ data, selected }: NodeProps) {
         </span>
       )}
       <div
-      className={`w-[220px] border bg-white ${
-        selected ? "border-[#0f1117]" : "border-[#d1d5db]"
-      }`}
+      className={`sp-node ${selected ? "sel" : ""}`}
     >
       <Handle
         type="target"

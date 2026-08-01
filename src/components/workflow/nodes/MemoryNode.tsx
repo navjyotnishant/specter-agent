@@ -4,9 +4,7 @@ import { Database } from "lucide-react";
 export function MemoryNode({ data, selected }: NodeProps) {
   return (
     <div
-      className={`w-[180px] border bg-white ${
-        selected ? "border-[#0f1117]" : "border-[#d1d5db]"
-      }`}
+      className={`sp-node ${selected ? "sel" : ""}`}
     >
       <Handle
         type="target"
