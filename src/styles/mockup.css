@@ -16,39 +16,69 @@
  * because in this product the graph IS the artifact.
  */
 
+/* The neutral ramp is the design's own (slate), copied from the mockups rather
+   than approximated. The previous values were a different grey family
+   altogether — #1a1f26 against #0f172a, #8b95a3 against #94a3b8 — which put a
+   small colour delta on every single element that reads a token. */
 :root {
-  --sp-bg: #f4f5f7;
+  --sp-bg: #eef1f5;
   --sp-panel: #ffffff;
-  --sp-line: #dfe3e8;
-  --sp-line2: #eef1f4;
-  --sp-fg: #1a1f26;
-  --sp-dim: #5c6673;
-  --sp-faint: #8b95a3;
+  --sp-line: #e8ecf1;
+  --sp-line2: #f4f6f9;
+  --sp-fg: #0f172a;
+  --sp-dim: #475569;
+  --sp-faint: #94a3b8;
   --sp-accent: #ff6d5a;
-  --sp-ok: #12b886;
-  --sp-bad: #e03131;
-  --sp-warn: #f59f00;
-  --sp-run: #4c6ef5;
+  --sp-ok: #16a34a;
+  --sp-bad: #dc2626;
+  --sp-warn: #d97706;
+  --sp-run: #2563eb;
   --sp-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
+/* The mockups set this on `body`; the app renders inside a shell, so it goes on
+   the design-system scope instead. Without it every container inherits the
+   browser's 16px default and reports a font-size delta that has nothing to do
+   with the element itself. */
+.sp-fg,
+.sp-toolbar,
+.sp-tabs,
+.sp-find,
+.sp-table,
+.sp-rail,
+.sp-insp { font-size: 13px; line-height: 1.5; color: var(--sp-fg); }
+
 /* ── buttons ─────────────────────────────────────────────────────────────── */
 
+/* Values copied from design/mockups/workflows.html `.btn`, not retyped from
+   memory. Every number here previously drifted: 32px against a 30px design,
+   13px text against 11.5px, and a coral primary against a near-black one.
+   NOTE: the mockups disagree with each other — .btn is 30px on workflows and
+   skills, 29px on builder, 28px on users. 30px wins because workflows and
+   skills are the two pages already ported to this direction. */
 .sp-btn {
-  height: 32px; padding: 0 13px;
-  font-size: 13px; font-weight: 600;
-  background: #fff; color: var(--sp-dim);
-  border: 1px solid var(--sp-line); border-radius: 6px;
-  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 12px;
+  font-size: 11.5px; font-weight: 600;
+  background: #fff; color: #334155;
+  border: 1px solid #d3dae3; border-radius: 6px;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
   white-space: nowrap; transition: background-color .12s, color .12s;
 }
 .sp-btn:hover:not(:disabled) { background: #f8f9fa; color: var(--sp-fg); }
 .sp-btn:disabled { opacity: .4; cursor: not-allowed; }
-.sp-btn-primary { background: var(--sp-accent); color: #fff; border-color: var(--sp-accent); }
-.sp-btn-primary:hover:not(:disabled) { background: #f95f4b; color: #fff; }
-.sp-btn-danger { color: var(--sp-bad); border-color: #ffc9c9; }
+/* Near-black, per the design. The coral accent belongs to selected nodes on the
+   canvas, not to primary buttons. */
+.sp-btn-primary { background: #0f1117; color: #fff; border-color: #0f1117; }
+.sp-btn-primary:hover:not(:disabled) { background: #23262f; color: #fff; }
+.sp-btn-primary[disabled] { background: #cbd5e1; border-color: #cbd5e1; cursor: not-allowed; }
+.sp-btn-danger { color: #dc2626; border-color: #fecaca; }
 .sp-btn-danger:hover:not(:disabled) { background: #fff5f5; }
-.sp-btn-sm { height: 28px; padding: 0 10px; font-size: 12px; }
+/* .mini in the mockups — the row action button. */
+.sp-btn-sm {
+  height: 24px; padding: 0 9px; font-size: 10.5px;
+  border-color: #dde3ea; border-radius: 5px; color: #475569;
+}
+.sp-btn-sm.sp-btn-primary { background: #0f1117; color: #fff; border-color: #0f1117; }
 
 /* ── page header ─────────────────────────────────────────────────────────── */
 
@@ -162,30 +192,30 @@
 
 .sp-table { width: 100%; border-collapse: collapse; }
 .sp-table th {
-  text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .06em;
-  text-transform: uppercase; color: var(--sp-faint); padding: 9px 16px;
-  border-bottom: 1px solid var(--sp-line); background: #fafbfc; white-space: nowrap;
+  text-align: left; font-size: 9px; font-weight: 800; letter-spacing: .09em;
+  text-transform: uppercase; color: #94a3b8; padding: 8px 20px;
+  border-bottom: 1px solid #eef2f6; background: #fbfcfd; white-space: nowrap;
 }
 .sp-table td {
-  padding: 12px 16px; border-bottom: 1px solid var(--sp-line2);
-  font-size: 13px; vertical-align: middle;
+  padding: 11px 20px; border-bottom: 1px solid #f4f6f9;
+  font-size: 12.5px; vertical-align: middle;
 }
 .sp-table tbody tr:hover { background: #fafbfc; }
-.sp-wn { font-weight: 650; font-size: 13.5px; }
-.sp-wd { font-size: 11.5px; color: var(--sp-faint); margin-top: 1px; }
+.sp-wn { font-weight: 700; }
+.sp-wd { font-size: 11px; color: #94a3b8; margin-top: 1px; }
 
 /* ── status badges ───────────────────────────────────────────────────────── */
 
 .sp-st {
-  font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px;
-  display: inline-flex; align-items: center; gap: 5px;
-  text-transform: uppercase; letter-spacing: .04em;
+  font-size: 9.5px; font-weight: 800; padding: 2.5px 8px; border-radius: 4px;
+  display: inline-flex; align-items: center; gap: 4px;
+  text-transform: uppercase; letter-spacing: .05em;
 }
-.sp-st-ok    { background: #e6fcf5; color: #087f5b; }
-.sp-st-bad   { background: #fff5f5; color: #c92a2a; }
-.sp-st-run   { background: #edf2ff; color: #3b5bdb; }
-.sp-st-wait  { background: #fff9db; color: #e67700; }
-.sp-st-never { background: #f1f3f5; color: #868e96; }
+.sp-st-ok    { background: #dcfce7; color: #166534; }
+.sp-st-bad   { background: #fee2e2; color: #991b1b; }
+.sp-st-run   { background: #dbeafe; color: #1e40af; }
+.sp-st-wait  { background: #fef3c7; color: #92400e; }
+.sp-st-never { background: #f1f5f9; color: #64748b; }
 
 .sp-spark { display: inline-flex; gap: 2px; align-items: flex-end; height: 15px; margin-left: 7px; }
 .sp-spark i { width: 4px; border-radius: 1px; display: block; }
@@ -193,8 +223,8 @@
 /* ── toolbar ─────────────────────────────────────────────────────────────── */
 
 .sp-toolbar {
-  display: flex; align-items: center; gap: 9px; padding: 10px 16px;
-  border-bottom: 1px solid var(--sp-line); background: #fafbfc; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 9px; padding: 10px 20px;
+  border-bottom: 1px solid #e8ecf1; background: #fbfcfd; flex-wrap: wrap;
 }
 .sp-find { position: relative; flex: 1; min-width: 220px; max-width: 340px; }
 .sp-find input {
@@ -204,18 +234,21 @@
 .sp-find input:focus { border-color: var(--sp-faint); }
 .sp-find-icon { position: absolute; left: 10px; top: 10px; color: var(--sp-faint); pointer-events: none; }
 
+/* Copied from workflows.html `.chipf`. These are PILLS (999px), not 6px
+   rounded rectangles — squaring them was a hand edit made while "aligning
+   pages" that moved the design further from the mockup. */
 .sp-chip {
-  font-size: 12.5px; font-weight: 500; padding: 5px 11px; border: 1px solid var(--sp-line);
-  border-radius: 6px; background: #fff; cursor: pointer; color: var(--sp-dim);
+  font-size: 11px; font-weight: 400; padding: 4px 10px; border: 1px solid #dde3ea;
+  border-radius: 999px; background: #fff; cursor: pointer; color: #475569;
 }
 .sp-chip:hover { background: #f8f9fa; }
-.sp-chip-on { background: var(--sp-fg); color: #fff; border-color: var(--sp-fg); }
+.sp-chip-on { background: #0f1117; color: #fff; border-color: #0f1117; }
 
 /* ── tabs ────────────────────────────────────────────────────────────────── */
 
 .sp-tabs { display: flex; padding: 0 16px; border-bottom: 1px solid var(--sp-line); }
 .sp-tb {
-  padding: 10px 14px; font-size: 13px; font-weight: 600; color: var(--sp-faint);
+  padding: 9px 14px; font-size: 12px; font-weight: 700; color: #94a3b8;
   cursor: pointer; border-bottom: 2px solid transparent;
   background: none; border-top: 0; border-left: 0; border-right: 0;
 }
