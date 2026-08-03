@@ -494,21 +494,6 @@
           "selector": ".sp-top",
           "reason": "the app shell renders the top bar, not the page; the page header is .sp-hdr",
           "tracked": "harness"
-        },
-        {
-          "selector": ".sp-warnbox",
-          "reason": "the approval warning lives in the Access tab; Radix mounts only the active panel, so it is absent at measure time. Verified rendering via scratchpad/verify-tabs.mjs.",
-          "tracked": "harness"
-        },
-        {
-          "selector": ".sp-pathrow",
-          "reason": "approved path rows lives in the Access tab; Radix mounts only the active panel, so it is absent at measure time. Verified rendering via scratchpad/verify-tabs.mjs.",
-          "tracked": "harness"
-        },
-        {
-          "selector": ".sp-rm",
-          "reason": "the Revoke button lives in the Access tab; Radix mounts only the active panel, so it is absent at measure time. Verified rendering via scratchpad/verify-tabs.mjs.",
-          "tracked": "harness"
         }
       ]
     },
