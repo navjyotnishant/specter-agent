@@ -93,6 +93,24 @@ export const api = {
     }),
   me: (token: string) => request<{ user: AuthUser }>("/auth/me", { headers: authHeaders(token) }),
   users: (token: string) => request<AuthUser[]>("/auth/users", { headers: authHeaders(token) }),
+  changeUserRole: (token: string, userId: string, role: "admin" | "operator") =>
+    request<AuthUser>(`/auth/users/${userId}/role`, {
+      method: "PATCH",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    }),
+  resetUserPassword: (token: string, userId: string, password: string) =>
+    request<{ ok: boolean }>(`/auth/users/${userId}/password`, {
+      method: "POST",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    }),
+  changeOwnPassword: (token: string, currentPassword: string, newPassword: string) =>
+    request<{ ok: boolean }>("/auth/password", {
+      method: "POST",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
   createUser: (token: string, email: string, password: string, role: "admin" | "operator") =>
     request<AuthUser>("/auth/users", {
       method: "POST",

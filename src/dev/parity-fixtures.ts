@@ -116,8 +116,10 @@ export const SKILLS: Skill[] = [
 ];
 
 export const USERS: AuthUser[] = [
-  { id: "u-1", email: "admin@local.dev", role: "admin",    created_at: T("2026-06-19 09:00:00") },
-  { id: "u-2", email: "ops@local.dev",   role: "operator", created_at: T("2026-07-04 09:00:00") },
+  { id: "u-1", email: "admin@local.dev", role: "admin",    created_at: T("2026-06-19 09:00:00"),
+    last_seen_at: new Date(Date.now() - 30_000).toISOString() },
+  { id: "u-2", email: "ops@local.dev",   role: "operator", created_at: T("2026-07-04 09:00:00"),
+    last_seen_at: new Date(Date.now() - 2 * 86_400_000).toISOString() },
 ];
 
 export const WORKSPACES: RuntimeWorkspace[] = [
@@ -181,6 +183,20 @@ export const AGENT_MODELS = {
   },
 };
 
+
+/** A connected Telegram integration, so the settings page renders the design's
+ *  integration row rather than the empty-state form. */
+export const TELEGRAM_CONFIG = {
+  ok: true,
+  configured: true,
+  bot_token_set: true,
+  bot_token_hint: "…AwwY",
+  allowed_chat_ids: [123456789],
+  backend_url: "http://127.0.0.1:8000",
+  workspace_path: "",
+  api_token_set: true,
+};
+
 /** The workflow the builder harness route opens. Exported so the route, the
  *  fixture, and the cache key cannot drift apart. */
 export const FIXTURE_WORKFLOW_ID = "wf-prepush";
@@ -218,6 +234,7 @@ export const SEED: Array<[readonly unknown[], unknown]> = [
   [["runtime-workspaces"], WORKSPACES],
   [["mcp-list"], []],
   [["agent-models"], AGENT_MODELS],
+  [["telegram-config"], TELEGRAM_CONFIG],
   [["runtime-adapter", "direct-cli"], DIRECT_CLI],
   [["runtime-adapter", "docker-sandbox"], DOCKER_SANDBOX],
   [["host-runner", "version"], HOST_RUNNER_VERSION],

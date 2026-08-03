@@ -13,7 +13,10 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'admin',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- Stamped on each successful login. Lets an admin tell a live account from an
+  -- abandoned one, which is the difference between a user list and an audit.
+  last_seen_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS user_integrations (
@@ -270,6 +273,10 @@ def initialize_database() -> None:
         _add_column_if_missing(db, "skills", "source_repo", "TEXT NOT NULL DEFAULT ''")
         _add_column_if_missing(db, "workflow_runs", "run_input_json", "TEXT NOT NULL DEFAULT '{}'")
         _add_column_if_missing(db, "workflows", "workspace_path", "TEXT NOT NULL DEFAULT ''")
+        # Nullable on purpose: an existing account that has not logged in since
+        # this shipped has genuinely unknown last-seen, and backfilling it with
+        # created_at would invent activity that never happened.
+        _add_column_if_missing(db, "users", "last_seen_at", "TEXT")
         db.execute("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL")
         db.execute("UPDATE runtime_workspaces SET updated_at = created_at WHERE updated_at IS NULL")
 

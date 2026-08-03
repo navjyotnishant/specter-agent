@@ -11,8 +11,13 @@
 // a build machine at all.
 //
 // This mounts the page component directly with a pre-seeded query cache: no
-// token, no network, no ProtectedRoute. What renders is the real component with
-// the real stylesheet, which is exactly and only what the gate measures.
+// network, no ProtectedRoute. What renders is the real component with the real
+// stylesheet, which is exactly and only what the gate measures.
+//
+// It does place a throwaway token in localStorage, because several components
+// gate on "am I signed in" and would otherwise render a sign-in prompt instead
+// of the state under test. The token is never sent anywhere — every query
+// resolves from the seeded cache.
 //
 // SECURITY
 // This bypasses authentication by construction, so it must never exist in a
@@ -77,6 +82,11 @@ function seededClient() {
   for (const [key, value] of SEED) qc.setQueryData(key, value);
   return qc;
 }
+
+// The harness token itself lives in lib/auth.tsx's getStoredToken(), which is
+// where components read it from — localStorage is unavailable in a headless
+// browser with storage disabled, so seeding it here silently did nothing.
+
 
 export function ParityHarness() {
   const { page, id } = useParams<{ page: string; id?: string }>();

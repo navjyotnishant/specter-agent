@@ -44,6 +44,9 @@ export type AuthUser = {
   email: string;
   role: "admin" | "operator";
   created_at: string;
+  /** Stamped on each successful login. Null for an account that has not signed
+   *  in since this was added — genuinely unknown rather than never. */
+  last_seen_at?: string | null;
 };
 
 export type ModelProvider = {

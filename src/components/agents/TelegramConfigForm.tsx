@@ -93,6 +93,55 @@ export function TelegramConfigForm({ variant = "compact" }: { variant?: "compact
   // Already set up: this is one bot for the whole host, so re-showing the token
   // form on every trigger node reads as "configure it again". Show state instead.
   if (data?.configured && !editing) {
+    // On the settings page this is the design's integration row: icon, name,
+    // connection detail, actions. The inspector rail keeps the compact box —
+    // it is ~280px wide and the row layout does not fit.
+    if (page) {
+      return (
+        <div className="sp-intg">
+          <div className="sp-intg-ic">✈</div>
+          <div>
+            <div className="sp-intg-nm">Telegram</div>
+            <div className="sp-intg-st">
+              ● Connected · {data.bot_token_hint} · {data.allowed_chat_ids.length} allowed chat
+              {data.allowed_chat_ids.length === 1 ? "" : "s"}
+            </div>
+          </div>
+          <div className="sp-intg-ac">
+            <button type="button" className="sp-btn sp-btn-compact" onClick={() => setEditing(true)}>
+              Change
+            </button>
+            {/* Disconnecting deletes the stored bot token. `confirmDisconnect`
+                and the mutation both already existed, but nothing ever rendered
+                the confirmation — so the state was set and no dialog appeared. */}
+            {confirmDisconnect ? (
+              <>
+                <button
+                  type="button"
+                  className="sp-btn sp-btn-compact sp-btn-danger"
+                  disabled={disconnect.isPending}
+                  onClick={() => disconnect.mutate()}
+                >
+                  {disconnect.isPending ? "Disconnecting…" : "Confirm — delete the token"}
+                </button>
+                <button type="button" className="sp-btn sp-btn-compact" onClick={() => setConfirmDisconnect(false)}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="sp-btn sp-btn-compact sp-btn-danger"
+                onClick={() => setConfirmDisconnect(true)}
+              >
+                Disconnect…
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className={sz.box}>
         <p className={`flex items-center gap-1 ${sz.text} font-semibold text-emerald-700`}>

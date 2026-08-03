@@ -504,7 +504,7 @@
         {
           "key": "btn",
           "mock": ".frame:first-of-type .btn",
-          "live": ".sp-btn:not(.sp-btn-danger)"
+          "live": ".sp-btn:not(.sp-btn-sm):not(.sp-btn-danger)"
         },
         {
           "key": "sec",
@@ -534,7 +534,7 @@
         {
           "key": "danger",
           "mock": ".frame:first-of-type .danger",
-          "live": ".sp-btn-danger"
+          "live": ".sp-btn-danger:not(.sp-btn-sm)"
         },
         {
           "key": "ra",
@@ -584,7 +584,7 @@
         {
           "key": "btn.danger",
           "mock": ".frame:first-of-type .btn.danger",
-          "live": ".sp-btn-danger"
+          "live": ".sp-btn-danger:not(.sp-btn-sm)"
         },
         {
           "key": "badge.you",
@@ -611,12 +611,12 @@
         {
           "key": "tabs",
           "mock": ".frame:first-of-type .tb",
-          "live": "[role=tab]"
+          "live": ".sp-tabs .sp-tb"
         },
         {
           "key": "columns",
-          "mock": ".frame:first-of-type th",
-          "live": "th"
+          "mock": "th",
+          "live": ".sp-table th"
         }
       ],
       "require": [
@@ -633,7 +633,14 @@
         ".sp-sub",
         ".sp-top"
       ],
-      "harnessRoute": "/__parity/users"
+      "harnessRoute": "/__parity/users",
+      "waivers": [
+        {
+          "selector": ".sp-top",
+          "reason": "the app shell renders the top bar, not the page; the page header is .sp-hdr",
+          "tracked": "harness"
+        }
+      ]
     },
     "dashboard": {
       "route": "/dashboard",
