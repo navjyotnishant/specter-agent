@@ -80,6 +80,8 @@ export const RUNS: WorkflowRun[] = [
   run("r8",  "wf-prepush", "completed", T("2026-08-01 07:00:00"), T("2026-08-01 07:00:54")),
   run("r9",  "wf-prepush", "completed", T("2026-08-01 08:00:00"), T("2026-08-01 08:01:03")),
   run("r10", "wf-prepush", "running",   T("2026-08-01 09:59:00"), null),
+  // A run parked on a human gate, so the "approval" chip renders.
+  run("r16", "wf-blog", "waiting_approval", T("2026-08-01 09:30:00"), null),
 
   run("r11", "wf-changelog", "completed", T("2026-08-01 04:00:00"), T("2026-08-01 04:00:41")),
   run("r12", "wf-changelog", "completed", T("2026-08-01 05:00:00"), T("2026-08-01 05:00:45")),
@@ -233,6 +235,30 @@ export const SEED: Array<[readonly unknown[], unknown]> = [
   [["workspaces"], WORKSPACES],
   [["runtime-workspaces"], WORKSPACES],
   [["mcp-list"], []],
+  // The Dashboard namespaces its queries, so the plain keys above do not reach it.
+  [["dashboard", "workflows"], WORKFLOWS],
+  [["dashboard", "runs"], RUNS],
+  [["dashboard", "skills"], SKILLS],
+  [["dashboard", "approvals"], []],
+  [["dashboard", "workspaces"], WORKSPACES],
+  [["dashboard", "run-stats"], {
+    window_hours: 24, total: 112, failed: 7, completed: 103, active: 3,
+    waiting_approval: 1,
+    oldest_active_started_at: new Date(Date.now() - 4 * 60_000 - 12_000).toISOString(),
+    median_duration_seconds: 108, previous_median_duration_seconds: 120,
+    median_delta_seconds: -12,
+  }],
+  [["dashboard", "sandbox-status"], DOCKER_SANDBOX],
+  [["dashboard", "sandbox-policy"], { current_policy: "read-only" }],
+  // The full shape: the page reads disk, load AND memory, and a partial fixture
+  // crashed the render rather than degrading — which measured as every element
+  // missing and read as "never built".
+  [["dashboard", "system-health"], {
+    disk:   { status: "ok", free_bytes: 42_000_000_000, message: "" },
+    load:   { status: "ok", load_1: 1.4, pressure_percent: 18, message: "" },
+    memory: { status: "ok", used_percent: 46, available_bytes: 8_000_000_000, message: "" },
+  }],
+  [["health"], { api: "ok" }],
   [["agent-models"], AGENT_MODELS],
   [["telegram-config"], TELEGRAM_CONFIG],
   [["runtime-adapter", "direct-cli"], DIRECT_CLI],

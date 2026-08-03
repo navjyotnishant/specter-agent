@@ -27,6 +27,7 @@ import type {
   Workflow,
   WorkflowGraph,
   WorkflowRun,
+  RunStats,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
@@ -311,8 +312,7 @@ export const api = {
       method: "POST", headers: authHeaders(token), body: JSON.stringify(payload),
     }),
   runStats: (token: string, windowHours = 24) =>
-    request<{ window_hours: number; total: number; failed: number; completed: number; active: number; median_duration_seconds: number }>(
-      `/workflow-runs/stats?window_hours=${windowHours}`, { headers: authHeaders(token) }),
+    request<RunStats>(`/workflow-runs/stats?window_hours=${windowHours}`, { headers: authHeaders(token) }),
   listRuns: (token: string, workflow_id?: string) =>
     request<WorkflowRun[]>(`/workflow-runs${workflow_id ? `?workflow_id=${workflow_id}` : ""}`, { headers: authHeaders(token) }),
   getRun: (token: string, runId: string) =>

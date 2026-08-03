@@ -347,6 +347,22 @@ export type Connector = {
   created_at: string;
 };
 
+export type RunStats = {
+  window_hours: number;
+  total: number;
+  failed: number;
+  completed: number;
+  active: number;
+  waiting_approval: number;
+  /** Oldest run still in flight, so "3 running" can say whether one is stuck. */
+  oldest_active_started_at: string | null;
+  median_duration_seconds: number;
+  previous_median_duration_seconds: number;
+  /** Null when there is no prior window to compare against — distinct from a
+   *  delta of zero, which would claim durations are unchanged. */
+  median_delta_seconds: number | null;
+};
+
 export type WorkflowRun = {
   id: string;
   workflow_id: string;

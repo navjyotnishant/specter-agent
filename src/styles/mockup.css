@@ -230,6 +230,11 @@
 .sp-st-wait  { background: #fef3c7; color: #92400e; }
 .sp-st-never { background: #f1f5f9; color: #64748b; }
 
+/* dashboard.html sizes .st at 9px/2px 6px/3px where workflows.html uses
+   9.5px/2.5px 8px/4px. Fourth instance of the mockups disagreeing about a
+   shared component; opt in rather than one page overriding another. */
+.sp-st-sm { font-size: 9px; padding: 2px 6px; border-radius: 3px; }
+
 .sp-spark { display: inline-flex; gap: 2px; align-items: flex-end; height: 15px; margin-left: 7px; }
 .sp-spark i { width: 4px; border-radius: 1px; display: block; }
 
@@ -467,3 +472,91 @@
 .sp-intg-nm { font-size: 12.5px; font-weight: 700; }
 .sp-intg-st { font-size: 11px; color: #16a34a; margin-top: 1px; font-weight: 600; }
 .sp-intg-ac { margin-left: auto; display: flex; gap: 6px; }
+
+/* ── dashboard ───────────────────────────────────────────────────────────────
+   Copied from design/mockups/dashboard.html. The page leads with what needs
+   attention rather than with counts: a banner when something is wrong, then the
+   numbers, then the queue. */
+
+/* Attention banner — only rendered when there is something to attend to. */
+.sp-att {
+  display: flex; align-items: center; gap: 11px; padding: 12px 20px;
+  background: #fef2f2; border-bottom: 1px solid #fecaca;
+}
+.sp-att-ic {
+  width: 30px; height: 30px; border-radius: 8px; background: #dc2626; color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 15px; flex: none;
+}
+.sp-att-tx { font-size: 13px; font-weight: 700; color: #991b1b; }
+.sp-att-sb { font-size: 11.5px; color: #b91c1c; margin-top: 1px; }
+.sp-att-go {
+  margin-left: auto; height: 28px; padding: 0 12px; font-size: 11.5px; font-weight: 600;
+  background: #dc2626; color: #fff; border: none; border-radius: 6px;
+  cursor: pointer; white-space: nowrap;
+}
+
+/* Stat tiles. 1px grid gap over a grey ground gives the hairline rules between
+   them without a border on each cell. */
+.sp-tiles {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+  background: #eef2f6; border-bottom: 1px solid #e8ecf1;
+}
+.sp-tile { background: #fff; padding: 13px 16px; }
+.sp-tile-k {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; color: #94a3b8;
+}
+.sp-tile-v { font-size: 24px; font-weight: 850; margin-top: 3px; letter-spacing: -.02em; }
+.sp-tile-v-bad { color: #dc2626; }
+.sp-tile-d { font-size: 11px; color: #94a3b8; margin-top: 1px; }
+
+/* Two columns: the queue, and a runtime/actions rail. */
+.sp-cols { display: grid; grid-template-columns: 1fr 300px; }
+.sp-main { border-right: 1px solid #e8ecf1; }
+.sp-side { padding: 0; }
+
+/* Named .sp-qh, not .sp-sh: the Skills rail already owns .sp-sh for its small
+   uppercase group label, and two unrelated components sharing a class by
+   accident is how one page silently restyles another. */
+.sp-qh {
+  padding: 10px 20px; border-bottom: 1px solid #eef2f6;
+  display: flex; align-items: center; background: #fbfcfd;
+  font-size: 13px; color: var(--sp-fg);
+}
+.sp-qh h2 { font-size: 12px; font-weight: 800; }
+.sp-more { margin-left: auto; font-size: 11px; color: #4f46e5; cursor: pointer; font-weight: 600; }
+
+/* Work queue rows. */
+.sp-row {
+  display: flex; align-items: center; gap: 11px; padding: 10px 20px;
+  border-bottom: 1px solid #f4f6f9;
+}
+.sp-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.sp-row-nm { font-size: 12.5px; font-weight: 600; }
+.sp-row-mt { font-size: 11px; color: #94a3b8; }
+.sp-row-rt { margin-left: auto; text-align: right; }
+.sp-row-el { font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Sidebar blocks. */
+.sp-hb { padding: 12px 16px; border-bottom: 1px solid #f4f6f9; }
+.sp-hb .sp-t {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; color: #94a3b8; margin-bottom: 7px;
+}
+.sp-hl { display: flex; align-items: center; gap: 7px; font-size: 11.5px; padding: 3px 0; }
+.sp-hl .sp-p { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.sp-st2 { margin-left: auto; font-size: 10.5px; color: #94a3b8; }
+.sp-qa {
+  display: block; width: 100%; text-align: left; padding: 7px 10px; font-size: 11.5px;
+  border: 1px solid #dde3ea; border-radius: 6px; background: #fff;
+  margin-bottom: 6px; cursor: pointer; color: #334155;
+}
+.sp-qa:hover { background: #f8fafc; }
+
+/* The tiles collapse before the columns do — four numbers side by side stop
+   being readable well before a 300px rail stops fitting. */
+@media (max-width: 900px) {
+  .sp-tiles { grid-template-columns: repeat(2, 1fr); }
+  .sp-cols { grid-template-columns: 1fr; }
+  .sp-main { border-right: 0; border-bottom: 1px solid #e8ecf1; }
+}

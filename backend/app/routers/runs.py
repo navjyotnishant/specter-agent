@@ -277,13 +277,58 @@ def run_stats(window_hours: int = 24, _: dict = Depends(require_user)) -> dict[s
             """,
             (since, since, since),
         ).fetchone()
+        # Oldest thing still running. "3 running" says nothing about whether one
+        # has been stuck for an hour, which is the question an operator has.
+        oldest = db.execute(
+            "SELECT MIN(created_at) AS started FROM workflow_runs"
+            " WHERE status IN ('running','queued','waiting_approval')"
+        ).fetchone()["started"]
+
+        # The same median over the PREVIOUS window, so the tile can show a
+        # direction rather than a bare number. A duration with no trend cannot
+        # tell you whether things are getting worse.
+        prev_since = f"-{window_hours * 2} hours"
+        prev_median = db.execute(
+            """
+            SELECT AVG(secs) AS median FROM (
+              SELECT (julianday(completed_at) - julianday(created_at)) * 86400 AS secs
+              FROM workflow_runs
+              WHERE completed_at IS NOT NULL
+                AND created_at >= datetime('now', ?) AND created_at < datetime('now', ?)
+              ORDER BY secs
+              LIMIT 2 - (SELECT COUNT(*) FROM workflow_runs
+                         WHERE completed_at IS NOT NULL
+                           AND created_at >= datetime('now', ?) AND created_at < datetime('now', ?)) % 2
+              OFFSET (SELECT (COUNT(*) - 1) / 2 FROM workflow_runs
+                      WHERE completed_at IS NOT NULL
+                        AND created_at >= datetime('now', ?) AND created_at < datetime('now', ?))
+            )
+            """,
+            (prev_since, since, prev_since, since, prev_since, since),
+        ).fetchone()
+
+        waiting = db.execute(
+            "SELECT COUNT(*) c FROM workflow_runs WHERE status = 'waiting_approval'"
+        ).fetchone()["c"]
+
+    current_median = round(median["median"] or 0, 1)
+    previous_median = round(prev_median["median"] or 0, 1)
     return {
         "window_hours": window_hours,
         "total": totals["total"] or 0,
         "failed": totals["failed"] or 0,
         "completed": totals["completed"] or 0,
         "active": active_all,
-        "median_duration_seconds": round(median["median"] or 0, 1),
+        "waiting_approval": waiting,
+        "oldest_active_started_at": oldest,
+        "median_duration_seconds": current_median,
+        "previous_median_duration_seconds": previous_median,
+        # None rather than 0 when there is no prior window: "no change" and "no
+        # data to compare" are different claims, and rendering the second as the
+        # first invents a trend.
+        "median_delta_seconds": (
+            round(current_median - previous_median, 1) if previous_median else None
+        ),
     }
 
 

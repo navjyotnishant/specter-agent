@@ -20,7 +20,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { getStoredToken } from "@/lib/auth";
+import { getStoredToken, useAuth } from "@/lib/auth";
 import type { WorkflowRun } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -126,10 +126,14 @@ function healthTone(status: string | undefined): Tone {
   return "slate";
 }
 
+const ST_CLASS: Record<Tone, string> = {
+  blue: "sp-st-run", amber: "sp-st-wait", red: "sp-st-bad",
+  green: "sp-st-ok", slate: "sp-st-never", indigo: "sp-st-run",
+};
+
 function StatusPill({ status }: { status: string }) {
-  const tone = toneClasses[statusTone(status)];
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${tone.chip}`}>
+    <span className={`sp-st sp-st-sm ${ST_CLASS[statusTone(status)]}`}>
       {runStatusLabel(status)}
     </span>
   );
@@ -145,6 +149,7 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const token = getStoredToken() ?? "";
   const canUseBackend = Boolean(token);
 
@@ -408,238 +413,183 @@ export default function Dashboard() {
     },
   ];
 
+  // Runtime health for the sidebar rail. Built from the queries the page
+  // already runs; the mockup's four rows map onto the adapters we know about.
+  const runtimeRows = [
+    { name: "Host runner",    ok: !hostOffline,                    label: hostOffline ? "offline" : "online" },
+    { name: "Docker sandbox", ok: sandboxReady,                    label: sandboxReady ? "ready" : hostOffline ? "unavailable" : "setup needed" },
+    { name: "API",            ok: apiReady,                        label: apiReady ? "ok" : "unreachable" },
+    { name: "Approved repos", ok: activeWorkspaceCount > 0,        label: `${activeWorkspaceCount} path${activeWorkspaceCount === 1 ? "" : "s"}` },
+  ];
+
+  const medianDelta = stats?.median_delta_seconds ?? null;
+  const oldestActive = stats?.oldest_active_started_at ?? null;
+
   return (
-    <div className="space-y-5">
-      <section className={`rounded-[8px] border px-5 py-4 ${attentionTone.border} ${attentionTone.bg}`}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[6px] ${attentionTone.chip}`}>
-              <AttentionIcon className="h-5 w-5" />
+    <div className="space-y-4">
+      <div className="sp-frame">
+        <div className="sp-hdr">
+          <h1>Dashboard</h1>
+          <p>Local runtime{user?.email ? ` · ${user.email}` : ""}</p>
+        </div>
+
+        {/* The page leads with what needs attention, not with counts. When
+            nothing does, the banner is absent rather than reassuring — a
+            permanent "all clear" strip is scenery people stop reading. */}
+        {attention.tone !== "slate" && (
+          <div className="sp-att">
+            <div className="sp-att-ic"><AttentionIcon className="h-4 w-4" /></div>
+            <div>
+              <div className="sp-att-tx">{attention.title}</div>
+              <div className="sp-att-sb">{attention.detail}</div>
             </div>
-            <div className="min-w-0">
-              <p className={`text-sm font-black uppercase tracking-[0.12em] ${attentionTone.text}`}>Attention</p>
-              <h2 className="mt-1 text-xl font-black text-slate-950">{attention.title}</h2>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{attention.detail}</p>
+            <Link to={attention.href} className="sp-att-go">{attention.action}</Link>
+          </div>
+        )}
+
+        <div className="sp-tiles">
+          <div className="sp-tile">
+            <div className="sp-tile-k">Running now</div>
+            <div className="sp-tile-v">{stats?.active ?? activeRuns.length}</div>
+            {/* "3 running" says nothing about whether one has been stuck for an
+                hour, which is the question worth answering. */}
+            <div className="sp-tile-d">
+              {oldestActive ? `oldest ${timeAgo(oldestActive)}` : "nothing in flight"}
             </div>
           </div>
-          <Button asChild className="h-10 rounded-[6px] bg-slate-950 px-4 text-white hover:bg-slate-800">
-            <Link to={attention.href}>
-              {attention.action}
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Link>
-          </Button>
-        </div>
-      </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric) => {
-          const Icon = metric.icon;
-          const tone = toneClasses[metric.tone];
-          return (
-            <Link key={metric.label} to={metric.href} className="group">
-              <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-500">{metric.label}</p>
-                      <p className="mt-2 text-3xl font-black text-slate-950">{metric.value}</p>
-                      <p className="mt-1 truncate text-xs font-semibold text-slate-500">{metric.detail}</p>
-                    </div>
-                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[6px] ${tone.chip}`}>
-                      <Icon className="h-5 w-5" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          );
-        })}
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.55fr)]">
-        <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
-            <div>
-              <CardTitle className="text-lg font-black text-slate-950">Work queue</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Active gates, failed evidence, and recent workflow outcomes.</p>
+          <div className="sp-tile">
+            <div className="sp-tile-k">Failed · {stats?.window_hours ?? 24}h</div>
+            <div className={`sp-tile-v ${stats?.failed ? "sp-tile-v-bad" : ""}`}>
+              {stats?.failed ?? failedRuns.length}
             </div>
-            <Button asChild variant="outline" className="h-9 rounded-[6px] border-slate-200 bg-white px-3 text-sm">
-              <Link to="/workflows">
-                View all
-                <ArrowRight className="ml-2 h-4 w-4" />
+            <div className="sp-tile-d">
+              {stats?.total
+                ? `of ${stats.total} runs · ${((stats.failed / stats.total) * 100).toFixed(1)}%`
+                : "no runs in window"}
+            </div>
+          </div>
+
+          <div className="sp-tile">
+            <div className="sp-tile-k">Waiting on you</div>
+            <div className="sp-tile-v">{stats?.waiting_approval ?? pendingApprovals.length}</div>
+            {/* The count comes from the run table and the deadline from the
+                approvals list; they can disagree when an approval record has
+                not been created yet. Trust the count for "is anything waiting"
+                and only add a deadline when there is one to show. */}
+            <div className="sp-tile-d">
+              {pendingApprovals.length
+                ? `approval · ${deadlineText(pendingApprovals[0].expires_at)}`
+                : (stats?.waiting_approval ?? 0)
+                  ? "awaiting your decision"
+                  : "nothing blocked"}
+            </div>
+          </div>
+
+          <div className="sp-tile">
+            <div className="sp-tile-k">Median duration</div>
+            <div className="sp-tile-v">
+              {stats?.median_duration_seconds
+                ? formatDuration2(stats.median_duration_seconds)
+                : "—"}
+            </div>
+            {/* Null delta means no prior window to compare — rendering that as
+                "no change" would invent a trend from missing data. */}
+            <div className="sp-tile-d">
+              {medianDelta === null
+                ? "no prior window"
+                : medianDelta === 0
+                  ? "unchanged"
+                  : `${medianDelta < 0 ? "↓" : "↑"} ${formatDuration2(Math.abs(medianDelta))} vs previous`}
+            </div>
+          </div>
+        </div>
+
+        <div className="sp-cols">
+          <div className="sp-main">
+            <div className="sp-qh">
+              <h2>Work queue</h2>
+              <Link to="/workflows" className="sp-more">
+                View all {runsData.length} →
               </Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="p-4">
-            {runsLoading || workflowsLoading ? (
-              <EmptyState title="Loading workflow activity" detail="Collecting recent run evidence." />
-            ) : activityRuns.length === 0 ? (
-              <EmptyState title="No workflow evidence yet" detail="Start a workflow to populate the operations queue." />
-            ) : (
-              <div className="space-y-2">
-                {activityRuns.map((run) => {
-                  const tone = toneClasses[statusTone(run.status)];
-                  const workflowName = workflowMap[run.workflow_id] ?? run.workflow_id.slice(0, 8);
-                  const isPriority = ["failed", "waiting_approval", "running", "queued"].includes(run.status);
-                  return (
-                    <Link
-                      key={run.id}
-                      to={runUrl(run)}
-                      className={`flex flex-col gap-3 rounded-[6px] border px-4 py-3 transition hover:border-indigo-200 hover:bg-indigo-50/30 sm:flex-row sm:items-center sm:justify-between ${
-                        isPriority ? `${tone.border} ${tone.bg}` : "border-slate-100 bg-white"
-                      }`}
-                    >
-                      <div className="flex min-w-0 items-start gap-3">
-                        <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${tone.dot}`} />
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-black text-slate-900">{workflowName}</p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Started {timeAgo(run.created_at)} · Duration {formatDuration(run.created_at, run.completed_at)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <StatusPill status={run.status} />
-                        <ArrowRight className="h-4 w-4 text-slate-400" />
-                      </div>
-                    </Link>
-                  );
-                })}
+            </div>
+
+            {runsLoading && <div className="sp-row"><span className="sp-row-mt">Loading runs…</span></div>}
+
+            {!runsLoading && activityRuns.length === 0 && (
+              <div className="sp-row">
+                <span className="sp-row-mt">
+                  No runs yet — start one from Workflows and it will appear here.
+                </span>
               </div>
             )}
-          </CardContent>
-        </Card>
 
-        <div className="space-y-5">
-          <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
-            <CardHeader className="border-b border-slate-100 px-5 py-4">
-              <CardTitle className="flex items-center gap-2 text-lg font-black text-slate-950">
-                <ShieldCheck className="h-5 w-5 text-indigo-600" />
-                Sandbox posture
-              </CardTitle>
-              <p className="text-sm text-slate-500">Signals only. Runtime configuration stays in Models.</p>
-            </CardHeader>
-            <CardContent className="space-y-3 p-4">
-              {postureItems.map((item) => {
-                const tone = toneClasses[item.tone];
-                return (
-                  <div key={item.label} className={`rounded-[6px] border px-3 py-3 ${tone.border} ${tone.bg}`}>
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">{item.label}</p>
-                      <span className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} />
-                    </div>
-                    <p className="mt-1 text-sm font-black text-slate-950">{item.value}</p>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{item.detail}</p>
+            {activityRuns.map((run) => {
+              const tone = statusTone(run.status);
+              return (
+                <Link to={runUrl(run)} className="sp-row" key={run.id}>
+                  <span className="sp-dot" style={{ background: DOT[tone] }} />
+                  <div>
+                    <div className="sp-row-nm">{workflowMap[run.workflow_id] ?? "Workflow"}</div>
+                    <div className="sp-row-mt">{runStatusLabel(run.status)}</div>
                   </div>
-                );
-              })}
-              <Button asChild variant="outline" className="h-9 w-full rounded-[6px] border-slate-200 bg-white">
-                <Link to="/settings/models">
-                  <LockKeyhole className="mr-2 h-4 w-4" />
-                  Runtime posture
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
-            <CardHeader className="border-b border-slate-100 px-5 py-4">
-              <CardTitle className="flex items-center gap-2 text-lg font-black text-slate-950">
-                <Activity className="h-5 w-5 text-indigo-600" />
-                Host health
-              </CardTitle>
-              <p className="text-sm text-slate-500">Local capacity signals for safe workflow execution.</p>
-            </CardHeader>
-            <CardContent className="space-y-3 p-4">
-              {hostHealthItems.map((item) => {
-                const Icon = item.icon;
-                const tone = toneClasses[item.tone];
-                return (
-                  <div key={item.label} className="flex items-center gap-3 rounded-[6px] border border-slate-100 bg-slate-50 px-3 py-3">
-                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] ${tone.chip}`}>
-                      <Icon className="h-4 w-4" />
+                  <div className="sp-row-rt">
+                    <div className="sp-row-el">
+                      {run.completed_at
+                        ? timeAgo(run.completed_at)
+                        : formatDuration(run.created_at, null)}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="truncate text-sm font-black text-slate-950">{item.label}</p>
-                        <span className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} />
-                      </div>
-                      <p className="mt-1 truncate text-xs font-semibold text-slate-500">{item.detail}</p>
-                    </div>
-                    <p className="shrink-0 text-sm font-black text-slate-900">{item.value}</p>
+                    <StatusPill status={run.status} />
                   </div>
-                );
-              })}
-              <p className="px-1 text-xs font-semibold text-slate-400">
-                Sampled {systemHealthData ? timeAgo(systemHealthData.sampled_at) : "after load"}
-              </p>
-            </CardContent>
-          </Card>
+                </Link>
+              );
+            })}
+          </div>
 
-          <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
-            <CardHeader className="border-b border-slate-100 px-5 py-4">
-              <CardTitle className="flex items-center gap-2 text-lg font-black text-slate-950">
-                <SquareTerminal className="h-5 w-5 text-indigo-600" />
-                Quick actions
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2 p-4">
-              <Button asChild className="h-10 justify-start rounded-[6px] bg-[#ff6d5a] text-white hover:bg-[#f95f4b]">
-                <Link to="/workflows">
-                  <PlayCircle className="mr-2 h-4 w-4" />
-                  Run workflow
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="h-10 justify-start rounded-[6px] border-slate-200 bg-white">
-                <Link to="/workflows">
-                  <GitBranch className="mr-2 h-4 w-4" />
-                  Build workflow
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="h-10 justify-start rounded-[6px] border-slate-200 bg-white">
-                <Link to="/skills">
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Manage skills
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
+          <div className="sp-side">
+            <div className="sp-hb">
+              <div className="sp-t">Runtime</div>
+              {runtimeRows.map((r) => (
+                <div className="sp-hl" key={r.name}>
+                  <span className="sp-p" style={{ background: r.ok ? "#16a34a" : "#dc2626" }} />
+                  {r.name}
+                  <span className="sp-st2">{r.label}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="sp-hb">
+              <div className="sp-t">Quick actions</div>
+              <Link to="/workflows" className="sp-qa">▶ Run a workflow…</Link>
+              <Link to="/workflows" className="sp-qa">⤓ Import from a repo</Link>
+              <Link to="/workflows" className="sp-qa">☷ Browse run history</Link>
+            </div>
+
+            <div className="sp-hb">
+              <div className="sp-t">Library</div>
+              <div className="sp-hl">
+                Workflows<span className="sp-st2">{userWorkflows.length}</span>
+              </div>
+              <div className="sp-hl">
+                Skills<span className="sp-st2">{skillsData.length}</span>
+              </div>
+              <div className="sp-hl">
+                Sandbox policy<span className="sp-st2">{policyName}</span>
+              </div>
+            </div>
+          </div>
         </div>
-      </section>
-
-      <section className="grid gap-5 lg:grid-cols-2">
-        <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-3">
-              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-              <div>
-                <p className="text-sm font-black text-slate-950">Last successful run</p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {lastSuccessfulRun
-                    ? `${workflowMap[lastSuccessfulRun.workflow_id] ?? "Workflow"} · ${timeAgo(lastSuccessfulRun.completed_at ?? lastSuccessfulRun.created_at)}`
-                    : "No successful evidence yet"}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-[8px] border-slate-200 bg-white shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-3">
-              <Clock3 className="h-5 w-5 text-slate-500" />
-              <div>
-                <p className="text-sm font-black text-slate-950">Last failed run</p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {lastFailedRun
-                    ? `${workflowMap[lastFailedRun.workflow_id] ?? "Workflow"} · ${timeAgo(lastFailedRun.completed_at ?? lastFailedRun.created_at)}`
-                    : "No failed evidence in recent history"}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+      </div>
     </div>
   );
 }
+
+/** Dot colour per run state. The queue row carries its state in the dot as well
+ *  as the pill, so the column scans without reading each label. */
+const DOT: Record<string, string> = {
+  blue: "#2563eb",
+  amber: "#d97706",
+  red: "#dc2626",
+  green: "#16a34a",
+  slate: "#94a3b8",
+};

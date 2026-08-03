@@ -653,8 +653,8 @@
         },
         {
           "key": "dot",
-          "mock": ".dot",
-          "live": ".sp-dot"
+          "mock": ".row:first-of-type .dot",
+          "live": ".sp-row:first-of-type .sp-dot"
         },
         {
           "key": "nm",
@@ -678,8 +678,8 @@
         },
         {
           "key": "st",
-          "mock": ".st",
-          "live": ".sp-st"
+          "mock": ".st.run",
+          "live": ".sp-st-run"
         },
         {
           "key": "tile",
@@ -779,7 +779,7 @@
         {
           "key": "sh",
           "mock": ".sh",
-          "live": ".sp-sh"
+          "live": ".sp-qh"
         },
         {
           "key": "more",
@@ -848,7 +848,7 @@
         ".sp-row-mt",
         ".sp-row-nm",
         ".sp-row-rt",
-        ".sp-sh",
+        ".sp-qh",
         ".sp-side",
         ".sp-st",
         ".sp-st2",
@@ -860,7 +860,14 @@
         ".sp-tiles",
         ".sp-top"
       ],
-      "harnessRoute": "/__parity/dashboard"
+      "harnessRoute": "/__parity/dashboard",
+      "waivers": [
+        {
+          "selector": ".sp-top",
+          "reason": "the app shell renders the top bar, not the page; the page header is .sp-hdr",
+          "tracked": "harness"
+        }
+      ]
     },
     "builder": {
       "route": "/workflows/:workflowId/builder",
