@@ -252,7 +252,7 @@
         {
           "key": "find",
           "mock": ".find",
-          "live": ".sp-find"
+          "live": ".sp-rail-find"
         },
         {
           "key": "ed",
@@ -321,7 +321,7 @@
         ".sp-acts",
         ".sp-btn-primary",
         ".sp-ed",
-        ".sp-find",
+        ".sp-rail-find",
         ".sp-fld",
         ".sp-fld-hint",
         ".sp-foot",

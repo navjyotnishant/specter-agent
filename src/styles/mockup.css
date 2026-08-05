@@ -574,15 +574,18 @@
 .sp-foot { display: flex; gap: 7px; padding-top: 4px; }
 
 /* The rail search, matching the mockup's `.find`. */
-/* flex: none, because .sp-list is a flex column: without it the search box
-   stretches to fill the whole rail and pushes the list ~850px down the page. */
-.sp-find { position: relative; margin: 10px; flex: none; }
-.sp-find input {
+/* .sp-rail-find, not .sp-find: the workflows toolbar already owns .sp-find with
+   flex:1, and having both meant the winner was decided by source order rather
+   than by intent. flex:none matters here because .sp-list is a flex column —
+   without it the search box stretched to fill the rail and pushed the list
+   ~850px down. */
+.sp-rail-find { position: relative; margin: 10px; flex: none; }
+.sp-rail-find input {
   width: 100%; height: 29px; border: 1px solid #dde3ea; border-radius: 6px;
   padding: 0 10px 0 27px; font-size: 11.5px; font-family: inherit; outline: none;
   background: #fff;
 }
-.sp-find-icon { position: absolute; left: 9px; top: 6px; color: #94a3b8; font-size: 12px; }
+.sp-rail-find-icon { position: absolute; left: 9px; top: 6px; color: #94a3b8; font-size: 12px; }
 
 /* Form fields. The label is 10px sentence-case here — an earlier pass had these
    at 12px uppercase, which is the finding that first exposed the radius bug. */

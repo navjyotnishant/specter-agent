@@ -328,8 +328,8 @@ export default function Skills() {
         <div className="sp-body">
           {/* left rail — the skill library */}
           <div className="sp-list">
-            <div className="sp-find">
-              <span className="sp-find-icon">⌕</span>
+            <div className="sp-rail-find">
+              <span className="sp-rail-find-icon">⌕</span>
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
