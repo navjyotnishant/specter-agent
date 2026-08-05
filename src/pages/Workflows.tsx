@@ -903,13 +903,39 @@ export default function Workflows() {
     const root = roots.length === 1 ? roots[0] : null;
     const rootData = (root?.data ?? {}) as { label?: string; objective?: string };
 
-    const created = await api.createWorkflow(token, {
-      name: rootData.label || parsed.repo?.name || "Imported workflow",
-      description:
-        rootData.objective?.trim() ||
-        `Imported from ${repoPath || parsed.repo?.name || "a repository"}`,
-      graph,
-    });
+    // Names are unique, and the derived name collides on a second import of the
+    // same repo. The dialog surfaced the 409 but the name is derived, not typed,
+    // so retrying produced the same conflict forever — a dead end rather than a
+    // failure. Suffix instead, and say so.
+    const baseName = rootData.label || parsed.repo?.name || "Imported workflow";
+    const taken = new Set(workflows.map((w) => w.name));
+    let name = baseName;
+    for (let n = 2; taken.has(name); n++) name = `${baseName} (${n})`;
+
+    const description =
+      rootData.objective?.trim() ||
+      `Imported from ${repoPath || parsed.repo?.name || "a repository"}`;
+
+    // The local list can be stale, so the suffix above is a courtesy, not a
+    // guarantee — the server owns uniqueness. Retry on a genuine 409 rather than
+    // handing back an error the user cannot act on.
+    let created;
+    for (let n = taken.size + 2; ; n++) {
+      try {
+        created = await api.createWorkflow(token, { name, description, graph });
+        break;
+      } catch (err) {
+        const conflict = err instanceof Error && /already exists/i.test(err.message);
+        if (!conflict || n > taken.size + 20) throw err;
+        name = `${baseName} (${n})`;
+      }
+    }
+    if (name !== baseName) {
+      toast({
+        title: `Imported as "${name}"`,
+        description: `A workflow named "${baseName}" already exists.`,
+      });
+    }
     queryClient.invalidateQueries({ queryKey: ["workflows"] });
     setImportOpen(false);
     navigate(`/workflows/${created.id}/builder`);
