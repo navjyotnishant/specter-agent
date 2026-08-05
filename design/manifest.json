@@ -201,8 +201,8 @@
         },
         {
           "key": "rl",
-          "mock": ".rl",
-          "live": ".sp-rl"
+          "mock": ".rl:not(.on)",
+          "live": ".sp-rl:not(.sp-rl-on)"
         },
         {
           "key": "fld",
@@ -247,7 +247,7 @@
         {
           "key": "list",
           "mock": ".list",
-          "live": ".sp-rail"
+          "live": ".sp-list"
         },
         {
           "key": "find",
@@ -331,7 +331,7 @@
         ".sp-it-d",
         ".sp-it-n",
         ".sp-meta",
-        ".sp-rail",
+        ".sp-list",
         ".sp-rl",
         ".sp-roles",
         ".sp-src",

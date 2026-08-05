@@ -297,83 +297,65 @@ export default function Skills() {
 
   return (
     <div className="space-y-6">
-      {/* header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-100">
-            <Wrench className="h-5 w-5" />
-          </div>
+      {/* One frame: header, then a two-pane body — list rail and editor. The
+          previous direction had a floating indigo icon tile and two separate
+          rounded-2xl cards with a gap between them. */}
+      <div className="sp-frame">
+        <div className="sp-hdr" style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Skills</h1>
-            <p className="text-sm text-slate-500">Configure reusable instructions for governed local agent work</p>
+            <h1>Skills</h1>
+            <p>
+              Reusable prompt fragments attached to agent nodes · {filteredSkills.length} skill{filteredSkills.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          {/* The mockup also shows "Restore built-ins". There is no endpoint for
+              it — built-ins are seeded constants, not a restorable set — so it is
+              not rendered rather than wired to nothing. */}
+          <div className="sp-acts">
+            <button
+              type="button"
+              className="sp-btn sp-btn-primary"
+              onClick={() => applyTemplate("Repository Analysis")}
+              disabled={!canUseBackend}
+            >
+              + New skill
+            </button>
           </div>
         </div>
-      </div>
 
-      {error && (
-        <Alert variant="destructive" className="rounded-2xl">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+        {error && <div className="sp-banner sp-banner-error">{error}</div>}
 
-      <div className="grid min-h-[720px] gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        {/* left panel — skill library */}
-        <Card className="rounded-2xl border-slate-200 shadow-none">
-          <CardContent className="flex h-full flex-col p-0">
-            {/* library header */}
-            <div className="flex items-center gap-2.5 border-b border-slate-100 px-4 py-3.5">
-              <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-indigo-50">
-                <BookOpenCheck className="h-3.5 w-3.5 text-indigo-600" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-800">Skill library</p>
-                <p className="text-[11px] text-slate-400">{savedSkills.length} saved · {builtInSkills.length - savedSkills.length > 0 ? builtInSkills.length - savedSkills.length : builtInSkills.length} templates</p>
-              </div>
-            </div>
-
-            {/* search */}
-            <div className="border-b border-slate-100 px-3 py-3">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search name, description, role…"
-                  className="h-[29px] rounded-[6px] bg-white pl-7 !text-[11.5px] border-[#dde3ea]"
-                />
-              </div>
+        <div className="sp-body">
+          {/* left rail — the skill library */}
+          <div className="sp-list">
+            <div className="sp-find">
+              <span className="sp-find-icon">⌕</span>
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search name, description, role…"
+              />
             </div>
 
             {!canUseBackend && (
-              <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+              <div className="mx-3 mt-3 rounded-[6px] border border-amber-200 bg-amber-50 px-3 py-2">
                 <p className="text-xs font-semibold text-amber-900">Backend session required to save changes.</p>
               </div>
             )}
 
-            {/* skill list */}
             <div className="min-h-0 flex-1 overflow-y-auto">
               <SkillList skills={filteredSkills} savedSkills={savedSkills} selectedSkillId={selectedSkillId} onSelect={selectSkill} />
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
         {/* right panel — editor */}
-        <Card className="rounded-2xl border-slate-200 shadow-none">
-          <CardContent className="p-0">
-            {/* editor header */}
+        <div className="sp-ed">
+          <div>
+            {/* editor header. "New" lives in the page header now, so it is not
+                repeated here. */}
             <div className="border-b border-slate-100 px-5 py-4">
-              {/* top row: action buttons */}
               <div className="flex items-center justify-end gap-4">
-                <div className="flex items-center gap-2 shrink-0">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-[29px] rounded-[6px] border-[#dde3ea] !text-[11.5px] px-3 text-sm"
-                    onClick={() => applyTemplate("Repository Analysis")}
-                  >
-                    <Plus className="mr-1.5 h-3.5 w-3.5" />
-                    New
-                  </Button>
+                <div className="sp-foot">
                   {selectedSaved && (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
@@ -413,7 +395,7 @@ export default function Skills() {
                     type="button"
                     disabled={create.isPending || update.isPending || !canUseBackend}
                     onClick={saveSelectedSkill}
-                    className="h-[29px] rounded-[6px] border-[#dde3ea] !text-[11.5px] bg-indigo-600 px-3 text-sm hover:bg-indigo-700"
+                    className="sp-btn sp-btn-primary"
                   >
                     <Save className="mr-1.5 h-3.5 w-3.5" />
                     {create.isPending || update.isPending ? "Saving…" : selectedSaved ? "Save changes" : "Save skill"}
@@ -443,8 +425,9 @@ export default function Skills() {
                 sourceRepo={selectedSkill ? String((selectedSkill as Skill & { source_repo?: string }).source_repo ?? "") : ""}
               />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+        </div>
       </div>
     </div>
   );
@@ -575,18 +558,18 @@ function SkillEditor({ draft, onChange, origin, sourceRepo }: {
         {note}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-bold text-slate-600">Name</Label>
+        <div className="sp-fld">
+          <label>Name</label>
           <Input className="h-[29px] rounded-[6px] border-[#dde3ea] !text-[12px]" value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} required />
         </div>
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-bold text-slate-600">Description</Label>
+        <div className="sp-fld">
+          <label>Description</label>
           <Input className="h-[29px] rounded-[6px] border-[#dde3ea] !text-[12px]" value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} />
         </div>
       </div>
-      <div className="space-y-1.5">
-        <Label className="text-[10px] font-bold text-slate-600">Compatible agent roles</Label>
-        <div className="flex flex-wrap gap-2">
+      <div className="sp-fld">
+        <label>Compatible agent roles</label>
+        <div className="sp-roles">
           {AGENT_ROLES.map((role) => {
             const on = draft.compatibleAgentRoles.includes(role);
             return (
@@ -601,30 +584,26 @@ function SkillEditor({ draft, onChange, origin, sourceRepo }: {
                       : [...draft.compatibleAgentRoles, role],
                   })
                 }
-                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                  on
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
-                }`}
+                className={on ? "sp-rl sp-rl-on" : "sp-rl"}
               >
                 {role}
               </button>
             );
           })}
         </div>
-        <p className="text-xs text-slate-400">
+        <p className="sp-fld-hint">
           Leave empty to offer this skill to every agent node.
         </p>
       </div>
-      <div className="space-y-1.5">
-        <Label className="text-[10px] font-bold text-slate-600">Prompt template</Label>
+      <div className="sp-fld">
+        <label>Prompt template</label>
         <RichTextEditor
           value={draft.promptTemplate}
           onChange={(md) => onChange({ ...draft, promptTemplate: md })}
           placeholder="Write skill instructions using headings, lists, and code blocks…"
           minHeight="430px"
         />
-        <p className="text-xs text-slate-400">
+        <p className="sp-fld-hint">
           Applied to the agent's prompt before its System Instructions.
         </p>
       </div>
