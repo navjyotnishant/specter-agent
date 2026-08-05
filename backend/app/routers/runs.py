@@ -323,11 +323,13 @@ def run_stats(window_hours: int = 24, _: dict = Depends(require_user)) -> dict[s
         "oldest_active_started_at": oldest,
         "median_duration_seconds": current_median,
         "previous_median_duration_seconds": previous_median,
-        # None rather than 0 when there is no prior window: "no change" and "no
-        # data to compare" are different claims, and rendering the second as the
-        # first invents a trend.
+        # None unless BOTH windows have data. Guarding only the previous window
+        # let an empty current window report "81s faster" — a trend computed
+        # against nothing, which is the same invention this guard exists to
+        # prevent, just from the other side.
         "median_delta_seconds": (
-            round(current_median - previous_median, 1) if previous_median else None
+            round(current_median - previous_median, 1)
+            if previous_median and current_median else None
         ),
     }
 
