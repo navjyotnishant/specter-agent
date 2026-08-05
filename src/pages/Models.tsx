@@ -518,22 +518,6 @@ export default function Models() {
         : codexRuntime?.status === "host_runner_unavailable" || dockerSandboxRuntime?.status === "host_runner_unavailable"
           ? "Offline"
           : "Setup";
-  const runtimeTile =
-    preferredRuntime === "Docker" || preferredRuntime === "Codex"
-      ? { label: "Runtime", value: preferredRuntime, className: "border-emerald-200 bg-emerald-50 text-emerald-900", labelClassName: "text-emerald-700" }
-      : preferredRuntime === "Offline"
-        ? { label: "Runtime", value: "Offline", className: "border-slate-200 bg-slate-100 text-slate-800", labelClassName: "text-slate-500" }
-        : { label: "Runtime", value: "Setup", className: "border-amber-200 bg-amber-50 text-amber-900", labelClassName: "text-amber-700" };
-  const modeTile = maintenanceEnabled
-    ? { label: "Mode", value: "Maint.", className: "border-amber-200 bg-amber-50 text-amber-900", labelClassName: "text-amber-700" }
-    : { label: "Mode", value: "Safe", className: "border-sky-200 bg-sky-50 text-sky-900", labelClassName: "text-sky-700" };
-  const summaryTiles = [
-    runtimeTile,
-    modeTile,
-    { label: "Repos", value: activeRuntimeWorkspaces.length, className: "border-slate-100 bg-white text-slate-950", labelClassName: "text-slate-500" },
-    { label: "Runs", value: completedRuntimeRuns, className: "border-slate-100 bg-white text-slate-950", labelClassName: "text-slate-500" },
-  ];
-
   const logsEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -693,7 +677,7 @@ export default function Models() {
                 </span>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-xl font-black text-slate-950">Docker Sandbox</h3>
+                    <h2>Docker Sandbox</h2>
                     <Badge className="rounded-full bg-slate-900 text-white hover:bg-slate-900">Preferred</Badge>
                     <Badge className={`rounded-full ${dockerSandboxBadge.className} hover:bg-current/0`}>
                       {sandboxRuntimeLoading && canUseBackend ? "Checking…" : dockerSandboxBadge.label}
@@ -747,11 +731,11 @@ export default function Models() {
                         className={`w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-white/60 ${idx !== 0 ? "border-t border-slate-100" : ""} ${isSelected ? "bg-white" : ""}`}
                       >
                         <div className="flex items-center gap-2.5">
-                          <span className={`text-xs font-black ${authenticated ? "text-emerald-500" : "text-amber-400"}`}>
+                          <span className={`text-xs font-extrabold ${authenticated ? "text-emerald-500" : "text-amber-400"}`}>
                             {authenticated ? "✓" : "○"}
                           </span>
                           <span className={`text-sm font-bold ${isSelected ? "text-slate-950" : "text-slate-600"}`}>{ag.label}</span>
-                          {isSelected && <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-black text-white">selected</span>}
+                          {isSelected && <span className="sp-st sp-st-ok">selected</span>}
                         </div>
                         <span className={`text-[10px] font-semibold ${authenticated ? "text-emerald-600" : "text-amber-500"}`}>
                           {authenticated ? "Ready" : "Setup needed"}
@@ -802,7 +786,7 @@ export default function Models() {
                   <div className="space-y-5">
                     {/* Installation */}
                     <div>
-                      <p className="mb-2 text-xs font-black uppercase text-slate-500">1 · Install sbx</p>
+                      <p className="mb-2 text-xs font-extrabold uppercase text-slate-500">1 · Install sbx</p>
                       <div className="space-y-2">
                         <CommandCopy command={dockerSandboxRuntime?.install_guidance?.macos ?? dockerSandboxMacInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
                         <CommandCopy command={dockerSandboxRuntime?.install_guidance?.windows ?? dockerSandboxWindowsInstallCommand} copiedCommand={copiedCommand} onCopy={copyCommand} />
@@ -810,7 +794,7 @@ export default function Models() {
                     </div>
                     {/* Per-agent auth */}
                     <div>
-                      <p className="mb-2 text-xs font-black uppercase text-slate-500">2 · Authenticate agents</p>
+                      <p className="mb-2 text-xs font-extrabold uppercase text-slate-500">2 · Authenticate agents</p>
                       <div className="space-y-3">
                         {(() => {
                           const agentAuth: { key: string; display_name: string; authenticated: boolean }[] = (dockerSandboxRuntime as any)?.agent_auth ?? [];
@@ -838,9 +822,9 @@ export default function Models() {
                                   <span className={`text-sm ${authenticated ? "text-emerald-500" : "text-amber-400"}`}>
                                     {authenticated ? "✓" : "○"}
                                   </span>
-                                  <p className="text-sm font-black text-slate-900">{ag.label}</p>
+                                  <p className="text-sm font-extrabold text-slate-900">{ag.label}</p>
                                   {authenticated && (
-                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-700">Ready</span>
+                                    <span className="sp-st sp-st-ok">ready</span>
                                   )}
                                 </div>
                                 {!authenticated && instructions && (
@@ -877,7 +861,7 @@ export default function Models() {
                 </span>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-base font-black text-slate-950">Host Runner</h3>
+                    <h2>Host Runner</h2>
                     <Badge className={`rounded-full ${hostRunnerOffline ? "bg-slate-100 text-slate-600" : "bg-emerald-100 text-emerald-800"} hover:bg-current/0`}>
                       {hostRunnerOffline ? "Offline" : "Online"}
                     </Badge>
@@ -906,7 +890,7 @@ export default function Models() {
                 <div className="flex items-center gap-2.5">
                   <div className={`h-2 w-2 rounded-full ${launchdSvc?.running ? "bg-emerald-500" : "bg-slate-300"}`} />
                   <div>
-                    <p className="text-xs font-black text-slate-950">Auto-start</p>
+                    <p className="text-xs font-extrabold text-slate-950">Auto-start</p>
                     <p className="text-[10px] font-semibold text-slate-500">
                       {launchdSvc?.installed ? (launchdSvc.running ? "Running via launchd" : "Installed · not running") : "Not installed"}
                     </p>
@@ -972,7 +956,7 @@ export default function Models() {
               {/* Header */}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="text-xl font-black text-slate-950">Test run</h3>
+                  <h2>Test run</h2>
                   <p className="text-sm font-semibold text-slate-500">
                     {isRunning ? "Running" : latestRun?.status ?? "Idle"}
                     {" · "}{agentLabel}
@@ -994,14 +978,14 @@ export default function Models() {
                         <button
                           type="button"
                           onClick={() => setTestRuntime("sandbox")}
-                          className={`rounded-[6px] px-3 py-1.5 text-xs font-black transition-colors ${isSandbox ? "bg-white shadow-sm text-slate-950" : "text-slate-500 hover:text-slate-700"}`}
+                          className={`rounded-[6px] px-3 py-1.5 text-xs font-extrabold transition-colors ${isSandbox ? "bg-white shadow-sm text-slate-950" : "text-slate-500 hover:text-slate-700"}`}
                         >
                           Sandbox
                         </button>
                         <button
                           type="button"
                           onClick={() => setTestRuntime("direct")}
-                          className={`rounded-[6px] px-3 py-1.5 text-xs font-black transition-colors ${!isSandbox ? "bg-white shadow-sm text-slate-950" : "text-slate-500 hover:text-slate-700"}`}
+                          className={`rounded-[6px] px-3 py-1.5 text-xs font-extrabold transition-colors ${!isSandbox ? "bg-white shadow-sm text-slate-950" : "text-slate-500 hover:text-slate-700"}`}
                         >
                           Direct CLI
                         </button>
@@ -1071,7 +1055,7 @@ export default function Models() {
                   <div className={isExpanded ? "fixed inset-0 z-50 flex flex-col bg-slate-950 text-white" : "mt-4 rounded-[8px] border border-slate-100 bg-slate-950 p-4 text-white"}>
                     <div className={`flex flex-wrap items-center justify-between gap-2 ${isExpanded ? "px-5 pt-5 pb-3 border-b border-white/10" : "mb-2"}`}>
                       <div className="flex items-center gap-2">
-                        <p className="text-xs font-black uppercase text-slate-300">
+                        <p className="text-xs font-extrabold uppercase text-slate-300">
                           {isRunning ? agentLabel : "Latest run"}
                         </p>
                         {isRunning ? (
@@ -1115,7 +1099,7 @@ export default function Models() {
                           ) : (
                             <div
                               className={`overflow-auto rounded-[8px] bg-white/5 p-4 prose prose-invert prose-sm max-w-none
-                                prose-headings:text-slate-100 prose-headings:font-black
+                                prose-headings:text-slate-100 prose-headings:font-extrabold
                                 prose-p:text-slate-300 prose-p:leading-6
                                 prose-code:text-emerald-300 prose-code:bg-white/10 prose-code:rounded prose-code:px-1 prose-code:text-xs
                                 prose-pre:bg-white/10 prose-pre:text-slate-200 prose-pre:text-xs

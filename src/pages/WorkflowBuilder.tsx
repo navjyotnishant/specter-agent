@@ -934,21 +934,18 @@ function BuilderInner({
       <div className="flex items-start justify-between gap-4 border-b border-[#e8ecf1] bg-white px-6 py-3.5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <nav className="mr-1 flex items-center gap-1 text-[10px] uppercase tracking-[0.09em] text-[#94a3b8]">
-              <Link to="/workflows" className="text-[10px] uppercase tracking-[0.09em] hover:text-[#374151]">Workflows</Link>
+            <nav className="sp-crumb mr-1 flex items-center gap-1">
+              <Link to="/workflows" className="sp-crumb hover:text-[#374151]">Workflows</Link>
               <ChevronRight className="h-3 w-3" />
-              <span className="max-w-[240px] truncate text-[10px] uppercase tracking-[0.09em] text-[#374151]">{workflowName || "Untitled"}</span>
+              <span className="sp-crumb max-w-[240px] truncate text-[#374151]">{workflowName || "Untitled"}</span>
             </nav>
-            <span className="rounded-full bg-[#f1f5f9] px-2.5 py-[3px] text-[9.5px] font-extrabold uppercase tracking-[0.07em] text-[#64748b]">
+            <span className="sp-pill sp-pill-grey">
               {isNew ? "unsaved" : workflowQuery.data?.is_template ? "template" : "editable"}
             </span>
             {isDirty && (
-              <span className="rounded-full bg-[#fef3c7] px-2.5 py-[3px] text-[9.5px] font-extrabold uppercase tracking-[0.07em] text-[#92400e]">
-                ● unsaved changes
-              </span>
+              <span className="sp-pill sp-pill-amber">● unsaved changes</span>
             )}
-            <span className="rounded-full px-2.5 py-[3px] text-[9.5px] font-extrabold uppercase tracking-[0.07em]"
-              style={executionReady ? { borderColor: "#6ee7b7", color: "#065f46", background: "#ecfdf5" } : { borderColor: "#fcd34d", color: "#92400e", background: "#fffbeb" }}>
+            <span className={`sp-pill ${executionReady ? "sp-pill-ok" : "sp-pill-amber"}`}>
               {executionReady ? "ready" : "select repository"}
             </span>
             {!canUseBackend && (
@@ -1231,8 +1228,8 @@ function BuilderInner({
       {/* Blocking issues, named and clickable. Previously nothing surfaced these:
           Run was enabled and the failure arrived from the backend mid-run. */}
       {issues.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[#fde68a] bg-[#fffbeb] px-5 py-2">
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[#92400e]">
+        <div className="sp-strip">
+          <span className="sp-who">
             <AlertTriangle className="h-3 w-3" />
             {issues.length} issue{issues.length === 1 ? "" : "s"} block this run
           </span>
@@ -1243,10 +1240,10 @@ function BuilderInner({
                 setNodes((cur) => cur.map((n) => ({ ...n, selected: n.id === issue.nodeId })));
                 setRightCollapsed(false);
               }}
-              className="rounded-[5px] border border-[#fcd34d] bg-white px-2.5 py-[3px] text-[10.5px] text-[#92400e] hover:bg-[#fffbeb]"
+              className="sp-issue"
               title="Select this node"
             >
-              <b className="border-b border-dotted border-[#b45309] font-semibold">{issue.label}</b> {issue.reason}
+              <b>{issue.label}</b> {issue.reason}
             </button>
           ))}
           {issues.length > 6 && (
