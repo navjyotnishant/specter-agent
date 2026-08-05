@@ -471,9 +471,9 @@ function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBac
               }
             </div>
             <div style={{ minWidth: 0 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>{workflow.name}</p>
+              <p className="sp-wn" style={{ margin: 0 }}>{workflow.name}</p>
               {workflow.description && (
-                <p style={{ fontSize: 11, color: "#94a3b8", margin: "1px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 380 }}>
+                <p className="sp-wd" style={{ margin: "1px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 380 }}>
                   {workflow.description}
                 </p>
               )}
@@ -496,10 +496,10 @@ function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBac
                     title={`${r.status} · ${fmtRelative(r.created_at)}`}
                     style={{
                       height: r.status === "failed" ? 14 : r.status === "completed" ? 10 : 12,
-                      background: r.status === "failed" ? "#e03131"
-                        : r.status === "completed" ? "#12b886"
-                        : ["running", "queued", "waiting_approval"].includes(r.status) ? "#4c6ef5"
-                        : "#adb5bd",
+                      background: r.status === "failed" ? "#dc2626"
+                        : r.status === "completed" ? "#16a34a"
+                        : ["running", "queued", "waiting_approval"].includes(r.status) ? "#2563eb"
+                        : "#94a3b8",
                     }}
                   />
                 ))}
@@ -552,21 +552,14 @@ function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBac
 
         {/* actions — stop row click propagation */}
         <td style={{ padding: "13px 16px 13px 8px", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+          <div className="sp-ra">
 
             {isTemplate ? (
               /* Template: "Use template" button only — no Run */
               <button
                 disabled={!canUseBackend}
                 onClick={() => setTemplateModal(true)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 5,
-                  padding: "6px 14px", borderRadius: 7,
-                  background: "#f0f4ff", color: "#4f46e5",
-                  border: "1px solid #c7d2fe", cursor: canUseBackend ? "pointer" : "not-allowed",
-                  fontSize: 12, fontWeight: 700,
-                  opacity: !canUseBackend ? 0.5 : 1,
-                }}
+                className="sp-btn sp-btn-sm"
               >
                 <Copy style={{ width: 11, height: 11 }} />
                 Use template
@@ -581,15 +574,7 @@ function WorkflowRow({ workflow, runs: sharedRuns, runsLoading, token, canUseBac
                     disabled={disabled}
                     onClick={() => !disabled && setRunModal(true)}
                     title={activeRun ? `Run in progress — ${activeRun.status}` : undefined}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      padding: "6px 14px", borderRadius: 7,
-                      background: disabled ? "#e2e8f0" : "#4f46e5",
-                      color: disabled ? "#94a3b8" : "white",
-                      border: "none",
-                      cursor: disabled ? "not-allowed" : "pointer",
-                      fontSize: 12, fontWeight: 700,
-                    }}
+                    className="sp-btn sp-btn-sm sp-btn-primary"
                   >
                     {runMutation.isPending
                       ? <Loader2 style={{ width: 11, height: 11, animation: "wf-spin 1s linear infinite" }} />
@@ -979,22 +964,20 @@ export default function Workflows() {
   return (
     <div className="space-y-5">
 
-      {/* ── header ── */}
-      <Card className="overflow-hidden rounded-[2rem] border-white/80 bg-white/85 shadow-sm backdrop-blur-xl">
-        <CardContent className="p-6 sm:p-7">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-100">
-                <GitBranch className="h-6 w-6" />
-              </div>
-              <div>
-                <h2 className="text-[19px] font-black tracking-tight text-[#1a1f26]">Workflows</h2>
-                <p className="mt-0.5 text-[12px] text-[#7c8798]">
-                  {myWorkflows.length} workflow{myWorkflows.length === 1 ? "" : "s"} · {templates.length} template{templates.length === 1 ? "" : "s"}
-                </p>
-              </div>
+      {/* ── header ──
+          The design's frame: a 10px card with a rule under the header, not the
+          32px frosted panel with an indigo icon tile that the previous
+          direction used. */}
+      <div className="sp-frame">
+        <div className="sp-hdr">
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+            <div>
+              <h1>Workflows</h1>
+              <p>
+                {myWorkflows.length} workflow{myWorkflows.length === 1 ? "" : "s"} · {templates.length} template{templates.length === 1 ? "" : "s"}
+              </p>
             </div>
-            <div style={{ position: "relative" }}>
+            <div className="sp-acts" style={{ position: "relative" }}>
               <button
                 ref={newMenuButtonRef}
                 onClick={() => {
@@ -1004,13 +987,7 @@ export default function Workflows() {
                   }
                   setNewMenuOpen((v) => !v);
                 }}
-                style={{
-                  display: "flex", alignItems: "center", gap: 7,
-                  padding: "9px 18px", borderRadius: 999,
-                  background: "#4f46e5", color: "white", border: "none",
-                  cursor: "pointer", fontSize: 13, fontWeight: 700,
-                  boxShadow: "0 2px 10px #4f46e530",
-                }}
+                className="sp-btn sp-btn-primary"
               >
                 <Plus style={{ width: 13, height: 13 }} />
                 New workflow
@@ -1057,14 +1034,13 @@ export default function Workflows() {
               )}
             </div>
           </div>
-          {error && <Alert variant="destructive" className="mt-3 rounded-xl"><AlertDescription>{error}</AlertDescription></Alert>}
-        </CardContent>
-      </Card>
+        </div>
+        {error && (
+          <div className="sp-banner sp-banner-error">{error}</div>
+        )}
 
-      {/* ── tabbed table card ── */}
-      <Card className="overflow-hidden rounded-[10px] border-[#dfe3e8] bg-white shadow-sm">
-
-        {/* tab bar */}
+        {/* The header, tabs and table are ONE frame in the design — the tab bar
+            sits under the header rule, not in a second floating card. */}
         <div className="sp-tabs">
           {(["workflows", "templates"] as const).map((tab) => {
             const active = activeTab === tab;
@@ -1252,7 +1228,7 @@ export default function Workflows() {
             )}
           </>
         )}
-      </Card>
+      </div>
 
       {/* Delete is irreversible and cascades to the workflow's run history. */}
       {pendingDelete && (
