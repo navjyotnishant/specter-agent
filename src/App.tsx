@@ -21,6 +21,41 @@ import WorkflowRun from "./pages/WorkflowRun";
 import Workflows from "./pages/Workflows";
 import { ParityHarness } from "./dev/ParityHarness";
 
+// Dev-only: seed a throwaway session for the design-parity harness, BEFORE the
+// app reads localStorage. Pages gate their queries on `Boolean(token)`, so with
+// no token every query stays disabled and never reads the pre-seeded cache —
+// the builder rendered "Untitled" with an empty canvas and the gate reported a
+// fully-built page as ~40 missing elements.
+//
+// Nothing is ever sent with this token; the harness resolves everything from
+// cache. `import.meta.env.DEV` is statically false in a production build, so
+// this block is dropped from the bundle entirely.
+if (import.meta.env.DEV && window.location.pathname.startsWith("/__parity")) {
+  const HARNESS_USER = {
+    id: "u-1", email: "admin@local.dev", role: "admin" as const,
+    created_at: "2026-06-19 09:00:00",
+  };
+  try {
+    localStorage.setItem("sdlc_auth_token", "parity-harness-not-a-real-token");
+    localStorage.setItem("sdlc_auth_user", JSON.stringify(HARNESS_USER));
+  } catch { /* storage disabled — token-gated queries will render empty */ }
+
+  // AuthProvider verifies the stored token against /auth/me on boot and calls
+  // clearSession() when that fails — which is exactly right for the real app and
+  // exactly wrong here, because it wiped the token before any page could read
+  // it. Answer only those two auth probes locally; every other request still
+  // goes to the network (and the seeded cache means none are made).
+  const realFetch = window.fetch.bind(window);
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes("/auth/status"))
+      return Promise.resolve(Response.json({ needs_setup: false }));
+    if (url.includes("/auth/me"))
+      return Promise.resolve(Response.json({ user: HARNESS_USER }));
+    return realFetch(input as RequestInfo, init);
+  }) as typeof window.fetch;
+}
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -43,8 +78,11 @@ const App = () => (
             {import.meta.env.DEV && (
               <>
                 <Route path="/__parity/:page" element={<ParityHarness />} />
-                {/* The builder reads :workflowId, so it needs the extra segment. */}
-                <Route path="/__parity/:page/:id" element={<ParityHarness />} />
+                {/* Named :workflowId, not :id — the builder reads useParams()
+                    .workflowId directly, so a differently-named segment left it
+                    on its "security-review-team" default and it queried a
+                    workflow the fixtures do not contain. */}
+                <Route path="/__parity/:page/:workflowId" element={<ParityHarness />} />
               </>
             )}
             <Route path="/workflowssecurity-review-team/builder" element={<Navigate to="/workflows/security-review-team/builder" replace />} />

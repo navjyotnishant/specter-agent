@@ -83,17 +83,26 @@ function seededClient() {
   return qc;
 }
 
-// The harness token itself lives in lib/auth.tsx's getStoredToken(), which is
-// where components read it from — localStorage is unavailable in a headless
-// browser with storage disabled, so seeding it here silently did nothing.
-
-
+// A throwaway token in localStorage, seeded at module scope so it is present
+// before any component reads it.
+//
+// Nothing is ever sent with it — every query resolves from the pre-seeded cache.
+// But pages gate their queries on `canUseBackend = Boolean(token)`, so without
+// one those queries stay DISABLED and never read the cache at all. On the
+// builder that meant React Flow mounted with zero nodes and the page rendered
+// "Untitled", which the gate reported as ~40 missing elements — a page that is
+// fully built, measured as though it did not exist.
+//
+// An earlier note here claimed localStorage was unavailable in a headless
+// browser. That was wrong: it works. The seeding lives in App.tsx because this
+// module is imported lazily by the route, which is after the app has already
+// read the token and decided it has no session.
 export function ParityHarness() {
-  const { page, id } = useParams<{ page: string; id?: string }>();
+  const { page, workflowId } = useParams<{ page: string; workflowId?: string }>();
 
   if (!import.meta.env.DEV) return null;
 
-  if (page && NEEDS_ID.has(page) && !id) {
+  if (page && NEEDS_ID.has(page) && !workflowId) {
     return (
       <div style={{ padding: 24, font: "13px ui-sans-serif, system-ui" }}>
         <p><code>{page}</code> needs a workflow id: <code>/__parity/{page}/{FIXTURE_WORKFLOW_ID}</code></p>
