@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/graph"
 	"github.com/navjyotnishant/specter-agent/internal/store"
@@ -59,24 +60,19 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration) e
 		return err
 	}
 
-	fmt.Printf("\n  %s\n", workflow.Name)
-	fmt.Printf("  %s\n\n", dim(approved))
-
 	jobs := exec.NewJobs()
 	jobs.SetLogger(func(level, message string) {
 		_ = db.AppendLog(ctx, runID, level, message)
 	})
 
-	failed := false
-	for _, node := range order {
-		if err := runNode(ctx, db, jobs, runID, node, approved, timeout); err != nil {
-			failed = true
-			fmt.Printf("  %s %s — %v\n", red("✗"), node.Name(), err)
-			// Stop at the first failure: later nodes consume earlier output, so
-			// continuing past a failure produces work built on nothing.
-			break
-		}
-		fmt.Printf("  %s %s\n", green("✓"), node.Name())
+	// Two presentations of one run. The tree redraws in place and needs a
+	// terminal; piped output must stay line-oriented so it greps and appends to
+	// a log file cleanly. Same execution either way — only the reporting differs.
+	var failed bool
+	if useColour {
+		failed = runWithLiveView(ctx, db, jobs, runID, workflow.Name, approved, order, timeout)
+	} else {
+		failed = runPlain(ctx, db, jobs, runID, workflow.Name, approved, order, timeout)
 	}
 
 	status := "completed"
@@ -107,6 +103,7 @@ func runNode(
 	node graph.Node,
 	workspace string,
 	timeout time.Duration,
+	onProgress func(string),
 ) error {
 	stepID, err := db.StartStep(ctx, runID, node.ID, node.Type)
 	if err != nil {
@@ -136,7 +133,12 @@ func runNode(
 		Dir:     workspace,
 		Timeout: timeout,
 		OnStdout: func(line string) {
-			exec.AppendProgress(line, func(text string) { jobs.Append(stepID, text) })
+			exec.AppendProgress(line, func(text string) {
+				jobs.Append(stepID, text)
+				if onProgress != nil {
+					onProgress(text)
+				}
+			})
 		},
 	})
 	jobs.Done(stepID)
@@ -229,4 +231,76 @@ func defaultDBPath() string {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+// runPlain reports line by line. Used when output is piped, redirected, or
+// NO_COLOR is set — a redrawing view in a log file is unreadable.
+func runPlain(
+	ctx context.Context, db *store.Store, jobs *exec.Jobs, runID, name, workspace string,
+	order []graph.Node, timeout time.Duration,
+) bool {
+	fmt.Printf("\n  %s\n  %s\n\n", name, workspace)
+	for _, node := range order {
+		if err := runNode(ctx, db, jobs, runID, node, workspace, timeout, nil); err != nil {
+			fmt.Printf("  %s %s — %v\n", red("✗"), node.Name(), err)
+			return true
+		}
+		fmt.Printf("  %s %s\n", green("✓"), node.Name())
+	}
+	return false
+}
+
+// runWithLiveView drives the Bubble Tea tree.
+//
+// Execution runs on its own goroutine and reports progress as messages; the
+// program owns the terminal. Running them the other way round would block the
+// event loop and freeze the view for the length of the run.
+func runWithLiveView(
+	ctx context.Context, db *store.Store, jobs *exec.Jobs, runID, name, workspace string,
+	order []graph.Node, timeout time.Duration,
+) bool {
+	model := newRunModel(name, workspace, confinementMechanism(), "read-only", "in place", order)
+	// WithAltScreen: the view redraws in place on its own screen and restores the
+	// terminal afterwards, so a multi-minute run does not leave hundreds of
+	// spinner frames scrolled into the user's scrollback.
+	program := tea.NewProgram(model, tea.WithAltScreen())
+
+	failed := make(chan bool, 1)
+	go func() {
+		anyFailed := false
+		for i, node := range order {
+			program.Send(nodeStartedMsg{index: i})
+
+			err := runNode(ctx, db, jobs, runID, node, workspace, timeout, func(line string) {
+				program.Send(nodeProgressMsg{index: i, line: line})
+			})
+
+			program.Send(nodeFinishedMsg{index: i, err: err})
+			if err != nil {
+				anyFailed = true
+				break
+			}
+		}
+		// A short pause so the final state is visible rather than flashing past
+		// as the program tears the view down.
+		time.Sleep(400 * time.Millisecond)
+		program.Send(runFinishedMsg{})
+		failed <- anyFailed
+	}()
+
+	if _, err := program.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "  view error: %v\n", err)
+	}
+	return <-failed
+}
+
+// confinementMechanism reports how this platform can confine a run.
+//
+// Honest about absence: an unconfined run says so on screen rather than
+// implying an isolation it does not have. Real enforcement lands in #36.
+func confinementMechanism() string {
+	if _, err := os.Stat("/usr/bin/sandbox-exec"); err == nil {
+		return "sandbox-exec"
+	}
+	return "none"
 }
