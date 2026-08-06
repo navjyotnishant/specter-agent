@@ -16,6 +16,7 @@ import (
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/graph"
 	"github.com/navjyotnishant/specter-agent/internal/store"
+	"github.com/navjyotnishant/specter-agent/internal/worktree"
 )
 
 // runWorkflow executes every node in dependency order.
@@ -29,6 +30,10 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, a
 		return err
 	}
 	defer db.Close()
+
+	// Read by the deferred worktree cleanup below: a failed run keeps its
+	// checkout so the failure can be examined.
+	var failedRun bool
 
 	// Ctrl-C must stop the agent, not just this process. Without the signal
 	// wired into the context, killing the CLI would orphan a running agent that
@@ -61,6 +66,23 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, a
 		return err
 	}
 
+	// The agent works on its own checkout, never the repository the user is in.
+	// A bad run costs a discarded directory rather than uncommitted work.
+	//
+	// The run id is the token, so a worktree left behind after a failure is
+	// traceable back to the run that produced it.
+	wt, err := worktree.Prepare(approved, "run-"+runID[:8], worktree.ModeReadOnly)
+	if err != nil {
+		_ = db.CompleteRun(ctx, runID, "failed", "")
+		return fmt.Errorf("preparing an isolated checkout: %w", err)
+	}
+	// Retained on failure so it can be inspected; Reap clears the backlog.
+	defer func() {
+		if !failedRun {
+			_ = wt.Remove()
+		}
+	}()
+
 	jobs := exec.NewJobs()
 	jobs.SetLogger(func(level, message string) {
 		_ = db.AppendLog(ctx, runID, level, message)
@@ -71,12 +93,13 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, a
 	// a log file cleanly. Same execution either way — only the reporting differs.
 	var failed bool
 	if asJSON {
-		failed = runQuiet(ctx, db, jobs, runID, approved, order, timeout)
+		failed = runQuiet(ctx, db, jobs, runID, wt.Path, order, timeout)
 	} else if useColour {
-		failed = runWithLiveView(ctx, db, jobs, runID, workflow.Name, approved, order, timeout)
+		failed = runWithLiveView(ctx, db, jobs, runID, workflow.Name, approved, wt, order, timeout)
 	} else {
-		failed = runPlain(ctx, db, jobs, runID, workflow.Name, approved, order, timeout)
+		failed = runPlain(ctx, db, jobs, runID, workflow.Name, wt.Path, order, timeout)
 	}
+	failedRun = failed
 
 	status := "completed"
 	if failed {
@@ -282,9 +305,9 @@ func runPlain(
 // event loop and freeze the view for the length of the run.
 func runWithLiveView(
 	ctx context.Context, db *store.Store, jobs *exec.Jobs, runID, name, workspace string,
-	order []graph.Node, timeout time.Duration,
+	wt *worktree.Worktree, order []graph.Node, timeout time.Duration,
 ) bool {
-	model := newRunModel(name, workspace, confinementMechanism(), "read-only", "in place", order)
+	model := newRunModel(name, workspace, confinementMechanism(), "read-only", wt.Describe(), order)
 	// WithAltScreen: the view redraws in place on its own screen and restores the
 	// terminal afterwards, so a multi-minute run does not leave hundreds of
 	// spinner frames scrolled into the user's scrollback.
@@ -296,7 +319,7 @@ func runWithLiveView(
 		for i, node := range order {
 			program.Send(nodeStartedMsg{index: i})
 
-			err := runNode(ctx, db, jobs, runID, node, workspace, timeout, func(line string) {
+			err := runNode(ctx, db, jobs, runID, node, wt.Path, timeout, func(line string) {
 				program.Send(nodeProgressMsg{index: i, line: line})
 			})
 
