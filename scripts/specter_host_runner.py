@@ -224,7 +224,7 @@ def launchd_restart() -> dict[str, Any]:
 # The logger is injected rather than imported: this runner scrubs secrets into its
 # own log ring, and the backend logs differently. jobs.py should know neither.
 from specter_exec import jobs  # noqa: E402
-from specter_exec import agent_output  # noqa: E402
+from specter_exec import agent_output, agents  # noqa: E402
 
 
 # Kept as wrappers so the ~20 call sites below stay unchanged; the parsing itself
@@ -1222,34 +1222,12 @@ def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
 # check_auth_fn: returns (authenticated: bool, note: str) for health reporting
 # install_check: callable that returns path or None
 
-def _resolve_cli(*names: str) -> str | None:
-    """Locate a CLI by name, tolerating launchd's minimal PATH.
-
-    Under launchd the runner inherits PATH=/usr/bin:/bin:/usr/sbin:/sbin, so
-    shutil.which() misses every user- and Homebrew-installed CLI and the agent
-    gets reported as "not installed" while it is sitting in ~/.local/bin. Check
-    the usual install roots explicitly as a fallback.
-    """
-    roots = CLI_INSTALL_ROOTS
-    for name in names:
-        found = shutil.which(name)
-        if found:
-            return found
-        for root in roots:
-            candidate = root / name
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                return str(candidate)
-    return None
-
-
-def _claude_path() -> str | None:
-    return _resolve_cli("claude")
-
-def _cursor_agent_path() -> str | None:
-    return _resolve_cli("cursor-agent", "cursor")
-
-def _gemini_path() -> str | None:
-    return _resolve_cli("gemini")
+# CLI lookup moved to specter_exec/agents.py -- the backend needs the same
+# launchd-PATH handling when it spawns agents itself.
+_resolve_cli = agents.resolve_cli
+_claude_path = agents.claude_path
+_cursor_agent_path = agents.cursor_path
+_gemini_path = agents.gemini_path
 
 def _check_gemini_auth() -> tuple[bool, str]:
     """Gemini CLI stores its signed-in Google accounts in ~/.gemini.
