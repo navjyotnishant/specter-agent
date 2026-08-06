@@ -25,6 +25,16 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "run":
+		if err := cmdRun(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "\n  %s %v\n\n", red("✗"), err)
+			os.Exit(1)
+		}
+	case "workflows", "ls":
+		if err := cmdWorkflows(); err != nil {
+			fmt.Fprintf(os.Stderr, "  %v\n", err)
+			os.Exit(1)
+		}
 	case "--version", "-v", "version":
 		fmt.Printf("specter %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
 	case "status":
@@ -83,8 +93,14 @@ func usage() {
 	fmt.Print(`specter — run Specter workflows from your terminal
 
   specter                    what this machine can do right now
+  specter run <workflow>     run a workflow here
+  specter workflows          what you can run
   specter status             agents, confinement, approved repositories
   specter version            build information
+
+Options for run
+  --repo <path>              which repository to run against
+  --timeout <duration>       per-node limit (default 10m)
 
 Runs execute in this process. Nothing needs to be running first.
 `)

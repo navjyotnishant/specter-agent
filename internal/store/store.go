@@ -19,6 +19,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -206,6 +207,84 @@ func (s *Store) Logs(ctx context.Context, runID string, since int) ([]LogEntry, 
 			return nil, err
 		}
 		out = append(out, entry)
+	}
+	return out, rows.Err()
+}
+
+// Workflow mirrors a workflows row.
+type Workflow struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	GraphJSON string `json:"graph_json"`
+}
+
+// FindWorkflow resolves a workflow by id or by name.
+//
+// Name first, because that is what a person types. An exact match wins outright;
+// a unique prefix is accepted so `specter run pre-push` works. An ambiguous
+// prefix is an error listing the candidates rather than a guess — running the
+// wrong workflow is worse than being asked to be specific.
+func (s *Store) FindWorkflow(ctx context.Context, ref string) (Workflow, error) {
+	var w Workflow
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, name, graph_json FROM workflows WHERE id = ? OR name = ?`, ref, ref).
+		Scan(&w.ID, &w.Name, &w.GraphJSON)
+	if err == nil {
+		return w, nil
+	}
+	if err != sql.ErrNoRows {
+		return Workflow{}, fmt.Errorf("looking up workflow: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, graph_json FROM workflows WHERE name LIKE ? ORDER BY name`, ref+"%")
+	if err != nil {
+		return Workflow{}, fmt.Errorf("looking up workflow: %w", err)
+	}
+	defer rows.Close()
+
+	var matches []Workflow
+	for rows.Next() {
+		var candidate Workflow
+		if err := rows.Scan(&candidate.ID, &candidate.Name, &candidate.GraphJSON); err != nil {
+			return Workflow{}, err
+		}
+		matches = append(matches, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return Workflow{}, err
+	}
+
+	switch len(matches) {
+	case 0:
+		return Workflow{}, fmt.Errorf("no workflow matches %q", ref)
+	case 1:
+		return matches[0], nil
+	default:
+		names := make([]string, len(matches))
+		for i, candidate := range matches {
+			names[i] = candidate.Name
+		}
+		return Workflow{}, fmt.Errorf("%q matches several workflows: %s", ref, strings.Join(names, ", "))
+	}
+}
+
+// Workflows lists non-template workflows, newest first.
+func (s *Store) Workflows(ctx context.Context) ([]Workflow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, graph_json FROM workflows WHERE is_template = 0 ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("listing workflows: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Workflow
+	for rows.Next() {
+		var w Workflow
+		if err := rows.Scan(&w.ID, &w.Name, &w.GraphJSON); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
 	}
 	return out, rows.Err()
 }
