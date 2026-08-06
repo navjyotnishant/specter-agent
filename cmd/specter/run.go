@@ -13,6 +13,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/navjyotnishant/specter-agent/internal/confine"
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/graph"
 	"github.com/navjyotnishant/specter-agent/internal/store"
@@ -169,11 +170,25 @@ func runNode(
 	defer cancelNode()
 	jobs.SetCancel(stepID, cancelNode)
 
+	// Defence in depth. --permission-mode plan is the agent's OWN guardrail and
+	// is advisory -- an agent can shell out past it. The OS profile is not.
+	// Neither alone is sufficient.
+	argv := []string{agentPath, "--permission-mode", "plan", "-p", prompt}
+	confined, info, err := confine.Wrap(argv, workspace)
+	if err != nil {
+		_ = db.CompleteStep(ctx, stepID, "failed")
+		return err
+	}
+	if info.Mechanism == confine.MechanismNone {
+		// Said out loud rather than left implicit: a run nobody knows is
+		// unconfined is the failure this whole layer exists to prevent.
+		jobs.Append(stepID, "warning: running unconfined — "+info.Reason)
+	}
+
 	result := exec.RunStreaming(nodeCtx, exec.Command{
-		// --permission-mode plan: read-only is the default, and the agent's own
-		// guardrail is the first of two. OS confinement is the second (#36).
-		Argv:    []string{agentPath, "--permission-mode", "plan", "-p", prompt},
+		Argv:    confined,
 		Dir:     workspace,
+		Env:     confine.Env(os.Environ(), workspace),
 		Timeout: timeout,
 		OnStdout: func(line string) {
 			exec.AppendProgress(line, func(text string) {
@@ -347,10 +362,7 @@ func runWithLiveView(
 // Honest about absence: an unconfined run says so on screen rather than
 // implying an isolation it does not have. Real enforcement lands in #36.
 func confinementMechanism() string {
-	if _, err := os.Stat("/usr/bin/sandbox-exec"); err == nil {
-		return "sandbox-exec"
-	}
-	return "none"
+	return string(confine.Detect().Mechanism)
 }
 
 // runQuiet executes without any progress output at all.
