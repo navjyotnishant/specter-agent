@@ -1,0 +1,18 @@
+{
+  "simple": {
+    "password": "hunter2",
+    "hash": "$2b$12$FRTYnTri/bkSFSZS03Nm6OMfgMeVJZrcubwe1YKpzzrC2xOh7aQA6"
+  },
+  "with_spaces": {
+    "password": "correct horse battery staple",
+    "hash": "$2b$12$FbXi1Q2VMklbAyjiAybwD.8SRVKyIHOiXaYnt3I.YhrcBQLhO1IHu"
+  },
+  "unicode": {
+    "password": "pässwörd-✓",
+    "hash": "$2b$12$r6RC51EFug33dvOLmG.gku7/1srpJIrV8OnVNPxKQrvOGBkrEg2M2"
+  },
+  "long71": {
+    "password": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "hash": "$2b$12$SBWO1GZ/Q.TvER5YxMoiVuJNrbojy/ev..tNysjnQm7guM13HnSfi"
+  }
+}

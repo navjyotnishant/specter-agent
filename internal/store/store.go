@@ -18,6 +18,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"fmt"
 	"strings"
 	"time"
@@ -75,10 +76,30 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("connecting to database: %w", err)
 	}
+
+	// Create the schema if it is not already there. Every statement is CREATE …
+	// IF NOT EXISTS, so this is a no-op against a database Python already
+	// initialised — which is the case that matters, since both backends run
+	// against one file during cutover.
+	//
+	// Without this the Go binary would require the Python backend to have
+	// started at least once, which is not a replacement.
+	if _, err := db.Exec(schemaSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("applying schema: %w", err)
+	}
 	return &Store{db: db}, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+//go:embed schema.sql
+var schemaSQL string
+
+// DB exposes the underlying handle for packages that own their own tables
+// (auth sessions, users). Everything run-related goes through the methods
+// below instead, so the run schema has exactly one writer.
+func (s *Store) DB() *sql.DB { return s.db }
 
 // now formats timestamps the way the Python backend does, so rows written by
 // either side sort and parse identically.
