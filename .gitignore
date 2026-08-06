@@ -43,3 +43,8 @@ codebases/*
 # Playwright MCP console dumps (local debugging)
 .playwright-mcp/
 .nj-agents-reports/
+
+# Go build artifacts
+/specter
+/dist/
+*.test
