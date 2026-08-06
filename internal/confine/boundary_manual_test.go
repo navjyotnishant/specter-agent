@@ -41,6 +41,9 @@ func TestBoundaryAgainstRealHome(t *testing.T) {
 		// A file this test knows exists: go test runs in the package directory,
 		// so the repository root is not the working directory.
 		{"reading the workspace is allowed", "head -1 " + workspace + "/confine.go", true},
+		// G5 depends on this: ~/.ssh is denied, so the PR path must authenticate
+		// some other way. gh keeps its token in the macOS keyring, not on disk.
+		{"gh stays authenticated", "gh auth status", true},
 	}
 
 	for _, probe := range probes {

@@ -16,6 +16,7 @@ import (
 	"github.com/navjyotnishant/specter-agent/internal/confine"
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/graph"
+	"github.com/navjyotnishant/specter-agent/internal/publish"
 	"github.com/navjyotnishant/specter-agent/internal/store"
 	"github.com/navjyotnishant/specter-agent/internal/worktree"
 )
@@ -25,7 +26,7 @@ import (
 // In-process: no server, no daemon, no HTTP. Progress is written to the same
 // database the web UI reads, so the run is visible there as it happens without
 // the two ever talking to each other.
-func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, asJSON bool) error {
+func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, asJSON, write bool) error {
 	db, err := store.Open(dbPath)
 	if err != nil {
 		return err
@@ -72,7 +73,13 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, a
 	//
 	// The run id is the token, so a worktree left behind after a failure is
 	// traceable back to the run that produced it.
-	wt, err := worktree.Prepare(approved, "run-"+runID[:8], worktree.ModeReadOnly)
+	// Read-only unless asked otherwise. An agent that can edit by default is one
+	// bad prompt away from changing something nobody reviewed.
+	mode := worktree.ModeReadOnly
+	if write {
+		mode = worktree.ModeReadWrite
+	}
+	wt, err := worktree.Prepare(approved, "run-"+runID[:8], mode)
 	if err != nil {
 		_ = db.CompleteRun(ctx, runID, "failed", "")
 		return fmt.Errorf("preparing an isolated checkout: %w", err)
@@ -94,17 +101,30 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, a
 	// a log file cleanly. Same execution either way — only the reporting differs.
 	var failed bool
 	if asJSON {
-		failed = runQuiet(ctx, db, jobs, runID, wt.Path, order, timeout)
+		failed = runQuiet(ctx, db, jobs, runID, wt.Path, order, timeout, write)
 	} else if useColour {
-		failed = runWithLiveView(ctx, db, jobs, runID, workflow.Name, approved, wt, order, timeout)
+		failed = runWithLiveView(ctx, db, jobs, runID, workflow.Name, approved, wt, order, timeout, write)
 	} else {
-		failed = runPlain(ctx, db, jobs, runID, workflow.Name, wt.Path, order, timeout)
+		failed = runPlain(ctx, db, jobs, runID, workflow.Name, wt.Path, order, timeout, write)
 	}
 	failedRun = failed
 
 	status := "completed"
 	if failed {
 		status = "failed"
+	}
+
+	// A successful write run becomes a branch and a pull request. Never a commit
+	// on the branch the user is standing on -- the whole point is that the work
+	// is reviewed before it is theirs.
+	var published publish.Result
+	if write && !failed && ctx.Err() == nil {
+		published = publishRun(wt, workflow.Name, order)
+		// The branch is the work. Keep the worktree so nothing is lost if the
+		// push or the PR failed.
+		if published.Committed && published.PullRequest == "" {
+			failedRun = true
+		}
 	}
 	if ctx.Err() != nil {
 		status = "cancelled"
@@ -117,19 +137,25 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, a
 
 	if asJSON {
 		steps, _ := db.Steps(ctx, runID)
-		out, err := json.MarshalIndent(map[string]any{
+		payload := map[string]any{
 			"run_id":    runID,
 			"workflow":  workflow.Name,
 			"status":    status,
 			"workspace": approved,
 			"steps":     steps,
-		}, "", "  ")
+		}
+		if write {
+			payload["published"] = published
+		}
+		out, err := json.MarshalIndent(payload, "", "  ")
 		if err != nil {
 			return err
 		}
 		fmt.Println(string(out))
 	} else {
-		fmt.Printf("\n  %s · %s\n\n", status, dim(runID))
+		fmt.Printf("\n  %s · %s\n", status, dim(runID))
+		reportPublished(published)
+		fmt.Println()
 	}
 
 	// Exit code carries the verdict for a script that does not parse the output.
@@ -147,6 +173,7 @@ func runNode(
 	node graph.Node,
 	workspace string,
 	timeout time.Duration,
+	allowWrite bool,
 	onProgress func(string),
 ) error {
 	stepID, err := db.StartStep(ctx, runID, node.ID, node.Type)
@@ -173,7 +200,14 @@ func runNode(
 	// Defence in depth. --permission-mode plan is the agent's OWN guardrail and
 	// is advisory -- an agent can shell out past it. The OS profile is not.
 	// Neither alone is sufficient.
-	argv := []string{agentPath, "--permission-mode", "plan", "-p", prompt}
+	// plan is read-only; acceptEdits lets the agent write. Advisory either way --
+	// an agent can shell out past its own flag -- which is why the OS profile
+	// below is the boundary that actually holds.
+	permission := "plan"
+	if allowWrite {
+		permission = "acceptEdits"
+	}
+	argv := []string{agentPath, "--permission-mode", permission, "-p", prompt}
 	confined, info, err := confine.Wrap(argv, workspace)
 	if err != nil {
 		_ = db.CompleteStep(ctx, stepID, "failed")
@@ -227,6 +261,7 @@ func cmdRun(args []string) error {
 	timeout := flags.Duration("timeout", 10*time.Minute, "per-node time limit")
 	dbPath := flags.String("db", defaultDBPath(), "path to the Specter database")
 	asJSON := flags.Bool("json", false, "emit a machine-readable result")
+	write := flags.Bool("write", false, "allow the agent to change files, and open a pull request with the result")
 	// Go's flag package stops parsing at the first positional argument, so
 	// `specter run my-workflow --json` would silently ignore every flag — the
 	// run proceeds against the wrong repo, unconfined, with no warning. People
@@ -248,7 +283,7 @@ func cmdRun(args []string) error {
 		}
 		workspace = cwd
 	}
-	return runWorkflow(*dbPath, flags.Arg(0), workspace, *timeout, *asJSON)
+	return runWorkflow(*dbPath, flags.Arg(0), workspace, *timeout, *asJSON, *write)
 }
 
 func cmdWorkflows() error {
@@ -300,11 +335,11 @@ func fileExists(path string) bool {
 // NO_COLOR is set — a redrawing view in a log file is unreadable.
 func runPlain(
 	ctx context.Context, db *store.Store, jobs *exec.Jobs, runID, name, workspace string,
-	order []graph.Node, timeout time.Duration,
+	order []graph.Node, timeout time.Duration, allowWrite bool,
 ) bool {
 	fmt.Printf("\n  %s\n  %s\n\n", name, workspace)
 	for _, node := range order {
-		if err := runNode(ctx, db, jobs, runID, node, workspace, timeout, nil); err != nil {
+		if err := runNode(ctx, db, jobs, runID, node, workspace, timeout, allowWrite, nil); err != nil {
 			fmt.Printf("  %s %s — %v\n", red("✗"), node.Name(), err)
 			return true
 		}
@@ -320,7 +355,7 @@ func runPlain(
 // event loop and freeze the view for the length of the run.
 func runWithLiveView(
 	ctx context.Context, db *store.Store, jobs *exec.Jobs, runID, name, workspace string,
-	wt *worktree.Worktree, order []graph.Node, timeout time.Duration,
+	wt *worktree.Worktree, order []graph.Node, timeout time.Duration, allowWrite bool,
 ) bool {
 	model := newRunModel(name, workspace, confinementMechanism(), "read-only", wt.Describe(), order)
 	// WithAltScreen: the view redraws in place on its own screen and restores the
@@ -334,7 +369,7 @@ func runWithLiveView(
 		for i, node := range order {
 			program.Send(nodeStartedMsg{index: i})
 
-			err := runNode(ctx, db, jobs, runID, node, wt.Path, timeout, func(line string) {
+			err := runNode(ctx, db, jobs, runID, node, wt.Path, timeout, allowWrite, func(line string) {
 				program.Send(nodeProgressMsg{index: i, line: line})
 			})
 
@@ -371,10 +406,10 @@ func confinementMechanism() string {
 // tree or a log interleaved with it.
 func runQuiet(
 	ctx context.Context, db *store.Store, jobs *exec.Jobs, runID, workspace string,
-	order []graph.Node, timeout time.Duration,
+	order []graph.Node, timeout time.Duration, allowWrite bool,
 ) bool {
 	for _, node := range order {
-		if err := runNode(ctx, db, jobs, runID, node, workspace, timeout, nil); err != nil {
+		if err := runNode(ctx, db, jobs, runID, node, workspace, timeout, allowWrite, nil); err != nil {
 			return true
 		}
 	}
@@ -407,4 +442,70 @@ func reorderFlagsFirst(args []string) []string {
 		}
 	}
 	return append(flagArgs, positional...)
+}
+
+// publishRun turns a completed write run into a reviewable pull request.
+//
+// Every step degrades rather than failing: the branch exists locally either way,
+// so a push or PR that cannot happen leaves the work recoverable and says how.
+// Losing an agent's output because gh was missing would be the worst outcome
+// here.
+func publishRun(wt *worktree.Worktree, workflowName string, order []graph.Node) publish.Result {
+	if wt.Branch == "" {
+		return publish.Result{Manual: "this run had no branch, so there is nothing to publish"}
+	}
+
+	objective := workflowName
+	if len(order) > 0 {
+		objective = order[0].Data.Objective
+	}
+
+	result, err := publish.Commit(wt.Path, wt.Branch, objective)
+	if err != nil {
+		return publish.Result{Manual: fmt.Sprintf("could not commit: %v", err)}
+	}
+	if !result.Committed {
+		// A legitimate outcome: the agent decided nothing needed changing.
+		return result
+	}
+
+	remote, err := publish.Push(wt.Path, wt.Branch)
+	if err != nil {
+		result.Manual = fmt.Sprintf("committed to %s but could not push: %v", wt.Branch, err)
+		return result
+	}
+	result.PushedTo = remote
+
+	title := fmt.Sprintf("%s: %s", workflowName, firstLineOf(objective))
+	body := fmt.Sprintf(
+		"Produced by a Specter agent run.\n\n**Workflow:** %s\n**Objective:** %s\n\n"+
+			"Opened as a draft. Review the diff before marking it ready.\n",
+		workflowName, objective)
+
+	url, err := publish.OpenPR(wt.Path, wt.Branch, title, body)
+	if err != nil {
+		result.Manual = fmt.Sprintf("pushed %s — open a PR from it (%v)", wt.Branch, err)
+		return result
+	}
+	result.PullRequest = url
+	return result
+}
+
+func reportPublished(result publish.Result) {
+	switch {
+	case result.PullRequest != "":
+		fmt.Printf("  %s %s\n", green("→"), result.PullRequest)
+	case result.Manual != "":
+		fmt.Printf("  %s %s\n", dim("→"), result.Manual)
+	case result.Branch != "" && !result.Committed:
+		fmt.Printf("  %s\n", dim("no changes to publish"))
+	}
+}
+
+func firstLineOf(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	if len(line) > 60 {
+		line = line[:60]
+	}
+	return line
 }
