@@ -158,6 +158,18 @@ A readable-but-not-executable file is not a match. Returning it would surface as
 **One binary.** The CLI and the server are the same artifact with different entry
 points. No interpreter to ship, no venv, no version to match.
 
+**Startup, measured rather than claimed** — 20 runs each on an M-series Mac:
+
+| | median | best |
+|---|---|---|
+| Go binary | **6.7 ms** | 5.8 ms |
+| Python CLI | 83.8 ms | 73.2 ms |
+
+12.4x, and the Python figure is generous: it is the bare interpreter, not a
+PyInstaller bundle, which additionally unpacks itself on every invocation. For a
+command run dozens of times a day this is the difference between instant and
+noticeable.
+
 **No bridge natively.** Nothing needs to be running before a terminal command
 works. The HTTP hop that a container requires costs 1.33 ms against a 244.8 s mean
 run — 0.0005 %, measured — so its removal is not a performance decision. It is
