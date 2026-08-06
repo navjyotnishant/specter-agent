@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -22,7 +23,7 @@ import (
 // In-process: no server, no daemon, no HTTP. Progress is written to the same
 // database the web UI reads, so the run is visible there as it happens without
 // the two ever talking to each other.
-func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration) error {
+func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, asJSON bool) error {
 	db, err := store.Open(dbPath)
 	if err != nil {
 		return err
@@ -69,7 +70,9 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration) e
 	// terminal; piped output must stay line-oriented so it greps and appends to
 	// a log file cleanly. Same execution either way — only the reporting differs.
 	var failed bool
-	if useColour {
+	if asJSON {
+		failed = runQuiet(ctx, db, jobs, runID, approved, order, timeout)
+	} else if useColour {
 		failed = runWithLiveView(ctx, db, jobs, runID, workflow.Name, approved, order, timeout)
 	} else {
 		failed = runPlain(ctx, db, jobs, runID, workflow.Name, approved, order, timeout)
@@ -88,7 +91,24 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration) e
 		fmt.Fprintf(os.Stderr, "  warning: could not record completion: %v\n", err)
 	}
 
-	fmt.Printf("\n  %s · %s\n\n", status, dim(runID))
+	if asJSON {
+		steps, _ := db.Steps(ctx, runID)
+		out, err := json.MarshalIndent(map[string]any{
+			"run_id":    runID,
+			"workflow":  workflow.Name,
+			"status":    status,
+			"workspace": approved,
+			"steps":     steps,
+		}, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(out))
+	} else {
+		fmt.Printf("\n  %s · %s\n\n", status, dim(runID))
+	}
+
+	// Exit code carries the verdict for a script that does not parse the output.
 	if failed {
 		return fmt.Errorf("workflow failed")
 	}
@@ -168,7 +188,12 @@ func cmdRun(args []string) error {
 	repo := flags.String("repo", "", "repository to run against (default: current directory)")
 	timeout := flags.Duration("timeout", 10*time.Minute, "per-node time limit")
 	dbPath := flags.String("db", defaultDBPath(), "path to the Specter database")
-	if err := flags.Parse(args); err != nil {
+	asJSON := flags.Bool("json", false, "emit a machine-readable result")
+	// Go's flag package stops parsing at the first positional argument, so
+	// `specter run my-workflow --json` would silently ignore every flag — the
+	// run proceeds against the wrong repo, unconfined, with no warning. People
+	// type the workflow name first; reorder rather than making them learn this.
+	if err := flags.Parse(reorderFlagsFirst(args)); err != nil {
 		return err
 	}
 	if flags.NArg() < 1 {
@@ -185,7 +210,7 @@ func cmdRun(args []string) error {
 		}
 		workspace = cwd
 	}
-	return runWorkflow(*dbPath, flags.Arg(0), workspace, *timeout)
+	return runWorkflow(*dbPath, flags.Arg(0), workspace, *timeout, *asJSON)
 }
 
 func cmdWorkflows() error {
@@ -303,4 +328,48 @@ func confinementMechanism() string {
 		return "sandbox-exec"
 	}
 	return "none"
+}
+
+// runQuiet executes without any progress output at all.
+//
+// For --json: a machine reading the result wants one object on stdout, not a
+// tree or a log interleaved with it.
+func runQuiet(
+	ctx context.Context, db *store.Store, jobs *exec.Jobs, runID, workspace string,
+	order []graph.Node, timeout time.Duration,
+) bool {
+	for _, node := range order {
+		if err := runNode(ctx, db, jobs, runID, node, workspace, timeout, nil); err != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// reorderFlagsFirst moves flags ahead of positional arguments.
+//
+// Go's flag package stops at the first non-flag, so `run wf --json` parses
+// nothing. Silently ignoring --repo would run against the wrong directory, which
+// is a correctness problem rather than a usability one.
+func reorderFlagsFirst(args []string) []string {
+	var flagArgs, positional []string
+
+	// Flags that take a value, so the value is not mistaken for a positional.
+	takesValue := map[string]bool{"--repo": true, "-repo": true, "--timeout": true,
+		"-timeout": true, "--db": true, "-db": true}
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") {
+			positional = append(positional, arg)
+			continue
+		}
+		flagArgs = append(flagArgs, arg)
+		// --repo=/path carries its own value; --repo /path takes the next arg.
+		if takesValue[arg] && !strings.Contains(arg, "=") && i+1 < len(args) {
+			i++
+			flagArgs = append(flagArgs, args[i])
+		}
+	}
+	return append(flagArgs, positional...)
 }

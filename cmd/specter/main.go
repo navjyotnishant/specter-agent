@@ -27,6 +27,8 @@ func main() {
 	switch os.Args[1] {
 	case "run":
 		if err := cmdRun(os.Args[2:]); err != nil {
+			// Errors go to stderr so --json keeps stdout parseable, and the
+			// exit code carries the verdict for scripts that read neither.
 			fmt.Fprintf(os.Stderr, "\n  %s %v\n\n", red("✗"), err)
 			os.Exit(1)
 		}
