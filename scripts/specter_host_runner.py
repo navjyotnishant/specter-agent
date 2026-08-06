@@ -26,6 +26,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+# The execution engine lives beside this script, not inside it: the backend
+# imports the same package when it runs natively. Path set before any
+# specter_exec import below.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 
 HOST_RUNNER_VERSION = "1.1.0"
 
@@ -212,59 +217,23 @@ def launchd_restart() -> dict[str, Any]:
 
 
 # ── live job progress store ───────────────────────────────────────────────────
-_JOB_LOCK = threading.Lock()
-_JOBS: dict[str, dict[str, Any]] = {}  # token → {lines: [...], done: bool, proc: Popen|None}
+# Moved to specter_exec/jobs.py: the backend needs the same tracking when it runs
+# natively and spawns agents itself. State is per-process by nature -- it holds a
+# live Popen handle -- so whichever process spawns a run also owns its job.
+#
+# The logger is injected rather than imported: this runner scrubs secrets into its
+# own log ring, and the backend logs differently. jobs.py should know neither.
+from specter_exec import jobs  # noqa: E402
 
+jobs.set_logger(lambda level, message: log_event(level, message))
 
-def _job_create(token: str) -> None:
-    with _JOB_LOCK:
-        _JOBS[token] = {"lines": [], "done": False, "proc": None}
+_job_create = jobs.create
+_job_set_proc = jobs.set_proc
+_job_append = jobs.append
+_job_done = jobs.done
+_job_kill = jobs.kill
+_job_tail = jobs.tail
 
-
-def _job_set_proc(token: str, proc: Any) -> None:
-    with _JOB_LOCK:
-        if token in _JOBS:
-            _JOBS[token]["proc"] = proc
-
-
-def _job_append(token: str, line: str) -> None:
-    with _JOB_LOCK:
-        if token in _JOBS:
-            _JOBS[token]["lines"].append(line)
-    if line.strip():
-        log_event("info", line.strip(), job_token=token)
-
-
-def _job_done(token: str) -> None:
-    with _JOB_LOCK:
-        if token in _JOBS:
-            _JOBS[token]["done"] = True
-            _JOBS[token]["proc"] = None
-
-
-def _job_kill(token: str) -> bool:
-    with _JOB_LOCK:
-        job = _JOBS.get(token)
-        if not job:
-            return False
-        proc = job.get("proc")
-        if proc is not None:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-        job["done"] = True
-        job["proc"] = None
-    return True
-
-
-def _job_tail(token: str, since: int) -> dict[str, Any]:
-    with _JOB_LOCK:
-        job = _JOBS.get(token)
-        if not job:
-            return {"ok": False, "lines": [], "done": True}
-        lines = job["lines"][since:]
-        return {"ok": True, "lines": lines, "done": job["done"], "total": len(job["lines"])}
 SCAN_IGNORE_DIRS = {
     ".cache",
     ".codex",
@@ -2216,7 +2185,6 @@ CLONE_ROOT = Path.home() / ".specter" / "imports"
 # Access control moved to specter_exec/allowlist.py: the backend enforces the
 # same two gates when it runs natively and imports the engine directly, so the
 # rules cannot live in this file alone.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from specter_exec.allowlist import (  # noqa: E402
     RUNNER_AUTH_HEADER,
     RUNNER_TOKEN_FILE,
