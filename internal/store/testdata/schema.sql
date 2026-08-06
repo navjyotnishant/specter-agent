@@ -13,6 +13,17 @@ CREATE TABLE IF NOT EXISTS users (
   last_seen_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS user_integrations (
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  -- Encrypted at rest via app.runtime.secretbox; never stored in plaintext.
+  secret_enc TEXT NOT NULL DEFAULT '',
+  config_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, provider),
+  FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS auth_sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,

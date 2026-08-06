@@ -88,13 +88,46 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("applying schema: %w", err)
 	}
+	if err := applyMigrations(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
+}
+
+// applyMigrations adds the columns Python adds via _add_column_if_missing.
+//
+// These are NOT optional extras: workflows.workspace_path is the only source a
+// trigger-started run can read for its repository, and it exists solely as a
+// migration. A Go-created database without them is missing columns the running
+// application depends on.
+//
+// SQLite has no ADD COLUMN IF NOT EXISTS, so each statement runs on its own and
+// "duplicate column name" means it is already applied — the expected result
+// against any database Python has touched.
+func applyMigrations(db *sql.DB) error {
+	for _, stmt := range strings.Split(migrationsSQL, ";") {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" || strings.HasPrefix(stmt, "--") {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
+			return fmt.Errorf("migration %q: %w", stmt, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
 
 //go:embed schema.sql
 var schemaSQL string
+
+//go:embed migrations.sql
+var migrationsSQL string
 
 // DB exposes the underlying handle for packages that own their own tables
 // (auth sessions, users). Everything run-related goes through the methods

@@ -187,3 +187,66 @@ func TestConcurrentReaderSeesWriterRows(t *testing.T) {
 		t.Fatalf("got %q, want %q", got.ID, runID)
 	}
 }
+
+// A Go-created database must have the SAME columns as one Python created.
+//
+// The schema fixture alone is not enough: Python adds 9 columns through
+// _add_column_if_missing at startup, and they are not optional extras.
+// workflows.workspace_path is the only source a trigger-started run can read
+// for its repository, and it exists solely as a migration. A fresh Go database
+// missing it fails at runtime, not at startup.
+func TestMigrationColumnsAreApplied(t *testing.T) {
+	s, err := Open(t.TempDir() + "/fresh.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	required := map[string][]string{
+		"users":              {"updated_at", "last_seen_at"},
+		"runtime_workspaces": {"updated_at"},
+		"workflow_runs":      {"graph_json", "workspace_path", "run_input_json"},
+		"approval_requests":  {"expires_at"},
+		"skills":             {"source_repo"},
+		"workflows":          {"workspace_path"},
+	}
+
+	for table, columns := range required {
+		rows, err := s.DB().Query("PRAGMA table_info(" + table + ")")
+		if err != nil {
+			t.Fatalf("%s: %v", table, err)
+		}
+		present := map[string]bool{}
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notNull, pk int
+			var dflt any
+			if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+				t.Fatal(err)
+			}
+			present[name] = true
+		}
+		rows.Close()
+
+		for _, col := range columns {
+			if !present[col] {
+				t.Errorf("%s.%s missing — Python adds it by migration, so a Go-created database diverges", table, col)
+			}
+		}
+	}
+}
+
+// Opening twice must be a no-op, not an error: every `specter` invocation opens
+// the same database, and the second one would fail if migrations were not
+// idempotent.
+func TestOpenIsIdempotent(t *testing.T) {
+	path := t.TempDir() + "/twice.db"
+	for i := 0; i < 3; i++ {
+		s, err := Open(path)
+		if err != nil {
+			t.Fatalf("open %d: %v", i+1, err)
+		}
+		s.Close()
+	}
+}
