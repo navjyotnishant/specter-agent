@@ -224,6 +224,17 @@ def launchd_restart() -> dict[str, Any]:
 # The logger is injected rather than imported: this runner scrubs secrets into its
 # own log ring, and the backend logs differently. jobs.py should know neither.
 from specter_exec import jobs  # noqa: E402
+from specter_exec import agent_output  # noqa: E402
+
+
+# Kept as wrappers so the ~20 call sites below stay unchanged; the parsing itself
+# lives in specter_exec/agent_output.py, which the backend uses too.
+def append_codex_progress(job_token: str, line: str) -> None:
+    agent_output.append_progress(line, lambda text: _job_append(job_token, text))
+
+
+extract_codex_final_message = agent_output.final_message
+extract_codex_error_message = agent_output.error_message
 
 jobs.set_logger(lambda level, message: log_event(level, message))
 
@@ -998,30 +1009,6 @@ def run_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def append_codex_progress(job_token: str, line: str) -> None:
-    stripped = line.strip()
-    if not stripped:
-        return
-    if not stripped.startswith("{"):
-        _job_append(job_token, stripped)
-        return
-
-    try:
-        ev = json.loads(stripped)
-        ev_type = ev.get("type", "") if isinstance(ev, dict) else ""
-        if ev_type == "item.completed":
-            item = ev.get("item") or {}
-            text = item.get("text") or item.get("content") or ""
-            if text and isinstance(text, str):
-                _job_append(job_token, text[:2000])
-        elif ev_type == "turn.completed":
-            usage = ev.get("usage") or {}
-            out_tok = usage.get("output_tokens", "?")
-            _job_append(job_token, f"[turn completed - {out_tok} output tokens]")
-    except Exception:
-        return
-
-
 def safe_sandbox_name(value: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9.+-]+", "-", value).strip("-").lower()
     return f"specter-{cleaned[:48] or 'run'}"
@@ -1227,41 +1214,6 @@ def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
             "command": f"sbx create --clone --name {sandbox_name} {run_cmd} && sbx exec {sandbox_name}",
         },
     }
-
-
-def extract_codex_final_message(stdout: str) -> str:
-    final_message = ""
-    for line in stdout.splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        item = event.get("item") if isinstance(event, dict) else None
-        if isinstance(item, dict) and item.get("type") == "agent_message":
-            text = item.get("text")
-            if isinstance(text, str):
-                final_message = text
-    return final_message
-
-
-def extract_codex_error_message(stdout: str) -> str:
-    error_message = ""
-    for line in stdout.splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict):
-            continue
-        if event.get("type") == "error":
-            message = event.get("message")
-            if isinstance(message, str):
-                error_message = message
-        elif event.get("type") == "turn.failed":
-            error = event.get("error")
-            if isinstance(error, dict) and isinstance(error.get("message"), str):
-                error_message = error["message"]
-    return error_message
 
 
 # ── Direct CLI agent registry ────────────────────────────────────────────────
