@@ -60,7 +60,7 @@ Read `AGENTS.md` before making any non-trivial change. It covers:
 VITE_API_BASE_URL=http://127.0.0.1:8000/api pnpm dev -- --host 127.0.0.1
 
 # Backend
-PYTHONPATH=backend .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+PYTHONPATH=backend:. .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 # Host runner
 python3 scripts/specter_host_runner.py

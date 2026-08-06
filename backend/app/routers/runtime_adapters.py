@@ -64,30 +64,9 @@ class CodexRunRequest(BaseModel):
 # The runner mints this on first start and enforces it on every request. Read at
 # call time rather than cached: the runner may be provisioned after the backend
 # starts, and a stale None would fail every call until a restart.
-RUNNER_AUTH_HEADER = "X-Specter-Runner-Token"
-
-# Two locations, because the backend runs in two places. Native reads the file
-# the runner writes. Containerized, ~/.specter is on the HOST and unreachable, so
-# the token is read from the mounted secrets dir -- which the runner also writes
-# when SPECTER_RUNNER_TOKEN_FILE points there.
-_TOKEN_CANDIDATES = (
-    Path(os.environ["SPECTER_RUNNER_TOKEN_FILE"]) if os.environ.get("SPECTER_RUNNER_TOKEN_FILE") else None,
-    Path("/app/secrets/runner-token"),
-    Path.home() / ".specter" / "runner-token",
-)
-
-
-def runner_token() -> str | None:
-    for candidate in _TOKEN_CANDIDATES:
-        if candidate is None:
-            continue
-        try:
-            token = candidate.read_text(encoding="utf-8").strip()
-            if token:
-                return token
-        except OSError:
-            continue
-    return None
+# One implementation, shared with the host shim — the backend enforces the same
+# gates when it runs natively and calls the engine directly.
+from specter_exec.allowlist import RUNNER_AUTH_HEADER, runner_token  # noqa: E402
 
 
 def call_host_runner(

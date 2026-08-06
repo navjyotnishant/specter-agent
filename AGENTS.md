@@ -48,7 +48,7 @@ For fast development without Docker:
 
 ```bash
 VITE_API_BASE_URL=http://127.0.0.1:8000/api npm run dev -- --host 127.0.0.1
-PYTHONPATH=backend SDLC_DATABASE_PATH=/tmp/specter-agent-dev.db .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+PYTHONPATH=backend:. SDLC_DATABASE_PATH=/tmp/specter-agent-dev.db .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 Use `http://127.0.0.1:8080` for the frontend and `http://127.0.0.1:8000/api/health` for backend health.

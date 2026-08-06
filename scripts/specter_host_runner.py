@@ -13,6 +13,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -2212,112 +2213,20 @@ _AGENT_REPO_IGNORED_MD = {
 CLONE_ALLOWED_HOSTS = {"github.com", "gitlab.com"}
 CLONE_ROOT = Path.home() / ".specter" / "imports"
 
-# ── access control ───────────────────────────────────────────────────────────
-#
-# This runner spawns agent CLIs as the host user, with the host user's
-# credentials, in directories it is told to use. Until now it accepted any
-# request that reached the port: no auth, and `workspace_path` was validated only
-# for existence. The allowlist lived exclusively in the backend, so anything else
-# that could reach localhost:8765 -- a malicious postinstall script, a browser via
-# DNS rebinding -- bypassed it entirely.
-#
-# Two gates, both enforced HERE rather than trusting the caller:
-#   1. a shared secret, so only the backend can drive it
-#   2. the approved-workspace allowlist, re-checked independently
-#
-# Binding to 127.0.0.1 is not an authorization boundary; it only keeps the port
-# off the network. Every local process shares that address.
-
-# Overridable so a containerized backend can read it: the compose file points
-# both sides at the mounted ./secrets dir. Defaults to ~/.specter for native.
-RUNNER_TOKEN_FILE = Path(
-    os.environ.get("SPECTER_RUNNER_TOKEN_FILE", str(Path.home() / ".specter" / "runner-token"))
+# Access control moved to specter_exec/allowlist.py: the backend enforces the
+# same two gates when it runs natively and imports the engine directly, so the
+# rules cannot live in this file alone.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from specter_exec.allowlist import (  # noqa: E402
+    RUNNER_AUTH_HEADER,
+    RUNNER_TOKEN_FILE,
+    UNAUTHENTICATED_PATHS,
+    WORKSPACES_CONFIG,
+    approved_workspace,
+    approved_workspaces,
+    ensure_runner_token,
+    runner_token,
 )
-WORKSPACES_CONFIG = Path.home() / ".specter" / "workspaces.json"
-RUNNER_AUTH_HEADER = "X-Specter-Runner-Token"
-
-# Reachable without a token: liveness and version only. They expose nothing and
-# spawn nothing, and the backend needs /health before it holds a token.
-UNAUTHENTICATED_PATHS = {"/health", "/version"}
-
-
-def runner_token() -> str | None:
-    """The shared secret, or None if the runner has not been provisioned."""
-    try:
-        token = RUNNER_TOKEN_FILE.read_text(encoding="utf-8").strip()
-        return token or None
-    except OSError:
-        return None
-
-
-def ensure_runner_token() -> str:
-    """Read the token, minting one on first start.
-
-    Written 0600 -- it is the only thing standing between a local process and
-    an agent running as this user.
-    """
-    existing = runner_token()
-    if existing:
-        return existing
-    RUNNER_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    token = secrets.token_urlsafe(32)
-    RUNNER_TOKEN_FILE.write_text(token, encoding="utf-8")
-    try:
-        RUNNER_TOKEN_FILE.chmod(0o600)
-    except OSError:
-        pass
-    return token
-
-
-def approved_workspaces() -> list[Path] | None:
-    """Approved roots, synced from the backend.
-
-    Returns None when the file is absent or unreadable -- distinct from an empty
-    list. Callers must FAIL CLOSED on None: a missing config means "not
-    provisioned yet", never "allow everything".
-    """
-    try:
-        raw = json.loads(WORKSPACES_CONFIG.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    paths = raw.get("paths") if isinstance(raw, dict) else raw
-    if not isinstance(paths, list):
-        return None
-    out = []
-    for entry in paths:
-        if isinstance(entry, str) and entry.strip():
-            out.append(Path(entry).expanduser().resolve())
-    return out
-
-
-def approved_workspace(path: str) -> tuple[Path | None, str]:
-    """Resolve a requested workspace against the allowlist.
-
-    Returns (resolved_path, "") when approved, or (None, reason) when not.
-
-    Mirrors _approved_workspace_path in backend/app/routers/runs.py: a request is
-    approved if it IS an approved root or sits inside one. Resolved first, so a
-    symlink cannot point outside an approved tree and still match.
-    """
-    if not path or not str(path).strip():
-        return None, "Workspace path is required."
-
-    requested = Path(str(path)).expanduser().resolve()
-    roots = approved_workspaces()
-
-    if roots is None:
-        return None, (
-            "This runner has no approved-workspace list yet. Start the Specter "
-            f"backend once to sync it, or write {WORKSPACES_CONFIG} yourself."
-        )
-    if not roots:
-        return None, "No repositories are approved for agent execution."
-
-    for root in roots:
-        if requested == root or root in requested.parents:
-            return requested, ""
-
-    return None, f"Workspace path is not approved for agent execution: {requested}"
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+")
 _REF_RE = re.compile(r"`([a-z0-9][a-z0-9-]{2,})`")
