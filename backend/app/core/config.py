@@ -9,7 +9,10 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/app/data")
     artifacts_dir: Path = Path("/app/artifacts")
     database_path: Path = Path("/app/data/app.db")
-    host_runner_url: str = "http://host.docker.internal:8765"
+    # 127.0.0.1 because native is the primary deployment. The Docker path
+    # overrides this to host.docker.internal in docker-compose.yml, where that
+    # address actually resolves -- it never did outside a container.
+    host_runner_url: str = "http://127.0.0.1:8765"
     # How the host-side Telegram poller reaches this API (reverse of host_runner_url).
     telegram_backend_url: str = "http://127.0.0.1:8000"
     host_runner_timeout_seconds: float = 2.0

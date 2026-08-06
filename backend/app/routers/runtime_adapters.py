@@ -1,4 +1,5 @@
 import json
+import os
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -60,6 +61,35 @@ class CodexRunRequest(BaseModel):
     runtime: str = "sandbox"  # "sandbox" = Docker Sandbox, "direct" = Codex CLI on host
 
 
+# The runner mints this on first start and enforces it on every request. Read at
+# call time rather than cached: the runner may be provisioned after the backend
+# starts, and a stale None would fail every call until a restart.
+RUNNER_AUTH_HEADER = "X-Specter-Runner-Token"
+
+# Two locations, because the backend runs in two places. Native reads the file
+# the runner writes. Containerized, ~/.specter is on the HOST and unreachable, so
+# the token is read from the mounted secrets dir -- which the runner also writes
+# when SPECTER_RUNNER_TOKEN_FILE points there.
+_TOKEN_CANDIDATES = (
+    Path(os.environ["SPECTER_RUNNER_TOKEN_FILE"]) if os.environ.get("SPECTER_RUNNER_TOKEN_FILE") else None,
+    Path("/app/secrets/runner-token"),
+    Path.home() / ".specter" / "runner-token",
+)
+
+
+def runner_token() -> str | None:
+    for candidate in _TOKEN_CANDIDATES:
+        if candidate is None:
+            continue
+        try:
+            token = candidate.read_text(encoding="utf-8").strip()
+            if token:
+                return token
+        except OSError:
+            continue
+    return None
+
+
 def call_host_runner(
     path: str,
     method: str = "GET",
@@ -74,6 +104,9 @@ def call_host_runner(
     request = urllib.request.Request(url, data=payload, method=method)
     if body is not None:
         request.add_header("Content-Type", "application/json")
+    token = runner_token()
+    if token:
+        request.add_header(RUNNER_AUTH_HEADER, token)
     try:
         with urllib.request.urlopen(request, timeout=timeout or settings.host_runner_timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -190,6 +223,23 @@ def list_runtime_workspaces(_: dict = Depends(require_user)) -> list[dict[str, A
         return [public_workspace(row) for row in rows]
 
 
+def sync_workspaces_to_runner() -> None:
+    """Push the approved-workspace list to the runner.
+
+    The runner enforces this list itself and has no database, so it needs its own
+    copy. Best-effort: a runner that is down will read the file at next start, and
+    failing a workspace edit because a background process is offline would be
+    the wrong trade.
+    """
+    try:
+        with db_session() as db:
+            rows = db.execute("SELECT path FROM runtime_workspaces WHERE is_active = 1").fetchall()
+        call_host_runner("/workspaces/sync", method="POST",
+                         body={"paths": [r["path"] for r in rows]}, timeout=5.0)
+    except Exception:  # noqa: BLE001 - never fail the edit on a sync problem
+        pass
+
+
 @router.post("/workspaces")
 def create_runtime_workspace(request: RuntimeWorkspaceRequest, user: dict = Depends(require_admin)) -> dict[str, Any]:
     workspace_id = str(uuid4())
@@ -207,7 +257,9 @@ def create_runtime_workspace(request: RuntimeWorkspaceRequest, user: dict = Depe
             (workspace_id, request.name.strip(), normalized_path, user["id"]),
         )
         row = db.execute("SELECT * FROM runtime_workspaces WHERE path = ?", (normalized_path,)).fetchone()
-        return public_workspace(row)
+        result = public_workspace(row)
+    sync_workspaces_to_runner()
+    return result
 
 
 @router.delete("/workspaces/{workspace_id}")
@@ -217,6 +269,9 @@ def deactivate_runtime_workspace(workspace_id: str, _: dict = Depends(require_ad
             "UPDATE runtime_workspaces SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (workspace_id,),
         ).rowcount
+    # Revoking must reach the runner promptly -- a revoked path that the runner
+    # still considers approved is the failure that matters most here.
+    sync_workspaces_to_runner()
     return {"updated": changed > 0, "workspace_id": workspace_id}
 
 

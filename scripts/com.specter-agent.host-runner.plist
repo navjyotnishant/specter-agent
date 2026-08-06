@@ -17,6 +17,13 @@
     <key>StandardErrorPath</key>
     <string>/tmp/specter-host-runner.log</string>
 
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Written where the containerized backend can also read it. -->
+        <key>SPECTER_RUNNER_TOKEN_FILE</key>
+        <string>/Users/navjyotnishant/Desktop/github/navjyotnishant/specter-agent/secrets/runner-token</string>
+    </dict>
+
     <key>RunAtLoad</key>
     <true/>
 

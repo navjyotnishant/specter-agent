@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -910,7 +912,11 @@ def run_codex_task(payload: dict[str, Any]) -> dict[str, Any]:
     if not prompt:
         return {"ok": False, "status": "rejected", "message": "Prompt is required."}
 
-    workspace = Path(workspace_path).expanduser().resolve()
+    # Enforced HERE, not just in the backend -- this process is what spawns the
+    # agent, so it owns the decision about where.
+    workspace, reason = approved_workspace(workspace_path)
+    if workspace is None:
+        return {"ok": False, "status": "rejected", "message": reason}
     if not workspace.exists() or not workspace.is_dir():
         return {"ok": False, "status": "rejected", "message": "Workspace path does not exist or is not a directory."}
 
@@ -1074,7 +1080,11 @@ def run_sandbox_agent_task(payload: dict[str, Any]) -> dict[str, Any]:
     if not prompt:
         return {"ok": False, "status": "rejected", "message": "Prompt is required."}
 
-    workspace = Path(workspace_path).expanduser().resolve()
+    # Enforced HERE, not just in the backend -- this process is what spawns the
+    # agent, so it owns the decision about where.
+    workspace, reason = approved_workspace(workspace_path)
+    if workspace is None:
+        return {"ok": False, "status": "rejected", "message": reason}
     if not workspace.exists() or not workspace.is_dir():
         return {"ok": False, "status": "rejected", "message": "Workspace path does not exist or is not a directory."}
 
@@ -1510,7 +1520,11 @@ def run_direct_cli_task(payload: dict[str, Any]) -> dict[str, Any]:
     if not prompt:
         return {"ok": False, "status": "rejected", "message": "Prompt is required."}
 
-    workspace = Path(workspace_path).expanduser().resolve()
+    # Enforced HERE, not just in the backend. This process spawns an agent as the
+    # host user; it cannot delegate that decision to whoever called it.
+    workspace, reason = approved_workspace(workspace_path)
+    if workspace is None:
+        return {"ok": False, "status": "rejected", "message": reason}
     if not workspace.exists() or not workspace.is_dir():
         return {"ok": False, "status": "rejected", "message": "Workspace path does not exist or is not a directory."}
 
@@ -2197,6 +2211,114 @@ _AGENT_REPO_IGNORED_MD = {
 }
 CLONE_ALLOWED_HOSTS = {"github.com", "gitlab.com"}
 CLONE_ROOT = Path.home() / ".specter" / "imports"
+
+# ── access control ───────────────────────────────────────────────────────────
+#
+# This runner spawns agent CLIs as the host user, with the host user's
+# credentials, in directories it is told to use. Until now it accepted any
+# request that reached the port: no auth, and `workspace_path` was validated only
+# for existence. The allowlist lived exclusively in the backend, so anything else
+# that could reach localhost:8765 -- a malicious postinstall script, a browser via
+# DNS rebinding -- bypassed it entirely.
+#
+# Two gates, both enforced HERE rather than trusting the caller:
+#   1. a shared secret, so only the backend can drive it
+#   2. the approved-workspace allowlist, re-checked independently
+#
+# Binding to 127.0.0.1 is not an authorization boundary; it only keeps the port
+# off the network. Every local process shares that address.
+
+# Overridable so a containerized backend can read it: the compose file points
+# both sides at the mounted ./secrets dir. Defaults to ~/.specter for native.
+RUNNER_TOKEN_FILE = Path(
+    os.environ.get("SPECTER_RUNNER_TOKEN_FILE", str(Path.home() / ".specter" / "runner-token"))
+)
+WORKSPACES_CONFIG = Path.home() / ".specter" / "workspaces.json"
+RUNNER_AUTH_HEADER = "X-Specter-Runner-Token"
+
+# Reachable without a token: liveness and version only. They expose nothing and
+# spawn nothing, and the backend needs /health before it holds a token.
+UNAUTHENTICATED_PATHS = {"/health", "/version"}
+
+
+def runner_token() -> str | None:
+    """The shared secret, or None if the runner has not been provisioned."""
+    try:
+        token = RUNNER_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        return token or None
+    except OSError:
+        return None
+
+
+def ensure_runner_token() -> str:
+    """Read the token, minting one on first start.
+
+    Written 0600 -- it is the only thing standing between a local process and
+    an agent running as this user.
+    """
+    existing = runner_token()
+    if existing:
+        return existing
+    RUNNER_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    token = secrets.token_urlsafe(32)
+    RUNNER_TOKEN_FILE.write_text(token, encoding="utf-8")
+    try:
+        RUNNER_TOKEN_FILE.chmod(0o600)
+    except OSError:
+        pass
+    return token
+
+
+def approved_workspaces() -> list[Path] | None:
+    """Approved roots, synced from the backend.
+
+    Returns None when the file is absent or unreadable -- distinct from an empty
+    list. Callers must FAIL CLOSED on None: a missing config means "not
+    provisioned yet", never "allow everything".
+    """
+    try:
+        raw = json.loads(WORKSPACES_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    paths = raw.get("paths") if isinstance(raw, dict) else raw
+    if not isinstance(paths, list):
+        return None
+    out = []
+    for entry in paths:
+        if isinstance(entry, str) and entry.strip():
+            out.append(Path(entry).expanduser().resolve())
+    return out
+
+
+def approved_workspace(path: str) -> tuple[Path | None, str]:
+    """Resolve a requested workspace against the allowlist.
+
+    Returns (resolved_path, "") when approved, or (None, reason) when not.
+
+    Mirrors _approved_workspace_path in backend/app/routers/runs.py: a request is
+    approved if it IS an approved root or sits inside one. Resolved first, so a
+    symlink cannot point outside an approved tree and still match.
+    """
+    if not path or not str(path).strip():
+        return None, "Workspace path is required."
+
+    requested = Path(str(path)).expanduser().resolve()
+    roots = approved_workspaces()
+
+    if roots is None:
+        return None, (
+            "This runner has no approved-workspace list yet. Start the Specter "
+            f"backend once to sync it, or write {WORKSPACES_CONFIG} yourself."
+        )
+    if not roots:
+        return None, "No repositories are approved for agent execution."
+
+    for root in roots:
+        if requested == root or root in requested.parents:
+            return requested, ""
+
+    return None, f"Workspace path is not approved for agent execution: {requested}"
+
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+")
 _REF_RE = re.compile(r"`([a-z0-9][a-z0-9-]{2,})`")
 
@@ -3058,7 +3180,35 @@ def clone_agent_repository(payload: dict[str, Any]) -> dict[str, Any]:
 class HostRunnerHandler(BaseHTTPRequestHandler):
     server_version = "SpecterHostRunner/0.1"
 
+    def _authorized(self) -> bool:
+        """Gate every request on the shared secret.
+
+        compare_digest, not ==, so a wrong token cannot be discovered a character
+        at a time from response timing.
+        """
+        if self.path in UNAUTHENTICATED_PATHS:
+            return True
+        expected = runner_token()
+        if not expected:
+            # Not provisioned. Fail CLOSED: an un-provisioned runner that accepts
+            # everything is the exposure this exists to remove.
+            self.write_json(
+                {"ok": False, "status": "unprovisioned",
+                 "message": f"Runner has no token. Start the Specter backend once, or create {RUNNER_TOKEN_FILE}."},
+                status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return False
+        presented = self.headers.get(RUNNER_AUTH_HEADER, "")
+        if not presented or not hmac.compare_digest(presented, expected):
+            self.write_json(
+                {"ok": False, "status": "unauthorized",
+                 "message": "Missing or invalid runner token."},
+                status=HTTPStatus.UNAUTHORIZED)
+            return False
+        return True
+
     def do_GET(self) -> None:
+        if not self._authorized():
+            return
         if self.path == "/health":
             self.write_json({"status": "ok", "runner": "specter-host-runner", "version": HOST_RUNNER_VERSION})
             return
@@ -3125,6 +3275,23 @@ class HostRunnerHandler(BaseHTTPRequestHandler):
         self.write_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
+        if not self._authorized():
+            return
+        if self.path == "/workspaces/sync":
+            # The backend owns the allowlist; the runner keeps its own copy so it
+            # can enforce it without a database or a call back.
+            payload = self.read_json()
+            paths = payload.get("paths")
+            if not isinstance(paths, list):
+                self.write_json({"ok": False, "message": "paths must be a list."},
+                                status=HTTPStatus.BAD_REQUEST)
+                return
+            clean = [str(x) for x in paths if isinstance(x, str) and x.strip()]
+            WORKSPACES_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+            WORKSPACES_CONFIG.write_text(json.dumps({"paths": clean}, indent=2), encoding="utf-8")
+            log_event("info", f"Approved workspace list synced: {len(clean)} root(s).")
+            self.write_json({"ok": True, "count": len(clean)})
+            return
         if self.path == "/mode":
             payload = self.read_json()
             enabled = bool(payload.get("maintenance_enabled"))
@@ -3241,9 +3408,21 @@ def main() -> None:
     if HOST not in {"127.0.0.1", "localhost"}:
         raise SystemExit("Host runner must bind to localhost only.")
 
+    # Mint the shared secret before the port opens, so there is no window where
+    # the runner is listening and unauthenticated.
+    ensure_runner_token()
+    roots = approved_workspaces()
+
     server = ThreadingHTTPServer((HOST, PORT), HostRunnerHandler)
     mode = "maintenance" if maintenance_mode() else "safe"
     log_event("info", f"Specter Host Runner listening on http://{HOST}:{PORT}", mode=mode)
+
+    if roots is None:
+        log_event("warn",
+                  "No approved-workspace list; every run will be rejected until the "
+                  f"backend syncs one to {WORKSPACES_CONFIG}.")
+    else:
+        log_event("info", f"{len(roots)} approved workspace root(s) loaded.")
 
     # The sbx daemon has no service of its own, so it neither survives a reboot nor
     # recovers from a crash. This runner is already launchd-managed, so it adopts

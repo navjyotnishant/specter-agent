@@ -235,12 +235,20 @@ def _write_approval_request(run_id: str, step_id: str, node: dict) -> str:
 
 # ── host runner call ──────────────────────────────────────────────────────────
 
+from app.routers.runtime_adapters import RUNNER_AUTH_HEADER, runner_token
+
+
 def _call_host_runner(path: str, body: dict) -> dict[str, Any]:
     base = str(get_settings().host_runner_url).rstrip("/")
     url = f"{base}{path}"
     payload = json.dumps(body).encode()
     req = urllib.request.Request(url, data=payload, method="POST")
     req.add_header("Content-Type", "application/json")
+    # Same shared secret as the other client. Two call sites, one credential --
+    # collapsing these into one client is Phase 2.
+    token = runner_token()
+    if token:
+        req.add_header(RUNNER_AUTH_HEADER, token)
     try:
         with urllib.request.urlopen(req, timeout=600) as resp:
             return json.loads(resp.read())
