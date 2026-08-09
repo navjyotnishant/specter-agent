@@ -1,0 +1,20 @@
+# Fingerprints of verified false positives.
+#
+# Fingerprint-based, NOT a rules override. An earlier attempt used a
+# .gitleaks.toml [[rules]] block with a bare id to allowlist these; that
+# REDEFINES the rule with no regex and silently disabled generic-api-key
+# repo-wide. The scan then reported clean while a planted AWS key went
+# undetected. A gate that passes because it was broken is worse than the
+# false positives it was meant to quiet.
+#
+# Both entries are internal/secretbox/testdata/python_fernet.json, the Fernet
+# compatibility fixture:
+#   key        a throwaway generated for the test, verified to differ from the
+#              production key and referenced by no other file
+#   bot_token  the literal string 1234567:AAH-thisLooksLikeATelegramToken --
+#              a fake shaped like a real one, which is the point of the case
+#
+# Each line pins one finding at one commit. A NEW secret in this same file
+# gets a different fingerprint and still fails the scan.
+5483b779ed6e2fa154d42fd53af2133f9f7bd640:internal/secretbox/testdata/python_fernet.json:generic-api-key:2
+5483b779ed6e2fa154d42fd53af2133f9f7bd640:internal/secretbox/testdata/python_fernet.json:generic-api-key:5
