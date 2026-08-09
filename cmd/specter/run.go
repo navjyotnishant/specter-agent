@@ -266,7 +266,7 @@ func cmdRun(args []string) error {
 	// `specter run my-workflow --json` would silently ignore every flag — the
 	// run proceeds against the wrong repo, unconfined, with no warning. People
 	// type the workflow name first; reorder rather than making them learn this.
-	if err := flags.Parse(reorderFlagsFirst(args)); err != nil {
+	if err := flags.Parse(reorderFlagsFirstFor(flags, args)); err != nil {
 		return err
 	}
 	if flags.NArg() < 1 {
@@ -421,13 +421,30 @@ func runQuiet(
 // Go's flag package stops at the first non-flag, so `run wf --json` parses
 // nothing. Silently ignoring --repo would run against the wrong directory, which
 // is a correctness problem rather than a usability one.
-func reorderFlagsFirst(args []string) []string {
+// reorderFlagsFirst moves flags ahead of positional arguments.
+//
+// Go's flag package stops parsing at the first non-flag argument, so
+// `specter run wf --json` silently ignores every flag after `wf` — including
+// --repo, which changes what the run operates on. That is a correctness bug,
+// not a usability one, so the arguments are reordered before parsing.
+//
+// The set of value-taking flags is derived from the FlagSet rather than
+// hand-listed. A hand-maintained list is wrong by omission the moment a new
+// flag is added: `--addr` was missing from it, so `--addr X --db Y` had --addr
+// swallow "--db" as its value and the server tried to listen on "--db".
+func reorderFlagsFirstFor(fs *flag.FlagSet, args []string) []string {
+	// A boolean flag never consumes the next argument; everything else does.
+	takesValue := map[string]bool{}
+	fs.VisitAll(func(f *flag.Flag) {
+		boolFlag, ok := f.Value.(interface{ IsBoolFlag() bool })
+		isBool := ok && boolFlag.IsBoolFlag()
+		if !isBool {
+			takesValue["-"+f.Name] = true
+			takesValue["--"+f.Name] = true
+		}
+	})
+
 	var flagArgs, positional []string
-
-	// Flags that take a value, so the value is not mistaken for a positional.
-	takesValue := map[string]bool{"--repo": true, "-repo": true, "--timeout": true,
-		"-timeout": true, "--db": true, "-db": true}
-
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "-") {

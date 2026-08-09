@@ -371,3 +371,72 @@ func callArray(t *testing.T, srv *httptest.Server, method, path, token string) [
 	}
 	return out
 }
+
+// CORS is not optional glue: without it every browser request fails at the
+// preflight and the app cannot load at all. curl does not enforce CORS, so the
+// API passed every command-line check while being unreachable from a browser —
+// which is how this was missed until the real UI was pointed at it.
+func TestCORSPreflightIsAnswered(t *testing.T) {
+	srv, _ := testServer(t)
+
+	req, _ := http.NewRequest("OPTIONS", srv.URL+"/api/auth/status", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("preflight returned %d, want 204", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Errorf("Allow-Origin = %q — the browser blocks every request without it", got)
+	}
+	// The origin is echoed, never "*": wildcard and Allow-Credentials are
+	// mutually exclusive per the spec, and the client sends a bearer token.
+	if resp.Header.Get("Access-Control-Allow-Origin") == "*" {
+		t.Error("Allow-Origin is a wildcard, which is invalid alongside credentials")
+	}
+	if resp.Header.Get("Access-Control-Allow-Credentials") != "true" {
+		t.Error("Allow-Credentials missing")
+	}
+	if !strings.Contains(resp.Header.Get("Access-Control-Allow-Headers"), "Authorization") {
+		t.Error("Authorization is not an allowed header — every authenticated call would fail")
+	}
+}
+
+func TestCORSRejectsAnUnknownOrigin(t *testing.T) {
+	srv, _ := testServer(t)
+	req, _ := http.NewRequest("GET", srv.URL+"/api/health", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.Header.Get("Access-Control-Allow-Origin") != "" {
+		t.Error("an unlisted origin was granted CORS access")
+	}
+}
+
+// Health must actually probe the database. One that answers "ok" without
+// touching anything reports healthy while the database is unreachable — exactly
+// when someone is reading it.
+func TestHealthProbesTheDatabase(t *testing.T) {
+	srv, _ := testServer(t)
+	_, body := call(t, srv, "GET", "/api/health", "", nil)
+
+	for _, key := range []string{"api", "sqlite", "journal_mode", "db_path", "scheduler", "runtime"} {
+		if _, ok := body[key]; !ok {
+			t.Errorf("health is missing %q — the frontend and external monitors read these keys", key)
+		}
+	}
+	if body["sqlite"] != "healthy" {
+		t.Errorf("sqlite = %v, want \"healthy\"", body["sqlite"])
+	}
+	if body["journal_mode"] != "wal" {
+		t.Errorf("journal_mode = %v, want \"wal\" — concurrent CLI and UI access depends on it", body["journal_mode"])
+	}
+}

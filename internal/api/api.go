@@ -22,6 +22,13 @@ import (
 // through package state, so a test can hand over a temp database.
 type Deps struct {
 	Store *store.Store
+	// DBPath is reported by /api/health, which external monitors read.
+	DBPath string
+	// SchedulerEnabled is false until the Go scheduler is ported. Reporting
+	// "active" for something not running is worse than reporting the gap.
+	SchedulerEnabled bool
+	// CORSOrigins defaults to DefaultCORSOrigins when empty.
+	CORSOrigins []string
 }
 
 type contextKey string
@@ -33,10 +40,14 @@ func NewRouter(deps *Deps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer) // a panic in one handler must not kill the server
 
+	origins := deps.CORSOrigins
+	if len(origins) == 0 {
+		origins = DefaultCORSOrigins
+	}
+	r.Use(cors(origins))
+
 	r.Route("/api", func(r chi.Router) {
-		r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
-		})
+		r.Get("/health", deps.health)
 		r.Route("/workflows", func(r chi.Router) {
 			r.Use(deps.requireUser)
 			r.Get("/", deps.listWorkflows)
@@ -173,4 +184,43 @@ func decode(r *http.Request, into any) error {
 		return errors.New("Invalid request body")
 	}
 	return nil
+}
+
+// health actually probes the database rather than returning a constant.
+//
+// A health endpoint that answers "ok" without touching anything reports healthy
+// while the database is unreachable, which is exactly when someone is reading
+// it. The shape matches Python's — the frontend and any external monitor read
+// these keys.
+func (d *Deps) health(w http.ResponseWriter, _ *http.Request) {
+	sqliteStatus := "unavailable"
+	journalMode := "unknown"
+
+	var probe int
+	if err := d.Store.DB().QueryRow(`SELECT 1`).Scan(&probe); err != nil {
+		sqliteStatus = "error: " + err.Error()
+	} else {
+		sqliteStatus = "healthy"
+		d.Store.DB().QueryRow(`PRAGMA journal_mode`).Scan(&journalMode)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"api":          "ok",
+		"sqlite":       sqliteStatus,
+		"journal_mode": journalMode,
+		"db_path":      d.DBPath,
+		"scheduler":    d.SchedulerStatus(),
+		"runtime":      "local",
+	})
+}
+
+// SchedulerStatus reports whether scheduled triggers are running. The Go
+// scheduler is not ported yet, so this says "disabled" rather than claiming an
+// "active" it cannot deliver — a status line that overstates what is running is
+// worse than one that admits a gap.
+func (d *Deps) SchedulerStatus() string {
+	if d.SchedulerEnabled {
+		return "active"
+	}
+	return "disabled"
 }

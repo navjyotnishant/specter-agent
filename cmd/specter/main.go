@@ -32,6 +32,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "\n  %s %v\n\n", red("✗"), err)
 			os.Exit(1)
 		}
+	case "serve":
+		if err := cmdServe(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "workflows", "ls":
 		if err := cmdWorkflows(); err != nil {
 			fmt.Fprintf(os.Stderr, "  %v\n", err)
