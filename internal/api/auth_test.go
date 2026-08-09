@@ -348,3 +348,26 @@ func TestAuthTokenIsNotLoggedOrEchoed(t *testing.T) {
 		t.Error("the session token was echoed back in the response body")
 	}
 }
+
+// callArray is for endpoints that return a bare JSON array — the client does
+// .map() over these, so an object wrapper would break it.
+func callArray(t *testing.T, srv *httptest.Server, method, path, token string) []map[string]any {
+	t.Helper()
+	req, err := http.NewRequest(method, srv.URL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("%s did not return a bare array: %v", path, err)
+	}
+	return out
+}

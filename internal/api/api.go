@@ -37,6 +37,24 @@ func NewRouter(deps *Deps) http.Handler {
 		r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 		})
+		r.Route("/workflows", func(r chi.Router) {
+			r.Use(deps.requireUser)
+			r.Get("/", deps.listWorkflows)
+			r.Post("/", deps.createWorkflow)
+			r.Get("/{workflowID}", deps.getWorkflow)
+			r.Patch("/{workflowID}", deps.updateWorkflow)
+			r.Delete("/{workflowID}", deps.deleteWorkflow)
+			r.Patch("/{workflowID}/publish-template", deps.setTemplateFlag(true))
+			r.Patch("/{workflowID}/unpublish-template", deps.setTemplateFlag(false))
+		})
+		r.Route("/skills", func(r chi.Router) {
+			r.Use(deps.requireUser)
+			r.Get("/", deps.listSkills)
+			r.Post("/", deps.createSkill)
+			r.Get("/{skillID}", deps.getSkill)
+			r.Patch("/{skillID}", deps.updateSkill)
+			r.Delete("/{skillID}", deps.deleteSkill)
+		})
 		r.Route("/auth", func(r chi.Router) {
 			// Open by necessity: these are what you call BEFORE you have a
 			// session. Everything else on this router is gated.
