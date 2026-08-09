@@ -79,6 +79,18 @@ func NewRouter(deps *Deps) http.Handler {
 			r.Patch("/{providerID}", deps.updateModelProvider)
 			r.Delete("/{providerID}", deps.deleteModelProvider)
 		})
+		r.Route("/workflow-runs", func(r chi.Router) {
+			r.Use(deps.requireUser)
+			// /stats is registered before /{runID} so the wildcard cannot
+			// shadow it — otherwise the dashboard's stats call 404s looking for
+			// a run named "stats".
+			r.Get("/stats", deps.runStats)
+			r.Get("/", deps.listRuns)
+			r.Get("/{runID}", deps.getRun)
+			r.Get("/{runID}/steps", deps.runSteps)
+			r.Get("/{runID}/logs", deps.runLogs)
+			r.Get("/{runID}/steps/{stepID}/messages", deps.stepMessages)
+		})
 		r.Route("/auth", func(r chi.Router) {
 			// Open by necessity: these are what you call BEFORE you have a
 			// session. Everything else on this router is gated.
