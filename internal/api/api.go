@@ -55,6 +55,30 @@ func NewRouter(deps *Deps) http.Handler {
 			r.Patch("/{skillID}", deps.updateSkill)
 			r.Delete("/{skillID}", deps.deleteSkill)
 		})
+		// agents.py has no authentication in Python -- issue #40, nine open
+		// endpoints. This port requires a session rather than reproducing it.
+		r.Route("/agents", func(r chi.Router) {
+			r.Use(deps.requireUser)
+			r.Get("/", deps.listAgents)
+			r.Post("/", deps.createAgent)
+			r.Get("/{agentID}", deps.getAgent)
+			r.Patch("/{agentID}", deps.updateAgent)
+			r.Delete("/{agentID}", deps.deleteAgent)
+		})
+		r.Route("/connectors", func(r chi.Router) {
+			r.Use(deps.requireUser)
+			r.Get("/", deps.listConnectors)
+			r.Post("/", deps.createConnector)
+			r.Patch("/{connectorID}", deps.updateConnector)
+			r.Delete("/{connectorID}", deps.deleteConnector)
+		})
+		r.Route("/model-providers", func(r chi.Router) {
+			r.Use(deps.requireUser)
+			r.Get("/", deps.listModelProviders)
+			r.Post("/", deps.createModelProvider)
+			r.Patch("/{providerID}", deps.updateModelProvider)
+			r.Delete("/{providerID}", deps.deleteModelProvider)
+		})
 		r.Route("/auth", func(r chi.Router) {
 			// Open by necessity: these are what you call BEFORE you have a
 			// session. Everything else on this router is gated.
