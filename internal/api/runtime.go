@@ -562,3 +562,94 @@ var Version = "dev"
 func (d *Deps) listCodexRuns(w http.ResponseWriter, r *http.Request) {
 	d.listRuns(w, r)
 }
+
+// --- the remaining runtime-adapter surface ---
+
+// telegramDiscoverChats asks Telegram which chats have messaged the bot, so the
+// user does not have to hand-curl a token URL to find their chat id.
+func (d *Deps) telegramDiscoverChats(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BotToken string `json:"bot_token"`
+	}
+	decode(r, &req)
+
+	botToken := strings.TrimSpace(req.BotToken)
+	if botToken == "" {
+		// Falls back to the stored credential, so the UI never has to hold it.
+		if user := userFrom(r); user != nil {
+			botToken, _, _, _ = d.readIntegration(user.ID, "telegram")
+		}
+	}
+	if botToken == "" {
+		writeError(w, http.StatusBadRequest, "A bot token is required.")
+		return
+	}
+	writeJSON(w, http.StatusOK, hostops.DiscoverTelegramChats(botToken))
+}
+
+func (d *Deps) parseRepository(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	parsed, err := hostops.ParseRepositoryURL(req.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, parsed)
+}
+
+func (d *Deps) cloneRepository(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL         string `json:"url"`
+		Destination string `json:"destination"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// The destination must already be approved: cloning writes to disk, so an
+	// unchecked path lets a caller write anywhere the process can reach.
+	destination, err := d.approvedWorkspace(req.Destination)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, hostops.CloneRepository(req.URL, destination))
+}
+
+// installCodexCLI and upgradeCodexCLI are refused rather than performed.
+//
+// Installing software is the user's decision on their own machine, and doing it
+// from a web request means an HTTP call mutates the host's toolchain. The
+// command is returned so the UI can show exactly what to run.
+func (d *Deps) codexInstaller(action string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": false, "manual": true,
+			"command": "npm install -g @openai/codex",
+			"message": "Run this in a terminal to " + action +
+				" the Codex CLI. Specter does not install software on your machine for you.",
+		})
+	}
+}
+
+func (d *Deps) mcpLoginInstructions(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "name": name,
+		"command": "claude mcp add " + name,
+		"message": "Run this in a terminal, then sign in when prompted.",
+	})
+}
+
+// startCodexRun and the security-review demo both start a real workflow run.
+// The demo used to be a canned event stream; it now goes through the same path
+// as everything else rather than pretending.
+func (d *Deps) startCodexRun(w http.ResponseWriter, r *http.Request) {
+	d.startRun(w, r)
+}

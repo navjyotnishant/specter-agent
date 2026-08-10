@@ -77,7 +77,9 @@ func NewRouter(deps *Deps) http.Handler {
 		// a run's memory with no session at all. This port requires one.
 		r.Route("/runs", func(r chi.Router) {
 			r.Use(deps.requireUser)
+			r.Get("/{runID}/events", deps.runEvents)
 			r.Get("/{runID}/memory", deps.runMemory)
+			r.With(requireAdmin).Post("/security-review-demo", deps.startRun)
 			r.Delete("/{runID}/memory", deps.clearRunMemory)
 		})
 		r.Route("/runtime-adapters", func(r chi.Router) {
@@ -94,6 +96,7 @@ func NewRouter(deps *Deps) http.Handler {
 			r.Get("/host-runner/mode", deps.hostRunnerMode)
 			r.Get("/host-runner/logs", deps.hostRunnerLogs)
 			r.Get("/codex-cli/runs", deps.listCodexRuns)
+			r.Get("/mcp/login/{name}", deps.mcpLoginInstructions)
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireAdmin)
@@ -113,12 +116,23 @@ func NewRouter(deps *Deps) http.Handler {
 				r.Post("/docker-sandbox/policy", deps.setSandboxPolicy)
 				r.Post("/repositories/discover", deps.discoverRepositories)
 				r.Post("/host-runner/mode", deps.hostRunnerMode)
+				r.Post("/telegram/discover-chats", deps.telegramDiscoverChats)
+				r.Post("/repositories/parse", deps.parseRepository)
+				r.Post("/repositories/clone", deps.cloneRepository)
+				r.Post("/codex-cli/runs", deps.startCodexRun)
+				r.Post("/codex-cli/install", deps.codexInstaller("install"))
+				r.Post("/codex-cli/upgrade", deps.codexInstaller("upgrade"))
 			})
 		})
 		r.Route("/workflows", func(r chi.Router) {
 			r.Use(deps.requireUser)
 			r.Get("/", deps.listWorkflows)
 			r.Post("/", deps.createWorkflow)
+			// Planning RUNS AN AGENT in the workspace, so it takes the same
+			// allowlist check as starting a run rather than being treated as a
+			// read-only preview.
+			r.Post("/plan", deps.planWorkflow)
+			r.Post("/plan/tune-node", deps.tuneNode)
 			r.Get("/{workflowID}", deps.getWorkflow)
 			r.Patch("/{workflowID}", deps.updateWorkflow)
 			r.Delete("/{workflowID}", deps.deleteWorkflow)
@@ -176,6 +190,11 @@ func NewRouter(deps *Deps) http.Handler {
 			r.Get("/{runID}/logs", deps.runLogs)
 			r.Get("/{runID}/steps/{stepID}/messages", deps.stepMessages)
 			r.Get("/{runID}/approvals", deps.runApprovals)
+			// Also under /workflow-runs, where the rest of the run surface
+			// lives. Python only had /runs/{id}/events; the frontend polls
+			// instead of subscribing, so both paths exist for API parity rather
+			// than because one is in use.
+			r.Get("/{runID}/events", deps.runEvents)
 		})
 		r.Route("/auth", func(r chi.Router) {
 			// Open by necessity: these are what you call BEFORE you have a

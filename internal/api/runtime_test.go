@@ -280,3 +280,63 @@ func asString(v any) string {
 	s, _ := v.(string)
 	return s
 }
+
+// Planning runs an agent in a directory, so it is gated exactly like starting a
+// run. Treating it as a read-only preview would let anyone point an agent at any
+// directory by asking for a plan instead of a run.
+func TestPlanningRefusesAnUnapprovedWorkspace(t *testing.T) {
+	srv, s := testServer(t)
+	token, _ := bootstrapAdmin(t, srv)
+	approveWorkspace(t, s, t.TempDir())
+
+	code, _ := call(t, srv, "POST", "/api/workflows/plan", token, map[string]any{
+		"objective": "review the auth module", "supervisor_node_id": "sup",
+		"workspace_path": t.TempDir(), // a different, unapproved directory
+	})
+	if code != http.StatusForbidden {
+		t.Errorf("planning in an unapproved workspace returned %d, want 403", code)
+	}
+}
+
+func TestPlanningRequiresAnObjective(t *testing.T) {
+	srv, s := testServer(t)
+	token, _ := bootstrapAdmin(t, srv)
+	workspace := t.TempDir()
+	approveWorkspace(t, s, workspace)
+
+	if code, _ := call(t, srv, "POST", "/api/workflows/plan", token, map[string]any{
+		"objective": "  ", "supervisor_node_id": "sup", "workspace_path": workspace,
+	}); code != http.StatusBadRequest {
+		t.Errorf("a blank objective was accepted (%d)", code)
+	}
+}
+
+func TestRunEventsStreamsRealState(t *testing.T) {
+	// Python emitted four CANNED events describing a demo that no longer runs.
+	// This streams the actual run, so a client watching it sees what happened.
+	srv, s := testServer(t)
+	token, _ := bootstrapAdmin(t, srv)
+	seedRun(t, s, "r1", "wf1", "completed", "-1 hours", "-30 minutes")
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/workflow-runs/r1/events", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		t.Errorf("Content-Type = %q, want an event stream", ct)
+	}
+
+	buf := make([]byte, 2048)
+	n, _ := resp.Body.Read(buf)
+	body := string(buf[:n])
+	if !strings.Contains(body, "event: run_status") {
+		t.Errorf("no run_status event: %q", body)
+	}
+	if !strings.Contains(body, "completed") {
+		t.Errorf("the stream did not carry the run's real status: %q", body)
+	}
+}
