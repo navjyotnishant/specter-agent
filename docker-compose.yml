@@ -5,10 +5,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      SDLC_DATABASE_PATH: /app/data/app.db
-      SDLC_DATA_DIR: /app/data
-      SDLC_ARTIFACTS_DIR: /app/artifacts
-      SDLC_HOST_RUNNER_URL: http://host.docker.internal:8765
+      SPECTER_DB_PATH: /app/data/app.db
+      SPECTER_DATA_DIR: /app/data
+      SPECTER_ARTIFACTS_DIR: /app/artifacts
+      # No host runner. `specter serve` spawns agents itself, so there is no
+      # second process to reach and no bridge to punch through.
       # Linear integration — set this to enable automatic failure logging
       SDLC_LINEAR_API_TOKEN: ${LINEAR_API_TOKEN:-}
       SDLC_LINEAR_TEAM_ID: ${LINEAR_TEAM_ID:-SPE}

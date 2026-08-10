@@ -33,6 +33,9 @@ type Deps struct {
 	// AgentPath overrides agent CLI resolution. Set by tests so a run can be
 	// driven by a fake agent; empty means resolve the agent named on the node.
 	AgentPath string
+	// FrontendDir holds the built single-page app. Empty means API only, which
+	// is the normal case for `specter serve` on a developer's machine.
+	FrontendDir string
 	// SecretsPath overrides where the integration key lives. Empty means the
 	// same location the Python backend uses, so credentials saved by either are
 	// readable by both.
@@ -219,7 +222,15 @@ func NewRouter(deps *Deps) http.Handler {
 			})
 		})
 	})
+
+	// LAST, so every real route wins over the catch-all.
+	deps.mountFrontend(r)
 	return r
+}
+
+// chiRouter is the slice of chi's interface the frontend mount needs.
+type chiRouter interface {
+	NotFound(http.HandlerFunc)
 }
 
 // --- middleware ---

@@ -23,6 +23,8 @@ func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8000", "address to listen on")
 	dbPath := fs.String("db", defaultDBPath(), "path to the SQLite database")
+	frontend := fs.String("frontend", os.Getenv("SPECTER_FRONTEND_DIR"),
+		"directory holding the built web UI (empty serves the API only)")
 	if err := fs.Parse(reorderFlagsFirstFor(fs, args)); err != nil {
 		return err
 	}
@@ -33,7 +35,7 @@ func cmdServe(args []string) error {
 	}
 	defer s.Close()
 
-	deps := &api.Deps{Store: s, DBPath: *dbPath}
+	deps := &api.Deps{Store: s, DBPath: *dbPath, FrontendDir: *frontend}
 
 	// Before serving, not after. A run recovered on the first request would
 	// still have been stranded for however long that took.
@@ -61,6 +63,9 @@ func cmdServe(args []string) error {
 
 	fmt.Printf("specter serve  →  http://%s/api\n", *addr)
 	fmt.Printf("database       →  %s\n", *dbPath)
+	if *frontend != "" {
+		fmt.Printf("web UI         →  %s\n", *frontend)
+	}
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
