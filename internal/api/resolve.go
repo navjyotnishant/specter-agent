@@ -196,3 +196,29 @@ func decodeRunInput(raw string) map[string]string {
 	jsonUnmarshalInto(raw, &out)
 	return out
 }
+
+// resolveApprovalByID answers a gate found by its own id, with no run in the
+// path.
+//
+// The run is looked up from the approval rather than trusted from the URL, so
+// this shares every guard the run-scoped route has — expiry, the pending check,
+// and the resume. A second implementation that only marked the row would strand
+// runs resolved through this path while the other path worked fine, which is
+// the kind of split-brain bug that takes days to see.
+func (d *Deps) resolveApprovalByID(status string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		approvalID := chi.URLParam(r, "approvalID")
+
+		var runID string
+		if err := d.Store.DB().QueryRow(
+			`SELECT workflow_run_id FROM approval_requests WHERE id = ?`, approvalID).Scan(&runID); err != nil {
+			writeError(w, http.StatusNotFound, "Approval request not found.")
+			return
+		}
+
+		// Re-enter the run-scoped handler with the run it belongs to.
+		routeCtx := chi.RouteContext(r.Context())
+		routeCtx.URLParams.Add("runID", runID)
+		d.resolveApproval(status)(w, r)
+	}
+}

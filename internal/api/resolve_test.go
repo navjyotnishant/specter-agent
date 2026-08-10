@@ -288,3 +288,44 @@ func TestRecoveryIgnoresRunsWithNoApproval(t *testing.T) {
 		t.Errorf("recovered %d runs that are still waiting for a human", recovered)
 	}
 }
+
+// The /api/approvals/{id}/... routes must share every guard the run-scoped ones
+// have. A second implementation that only marked the row would strand runs
+// resolved through this path while the other path worked — split-brain, and
+// slow to notice.
+func TestApprovalCanBeResolvedByIDAlone(t *testing.T) {
+	srv, s := testServer(t)
+	token, _ := bootstrapAdmin(t, srv)
+	seedGate(t, s, "r1", "a1", "pending")
+
+	code, _ := call(t, srv, "POST", "/api/approvals/a1/approve", token,
+		map[string]any{"comment": "fine"})
+	if code != http.StatusOK {
+		t.Fatalf("returned %d", code)
+	}
+	if got := approvalStatus(t, s, "a1"); got != "approved" {
+		t.Errorf("approval status = %q", got)
+	}
+	// The run must move too, not just the approval row.
+	if got := statusOf(t, s, "r1"); got == "waiting_approval" {
+		t.Error("the run was left waiting — this path marked a row and resumed nothing")
+	}
+}
+
+func TestResolvingByIDRejectsAnAlreadyResolvedApproval(t *testing.T) {
+	srv, s := testServer(t)
+	token, _ := bootstrapAdmin(t, srv)
+	seedGate(t, s, "r1", "a1", "rejected")
+
+	if code, _ := call(t, srv, "POST", "/api/approvals/a1/approve", token, nil); code != http.StatusBadRequest {
+		t.Errorf("got %d, want 400 — this path skipped the pending guard", code)
+	}
+}
+
+func TestResolvingAnUnknownApprovalByIDIs404(t *testing.T) {
+	srv, _ := testServer(t)
+	token, _ := bootstrapAdmin(t, srv)
+	if code, _ := call(t, srv, "POST", "/api/approvals/ghost/approve", token, nil); code != http.StatusNotFound {
+		t.Errorf("got %d, want 404", code)
+	}
+}

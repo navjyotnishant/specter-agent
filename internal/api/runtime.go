@@ -458,3 +458,107 @@ func currentBinary() string {
 	}
 	return "specter"
 }
+
+// --- docker sandbox ---
+
+func (d *Deps) sandbox() *hostops.Sandbox {
+	if d.Sandbox != nil {
+		return d.Sandbox
+	}
+	return &hostops.Sandbox{}
+}
+
+func (d *Deps) sandboxStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, d.sandbox().Status())
+}
+
+func (d *Deps) sandboxDaemonStart(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, d.sandbox().StartDaemon())
+}
+
+func (d *Deps) sandboxPolicy(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, d.sandbox().PolicyStatus())
+}
+
+func (d *Deps) setSandboxPolicy(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Policy string `json:"policy"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result := d.sandbox().SetPolicy(req.Policy)
+	if !result.OK {
+		// A rejected policy is the caller's mistake, not a server failure.
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok": false, "status": "rejected", "message": result.Message,
+			"available_policies": hostops.PolicyValues,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// --- repositories ---
+
+func (d *Deps) discoverRepositories(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RootPath   string `json:"root_path"`
+		MaxDepth   int    `json:"max_depth"`
+		MaxResults int    `json:"max_results"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK,
+		hostops.DiscoverRepositories(req.RootPath, req.MaxDepth, req.MaxResults))
+}
+
+// --- host runner compatibility ---
+//
+// These endpoints described a SEPARATE PROCESS that no longer exists. They are
+// kept because the frontend still calls them, and answer honestly about the
+// current architecture rather than 404ing a settings page into an error state.
+
+func (d *Deps) hostRunnerVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "version": Version, "embedded": true,
+		"message": "The runner is built into this backend; there is no separate process to update.",
+	})
+}
+
+func (d *Deps) hostRunnerMode(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "mode": "safe", "embedded": true,
+		"message": "Agents run in-process. Maintenance mode belonged to the standalone runner.",
+	})
+}
+
+func (d *Deps) hostRunnerLogs(w http.ResponseWriter, r *http.Request) {
+	// Run logs are per-run and already exposed; there is no separate runner log
+	// to tail. Answering with an empty list beats a 404 that blanks the panel.
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "entries": []any{}, "embedded": true})
+}
+
+func (d *Deps) agentModels(w http.ResponseWriter, _ *http.Request) {
+	status := d.prober().DirectCLIStatus()
+	models := map[string][]string{}
+	for _, agent := range status.AgentStatus {
+		if agent.Installed {
+			models[agent.Key] = []string{}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "models": models})
+}
+
+// Version is stamped at build time.
+var Version = "dev"
+
+// listCodexRuns returns runs started through the runtime-adapters surface.
+// Every run is a workflow run now, so this reads the same table the rest of the
+// API does rather than a parallel one.
+func (d *Deps) listCodexRuns(w http.ResponseWriter, r *http.Request) {
+	d.listRuns(w, r)
+}

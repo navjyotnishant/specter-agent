@@ -37,9 +37,11 @@ type Deps struct {
 	// same location the Python backend uses, so credentials saved by either are
 	// readable by both.
 	SecretsPath string
-	// Prober and Service are injectable so tests do not touch the real machine.
+	// Prober, Service and Sandbox are injectable so tests do not touch the real
+	// machine.
 	Prober  *hostops.Prober
 	Service *hostops.Service
+	Sandbox *hostops.Sandbox
 }
 
 type contextKey string
@@ -64,6 +66,12 @@ func NewRouter(deps *Deps) http.Handler {
 			r.Use(deps.requireUser)
 			r.Get("/", deps.listApprovals)
 			r.Get("/{approvalID}", deps.getApproval)
+			// The same resolutions as the run-scoped routes. Both paths exist in
+			// the Python API and the frontend uses both, so dropping either
+			// would break a screen that works today.
+			r.With(requireAdmin).Post("/{approvalID}/approve", deps.resolveApprovalByID("approved"))
+			r.With(requireAdmin).Post("/{approvalID}/reject", deps.resolveApprovalByID("rejected"))
+			r.With(requireAdmin).Post("/{approvalID}/request-revision", deps.resolveApprovalByID("revision_requested"))
 		})
 		// memory.py has no authentication in Python -- issue #40. DELETE wipes
 		// a run's memory with no session at all. This port requires one.
@@ -79,6 +87,13 @@ func NewRouter(deps *Deps) http.Handler {
 			r.Get("/workspaces", deps.listWorkspaces)
 			r.Get("/host-runner/launchd/status", deps.launchdStatus)
 			r.Get("/mcp/list", deps.mcpList)
+			r.Get("/docker-sandbox/status", deps.sandboxStatus)
+			r.Get("/docker-sandbox/policy", deps.sandboxPolicy)
+			r.Get("/models", deps.agentModels)
+			r.Get("/host-runner/version", deps.hostRunnerVersion)
+			r.Get("/host-runner/mode", deps.hostRunnerMode)
+			r.Get("/host-runner/logs", deps.hostRunnerLogs)
+			r.Get("/codex-cli/runs", deps.listCodexRuns)
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireAdmin)
@@ -94,6 +109,10 @@ func NewRouter(deps *Deps) http.Handler {
 				r.Post("/host-runner/launchd/install", deps.launchdAction("install"))
 				r.Post("/host-runner/launchd/uninstall", deps.launchdAction("uninstall"))
 				r.Post("/host-runner/launchd/restart", deps.launchdAction("restart"))
+				r.Post("/docker-sandbox/daemon/start", deps.sandboxDaemonStart)
+				r.Post("/docker-sandbox/policy", deps.setSandboxPolicy)
+				r.Post("/repositories/discover", deps.discoverRepositories)
+				r.Post("/host-runner/mode", deps.hostRunnerMode)
 			})
 		})
 		r.Route("/workflows", func(r chi.Router) {
