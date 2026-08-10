@@ -213,6 +213,18 @@ func (r *Runner) execute(ctx context.Context, runID string, node graph.Node, wor
 	case "supervisorAgent", "specialistAgent":
 		return r.runAgent(ctx, runID, node, workspace, context_)
 
+	case "memory":
+		// A memory node is an agent that summarises rather than investigates.
+		// Its output is written to memory by the caller, the same as any other
+		// completed node.
+		return r.runAgent(ctx, runID, node, workspace, context_)
+
+	case "conditional":
+		return r.evaluateCondition(ctx, runID, node, workspace, context_)
+
+	case "webhook":
+		return r.dispatchWebhook(ctx, runID, node, context_)
+
 	case "trigger":
 		// Inputs, not work. The value was folded into the run context before the
 		// first level executed, so the node only records what it supplied.

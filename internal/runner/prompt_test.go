@@ -149,3 +149,27 @@ func TestSupervisorWithNoObjectiveGetsADefault(t *testing.T) {
 		t.Errorf("no default objective for a supervisor\ngot: %s", got)
 	}
 }
+
+// A memory node announces data["scope"] in its prompt; data["memoryScope"]
+// decides where output is STORED. Reading the storage field for the prompt made
+// every memory node claim "workflow scope" no matter how it was configured, and
+// only a byte comparison against Python caught it.
+func TestMemoryNodeAnnouncesItsOwnScopeField(t *testing.T) {
+	node := graph.Node{ID: "m1", Type: "memory",
+		Data: graph.NodeData{Label: "Team notes", Scope: "team", MemoryScope: "agent_private"}}
+
+	got := BuildPrompt(node, "", "")
+	if !strings.Contains(got, "(team scope)") {
+		t.Errorf("prompt does not announce the configured scope:\n%s", got)
+	}
+	if strings.Contains(got, "(agent_private scope)") {
+		t.Error("the storage scope leaked into the prompt")
+	}
+}
+
+func TestMemoryNodeScopeDefaultsToWorkflow(t *testing.T) {
+	node := graph.Node{ID: "m1", Type: "memory", Data: graph.NodeData{Label: "Sum"}}
+	if got := BuildPrompt(node, "", ""); !strings.Contains(got, "(workflow scope)") {
+		t.Errorf("no default scope:\n%s", got)
+	}
+}

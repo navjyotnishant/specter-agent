@@ -33,6 +33,12 @@ type NodeData struct {
 	// MemoryScope decides which later nodes see this node's output as
 	// background. Empty means "workflow", matching Python's default.
 	MemoryScope string `json:"memoryScope"`
+	// Scope is the scope a MEMORY NODE announces in its own prompt. Distinct
+	// from MemoryScope, which decides where any node's output is stored —
+	// Python reads data["scope"] for the prompt and data["memoryScope"] for
+	// storage, and conflating them makes every memory node claim "workflow
+	// scope" regardless of how it was configured.
+	Scope string `json:"scope"`
 	// FieldName names the run-input key a trigger node reads.
 	FieldName string `json:"fieldName"`
 	// DelegationStrategy on a supervisor decides whether a level runs its nodes
@@ -44,6 +50,12 @@ type NodeData struct {
 	SandboxAgent string `json:"sandboxAgent"`
 	// Agent is the older key for the same thing; Python reads both.
 	Agent string `json:"agent"`
+	// Condition is the yes/no question a conditional node asks.
+	Condition string `json:"condition"`
+	// URL, Method and PayloadTemplate configure a webhook node.
+	URL             string `json:"url"`
+	Method          string `json:"method"`
+	PayloadTemplate string `json:"payloadTemplate"`
 }
 
 type Edge struct {

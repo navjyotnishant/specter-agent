@@ -84,6 +84,19 @@ func BuildPrompt(node graph.Node, context, memoryContext string) string {
 		if node.Data.SystemInstructions != "" {
 			parts = append(parts, "Instructions: "+node.Data.SystemInstructions)
 		}
+
+	case "memory":
+		// data["scope"], NOT data["memoryScope"] — see NodeData.Scope.
+		scope := strings.TrimSpace(node.Data.Scope)
+		if scope == "" {
+			scope = "workflow"
+		}
+		parts = append(parts,
+			"You are a memory-writing agent. Your job is to synthesise the findings so far "+
+				"into a concise structured summary for '"+label+"' ("+scope+" scope). "+
+				"Write 3-5 clear bullet points covering the key findings, decisions made, and any "+
+				"areas flagged for follow-up. Be specific — use file names, package names, or node labels "+
+				"where available. Do NOT explore files or run commands. Only summarise what is in the context below.")
 	}
 
 	if memoryContext != "" {
