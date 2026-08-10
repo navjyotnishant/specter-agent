@@ -229,3 +229,32 @@ func TestDeclarationOrderIsPreservedWithinALevel(t *testing.T) {
 		}
 	}
 }
+
+// AgentName and Runtime are different fields and were once conflated: passing
+// the runtime to CLI resolution looks for a binary named "direct" and reports
+// "no agent CLI found", which is a confusing way to say the wrong field was
+// read.
+func TestAgentNameIsNotTheRuntime(t *testing.T) {
+	cases := []struct {
+		name string
+		data NodeData
+		want string
+	}{
+		{"defaults to claude", NodeData{}, "claude"},
+		{"runtime does not leak in", NodeData{RuntimeName: "direct"}, "claude"},
+		{"sandboxAgent wins", NodeData{SandboxAgent: "Codex", RuntimeName: "sandbox"}, "codex"},
+		{"legacy agent key", NodeData{Agent: "Cursor"}, "cursor"},
+		{"sandboxAgent beats the legacy key", NodeData{SandboxAgent: "gemini", Agent: "claude"}, "gemini"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := (Node{Data: c.data}).AgentName(); got != c.want {
+				t.Errorf("AgentName() = %q, want %q", got, c.want)
+			}
+		})
+	}
+	// Runtime stays what it was.
+	if got := (Node{Data: NodeData{RuntimeName: "sandbox"}}).Runtime(); got != "sandbox" {
+		t.Errorf("Runtime() = %q", got)
+	}
+}

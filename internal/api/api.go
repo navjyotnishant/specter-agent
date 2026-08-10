@@ -109,6 +109,9 @@ func NewRouter(deps *Deps) http.Handler {
 			// shadow it — otherwise the dashboard's stats call 404s looking for
 			// a run named "stats".
 			r.Get("/stats", deps.runStats)
+			// Starting a run spawns an agent against a repository. Reading runs
+			// is not the same permission as starting one.
+			r.With(requireAdmin).Post("/", deps.startRun)
 			r.Get("/", deps.listRuns)
 			r.Get("/{runID}", deps.getRun)
 			r.Get("/{runID}/steps", deps.runSteps)

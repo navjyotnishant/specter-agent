@@ -38,6 +38,12 @@ type NodeData struct {
 	// DelegationStrategy on a supervisor decides whether a level runs its nodes
 	// concurrently.
 	DelegationStrategy string `json:"delegationStrategy"`
+	// SandboxAgent names the agent CLI — claude, codex, cursor, gemini. This is
+	// NOT the runtime: Runtime() says WHERE the agent runs (direct or sandbox),
+	// this says WHICH agent runs.
+	SandboxAgent string `json:"sandboxAgent"`
+	// Agent is the older key for the same thing; Python reads both.
+	Agent string `json:"agent"`
 }
 
 type Edge struct {
@@ -61,6 +67,22 @@ func (n Node) Runtime() string {
 }
 
 // Name is what to show for this node — its label, or its id when unlabelled.
+// AgentName is which agent CLI to spawn, defaulting to claude — matching
+// Python's `data.get("sandboxAgent") or data.get("agent") or "claude"`.
+//
+// Distinct from Runtime(), which says WHERE the agent runs. Passing a runtime
+// mode to CLI resolution looks for a binary named "direct" and reports "no agent
+// CLI found", which is a confusing way to say the wrong field was read.
+func (n Node) AgentName() string {
+	if agent := strings.TrimSpace(n.Data.SandboxAgent); agent != "" {
+		return strings.ToLower(agent)
+	}
+	if agent := strings.TrimSpace(n.Data.Agent); agent != "" {
+		return strings.ToLower(agent)
+	}
+	return "claude"
+}
+
 func (n Node) Name() string {
 	if label := strings.TrimSpace(n.Data.Label); label != "" {
 		return label

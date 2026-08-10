@@ -63,7 +63,7 @@ func (r *Runner) writeStep(runID string, node graph.Node, status string) (string
 	}
 	model := node.Data.Model
 	if strings.TrimSpace(model) == "" {
-		model = node.Runtime() + " (auto)"
+		model = node.AgentName() + " (auto)"
 	}
 
 	tx, err := r.Store.DB().Begin()
@@ -233,10 +233,10 @@ func (r *Runner) runAgent(ctx context.Context, runID string, node graph.Node, wo
 
 	agentPath := r.AgentPath
 	if agentPath == "" {
-		agentPath = exec.ResolveCLI([]string{node.Runtime()}, nil)
+		agentPath = exec.ResolveCLI(agentBinaries(node.AgentName()), nil)
 	}
 	if agentPath == "" {
-		return "failed", "", "No agent CLI found for " + node.Runtime() + " on this machine."
+		return "failed", "", "No " + node.AgentName() + " CLI found on this machine."
 	}
 
 	timeout := r.NodeTimeout
@@ -301,4 +301,15 @@ func (r *Runner) memoryContextFor(runID string) string {
 		parts = append(parts, key+": "+value)
 	}
 	return strings.Join(parts, "\n")
+}
+
+// agentBinaries maps an agent name to the binaries that provide it. cursor
+// ships as cursor-agent on some installs and cursor on others.
+func agentBinaries(agent string) []string {
+	switch agent {
+	case "cursor":
+		return []string{"cursor-agent", "cursor"}
+	default:
+		return []string{agent}
+	}
 }
