@@ -33,6 +33,11 @@ type NodeData struct {
 	// MemoryScope decides which later nodes see this node's output as
 	// background. Empty means "workflow", matching Python's default.
 	MemoryScope string `json:"memoryScope"`
+	// FieldName names the run-input key a trigger node reads.
+	FieldName string `json:"fieldName"`
+	// DelegationStrategy on a supervisor decides whether a level runs its nodes
+	// concurrently.
+	DelegationStrategy string `json:"delegationStrategy"`
 }
 
 type Edge struct {

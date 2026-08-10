@@ -212,6 +212,16 @@ func (r *Runner) execute(ctx context.Context, runID string, node graph.Node, wor
 	switch node.Type {
 	case "supervisorAgent", "specialistAgent":
 		return r.runAgent(ctx, runID, node, workspace, context_)
+
+	case "trigger":
+		// Inputs, not work. The value was folded into the run context before the
+		// first level executed, so the node only records what it supplied.
+		field := strings.TrimSpace(node.Data.FieldName)
+		if field == "" {
+			field = "input"
+		}
+		return "completed", "", "Trigger supplied \u201c" + field + "\u201d."
+
 	default:
 		return "failed", "", fmt.Sprintf("Node type %q is not supported by this backend yet.", node.Type)
 	}
