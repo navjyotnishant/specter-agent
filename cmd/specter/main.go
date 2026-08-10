@@ -61,7 +61,12 @@ func main() {
 func welcome() {
 	fmt.Printf("specter %s\n\n", version)
 	status()
-	fmt.Println("\n  specter help    what you can do")
+	// The two things this binary does, named on the first screen. Making
+	// someone run `help` to discover that it also serves the API hides half the
+	// product from a new user.
+	fmt.Println("\n  specter run <workflow>    run a workflow here")
+	fmt.Println("  specter serve            serve the API and web UI")
+	fmt.Println("  specter help             everything else")
 }
 
 func status() {

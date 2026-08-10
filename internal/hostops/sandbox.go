@@ -95,7 +95,10 @@ func (s *Sandbox) Status() SandboxStatus {
 	}
 	status.Installed = true
 	status.ExecutablePath = exe
-	status.Version = firstLine(s.run(5*time.Second, "--version").Stdout)
+	// `sbx version`, NOT `--version`: the flag does not exist and the CLI
+	// answers with "unknown flag", which firstLine would happily report as a
+	// version string.
+	status.Version = firstLine(s.run(5*time.Second, "version").Stdout)
 
 	status.DaemonRunning = s.DaemonRunning()
 	if status.DaemonRunning {

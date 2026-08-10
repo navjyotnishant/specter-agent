@@ -195,3 +195,26 @@ func TestStartingWithNoCLIInstalledFailsCleanly(t *testing.T) {
 		t.Errorf("message = %q, want it to say the CLI is missing", result.Message)
 	}
 }
+
+// `sbx version`, not `sbx --version`. The flag does not exist and the CLI
+// answers "ERROR: unknown flag: --version", which a naive first-line read
+// reports as the version — found by running it against the real binary.
+func TestVersionUsesTheSubcommandNotAFlag(t *testing.T) {
+	dir := t.TempDir()
+	writeExecutable(t, dir, "sbx", `
+case "$1" in
+  version) echo "sbx version: v0.34.0" ;;
+  --version) echo "ERROR: unknown flag: --version" >&2; exit 1 ;;
+  daemon) echo "daemon is running" ;;
+esac`)
+
+	sb := &Sandbox{Roots: []string{dir}, HomeDir: t.TempDir()}
+	status := sb.Status()
+
+	if strings.Contains(status.Version, "unknown flag") {
+		t.Errorf("an error message was reported as a version: %q", status.Version)
+	}
+	if !strings.Contains(status.Version, "v0.34.0") {
+		t.Errorf("version = %q, want the real version", status.Version)
+	}
+}
