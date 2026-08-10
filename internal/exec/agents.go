@@ -62,3 +62,26 @@ func ClaudePath() string { return ResolveCLI([]string{"claude"}, nil) }
 func CursorPath() string { return ResolveCLI([]string{"cursor-agent", "cursor"}, nil) }
 func GeminiPath() string { return ResolveCLI([]string{"gemini"}, nil) }
 func CodexPath() string  { return ResolveCLI([]string{"codex"}, nil) }
+
+// ResolveCLIIn searches ONLY the given roots, never PATH.
+//
+// ResolveCLI tries PATH first, which is right in production — a developer's own
+// build should win. It is wrong for a caller that must see exactly one
+// filesystem and nothing else: a test pointed at a scratch directory would
+// otherwise find the agents installed on the machine running it and report an
+// empty directory as fully provisioned.
+func ResolveCLIIn(names []string, roots []string) string {
+	for _, name := range names {
+		for _, root := range roots {
+			candidate := filepath.Join(root, name)
+			info, err := os.Stat(candidate)
+			if err != nil || info.IsDir() {
+				continue
+			}
+			if info.Mode().Perm()&0o111 != 0 {
+				return candidate
+			}
+		}
+	}
+	return ""
+}

@@ -24,6 +24,11 @@ import (
 // time passing while output is arriving — a silent agent could overrun. A context
 // deadline fires regardless, and the same mechanism serves cancellation.
 
+// drainGrace is how long output collection may continue after the process has
+// exited. Long enough for a normal flush, short enough that a pipe held by a
+// surviving grandchild cannot hold the run open.
+const drainGrace = 2 * time.Second
+
 const (
 	// Enough to diagnose a failure without storing a build log in a database row.
 	StdoutLimit = 20000
@@ -116,9 +121,26 @@ func RunStreaming(ctx context.Context, cmd Command) Result {
 	wg.Add(2)
 	go drain(bufio.NewScanner(stdout), &stdoutLines, cmd.OnStdout)
 	go drain(bufio.NewScanner(stderr), &stderrLines, cmd.OnStderr)
-	wg.Wait()
+
+	// Wait for the drains, but NOT unconditionally.
+	//
+	// Killing the child does not close a pipe its own child inherited. An agent
+	// that leaves a background process behind keeps the write end open, so
+	// scanning never reaches EOF and this would block past the deadline --
+	// forever, with nothing reporting why. Waiting on the PROCESS and giving the
+	// drains a short grace period afterwards bounds it: output already written
+	// is still collected, and a pipe nobody will close no longer holds the run.
+	drained := make(chan struct{})
+	go func() { wg.Wait(); close(drained) }()
 
 	waitErr := proc.Wait()
+
+	select {
+	case <-drained:
+	case <-time.After(drainGrace):
+		// The process is gone and the pipes are still open. Whatever holds them
+		// is not ours to wait for.
+	}
 
 	mu.Lock()
 	outText := strings.Join(stdoutLines, "\n")
@@ -131,6 +153,10 @@ func RunStreaming(ctx context.Context, cmd Command) Result {
 		Stderr: tail(errText, StderrLimit),
 		Lines:  lines,
 	}
+
+	// Reading the collected lines while a drain goroutine may still be appending
+	// to them: the mutex makes that safe, and an orphaned drain writing into a
+	// slice nobody reads again is harmless.
 
 	// Context death means the deadline fired or the caller cancelled. Either way
 	// the run did not finish on its own, and the exit code reflects the signal

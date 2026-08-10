@@ -2,7 +2,9 @@ package exec
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -142,5 +144,43 @@ func TestExitCodeSurvivesLookPathSuccess(t *testing.T) {
 	})
 	if !got.OK() {
 		t.Fatalf("want ok, got %+v", got)
+	}
+}
+
+// A timeout must return even when a SURVIVING GRANDCHILD holds the output pipe.
+//
+// Killing the direct child does not close a pipe its own child inherited, so
+// waiting for the drains to finish waits for the grandchild — potentially
+// forever. `sh -c 'sleep 300 & wait'` reproduces exactly that: the shell is
+// killed, the sleep keeps the pipe open.
+//
+// Found by a probe that hung a test for 90 seconds. It affects every agent run,
+// not just probes: an agent that leaves a background process behind would hang
+// the run past its deadline with nothing reporting why.
+func TestTimeoutReturnsEvenIfAGrandchildHoldsThePipe(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "leaky")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 300 &\nwait\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	done := make(chan Result, 1)
+	go func() {
+		done <- RunStreaming(context.Background(), Command{
+			Argv:    []string{script},
+			Timeout: 500 * time.Millisecond,
+		})
+	}()
+
+	select {
+	case result := <-done:
+		if !result.TimedOut {
+			t.Errorf("TimedOut = false after a deadline that fired")
+		}
+		if elapsed := time.Since(start); elapsed > 15*time.Second {
+			t.Errorf("returned after %s — the deadline was not honoured", elapsed)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("RunStreaming never returned: the drain is waiting on a pipe held by a surviving grandchild")
 	}
 }
