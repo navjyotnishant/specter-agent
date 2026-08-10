@@ -27,6 +27,12 @@ type Runner struct {
 	// agent named on the node.
 	AgentPath   string
 	NodeTimeout time.Duration
+	// ApprovalPoll is how often a blocked gate re-reads its row. Tests shorten
+	// it; zero means the default.
+	ApprovalPoll time.Duration
+	// ApprovalTimeout overrides the node's configured gate timeout. Tests only —
+	// deliberately unclamped so an already-expired gate can be exercised.
+	ApprovalTimeout time.Duration
 }
 
 const defaultNodeTimeout = 30 * time.Minute

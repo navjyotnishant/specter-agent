@@ -41,3 +41,11 @@ func (d *Deps) cancelRun(runID string) bool {
 	cancel()
 	return true
 }
+
+// isRunActive reports whether this process is executing the run.
+func (d *Deps) isRunActive(runID string) bool {
+	running.mu.Lock()
+	defer running.mu.Unlock()
+	_, ok := running.cancel[runID]
+	return ok
+}

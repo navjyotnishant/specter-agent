@@ -33,9 +33,17 @@ func cmdServe(args []string) error {
 	}
 	defer s.Close()
 
+	deps := &api.Deps{Store: s, DBPath: *dbPath}
+
+	// Before serving, not after. A run recovered on the first request would
+	// still have been stranded for however long that took.
+	if recovered := deps.RecoverApprovedWaitingRuns(); recovered > 0 {
+		fmt.Printf("recovered       →  %d run(s) approved while this backend was down\n", recovered)
+	}
+
 	srv := &http.Server{
 		Addr:    *addr,
-		Handler: api.NewRouter(&api.Deps{Store: s, DBPath: *dbPath}),
+		Handler: api.NewRouter(deps),
 		// A slow client must not hold a connection open indefinitely.
 		ReadHeaderTimeout: 10 * time.Second,
 	}

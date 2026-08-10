@@ -116,6 +116,9 @@ func NewRouter(deps *Deps) http.Handler {
 			// is not the same permission as starting one.
 			r.With(requireAdmin).Post("/", deps.startRun)
 			r.With(requireAdmin).Post("/{runID}/cancel", deps.cancelRunHandler)
+			r.With(requireAdmin).Post("/{runID}/approve/{approvalID}", deps.resolveApproval("approved"))
+			r.With(requireAdmin).Post("/{runID}/reject/{approvalID}", deps.resolveApproval("rejected"))
+			r.With(requireAdmin).Post("/{runID}/request-revision/{approvalID}", deps.resolveApproval("revision_requested"))
 			r.Get("/", deps.listRuns)
 			r.Get("/{runID}", deps.getRun)
 			r.Get("/{runID}/steps", deps.runSteps)
@@ -244,4 +247,9 @@ func (d *Deps) SchedulerStatus() string {
 		return "active"
 	}
 	return "disabled"
+}
+
+func jsonUnmarshalInto(raw string, into any) {
+	// Best effort: a malformed run_input should not stop a resume.
+	json.Unmarshal([]byte(raw), into)
 }

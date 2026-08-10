@@ -73,6 +73,18 @@ func (r *Runner) RunWorkflow(ctx context.Context, runID, workflowID string, g gr
 			continue
 		}
 
+		// Approval gates are always singleton levels (see graph.Levels), so a
+		// gate is the only node in its level and never runs beside an agent
+		// whose work it is meant to authorise.
+		if pending[0].Type == graph.ApprovalNodeType {
+			r.writeLog(runID, "info", "Starting node: "+nodeLabel(pending[0]),
+				map[string]any{"node_id": pending[0].ID, "node_type": graph.ApprovalNodeType})
+			if !r.runApprovalNode(ctx, runID, pending[0]) {
+				return
+			}
+			continue
+		}
+
 		results := r.runLevel(ctx, runID, pending, workspace, accumulated, maxParallel)
 
 		var failedLabel, failedSummary string

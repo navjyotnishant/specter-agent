@@ -52,6 +52,10 @@ type NodeData struct {
 	Agent string `json:"agent"`
 	// Condition is the yes/no question a conditional node asks.
 	Condition string `json:"condition"`
+	// Reason is what a humanApproval gate tells the reviewer they are approving.
+	Reason string `json:"reason"`
+	// TimeoutHours bounds how long a gate stays open. Clamped, not trusted.
+	TimeoutHours int `json:"timeoutHours"`
 	// URL, Method and PayloadTemplate configure a webhook node.
 	URL             string `json:"url"`
 	Method          string `json:"method"`

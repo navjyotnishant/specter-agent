@@ -122,6 +122,12 @@ func (d *Deps) getApproval(w http.ResponseWriter, r *http.Request) {
 
 // runApprovals is scoped to one run — it must never leak another run's gates.
 func (d *Deps) runApprovals(w http.ResponseWriter, r *http.Request) {
+	// Expiry runs on READ. Any endpoint touching approvals may therefore mutate
+	// state as a side effect -- that is deliberate: there is no scheduler, so a
+	// deadline that passed while the backend was down is noticed the moment
+	// somebody looks.
+	d.expirePendingApprovals(chi.URLParam(r, "runID"))
+
 	rows, err := d.Store.DB().Query(
 		`SELECT `+approvalColumns+` FROM approval_requests
 		  WHERE workflow_run_id = ? ORDER BY created_at DESC`,

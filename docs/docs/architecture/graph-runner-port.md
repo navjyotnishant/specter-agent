@@ -48,22 +48,41 @@ the actions it exists to authorise would already be in flight.
 
 ### Suspend and resume — the sharpest part
 
-A `humanApproval` node writes an `approval_requests` row, sets the run to
-`waiting_approval`, and **the thread exits**. The run is not blocked in memory;
-it is persisted and abandoned. Resuming means reconstructing the execution state
-from the database and continuing from the node after the gate.
+**Correction to an earlier reading of this file.** An initial pass through
+`graph_runner.py` recorded that a `humanApproval` node writes its row, marks the
+run `waiting_approval`, and *the thread exits*. That is wrong, and it matters
+because it would have produced a different design.
 
-Three failure modes here, all of which strand a run:
+What actually happens: `_wait_for_approval()` **blocks in a five-second polling
+loop**, holding the worker thread for as long as the gate is open — potentially
+hours. The run is suspended in the database *and* parked in memory.
+
+That is why `recover_approved_waiting_runs()` exists. A backend restart kills the
+blocked thread, so at startup any run that is `waiting_approval` **and** whose
+approval is already `approved` is started again **from the top**. Nothing
+replays: the main loop skips nodes whose latest step is already `completed` and
+folds their summaries back into context, so re-running walks straight back to the
+gate and continues past it.
+
+So resume is not a special path. It is the ordinary loop plus the completed-step
+skip, which is why R1–R3 already contain most of it.
+
+Three failure modes, all of which strand a run:
 
 - Resuming from the wrong node re-runs work that already happened, and an agent
-  that already wrote files writes them twice.
+  that already wrote files writes them twice. The completed-step skip is what
+  prevents this, and it is already tested.
 - Not resuming at all leaves the run `waiting_approval` forever, with the UI
-  showing an approved gate on a dead run.
+  showing an approved gate on a dead run. Recovery at startup is what prevents
+  this.
 - Resuming a run whose approval **expired** contradicts the expiry that already
   cancelled it.
 
-`recover_approved_waiting_runs()` runs at startup for exactly this reason: a
-backend restart between approval and resume would otherwise lose the run.
+**A Go-specific decision.** A blocking poll per gate costs a goroutine rather
+than an OS thread, so the Python design ports directly and cheaply. Keeping it
+means one execution model rather than two — and the alternative, exiting and
+rescheduling, would need its own correctness argument for the case where the
+approval lands between the check and the exit.
 
 ### Approval expiry
 
