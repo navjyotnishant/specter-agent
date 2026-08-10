@@ -29,6 +29,9 @@ type Deps struct {
 	SchedulerEnabled bool
 	// CORSOrigins defaults to DefaultCORSOrigins when empty.
 	CORSOrigins []string
+	// AgentPath overrides agent CLI resolution. Set by tests so a run can be
+	// driven by a fake agent; empty means resolve the agent named on the node.
+	AgentPath string
 }
 
 type contextKey string
@@ -112,6 +115,7 @@ func NewRouter(deps *Deps) http.Handler {
 			// Starting a run spawns an agent against a repository. Reading runs
 			// is not the same permission as starting one.
 			r.With(requireAdmin).Post("/", deps.startRun)
+			r.With(requireAdmin).Post("/{runID}/cancel", deps.cancelRunHandler)
 			r.Get("/", deps.listRuns)
 			r.Get("/{runID}", deps.getRun)
 			r.Get("/{runID}/steps", deps.runSteps)

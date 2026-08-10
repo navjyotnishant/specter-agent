@@ -186,7 +186,7 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request) {
 // immediately, and tying execution to the request would kill the run the moment
 // the client disconnected — a browser tab closing would stop an agent mid-edit.
 func (d *Deps) startExecution(runID, workflowID string, g graph.Graph, workspace string, runInput map[string]string) {
-	engine := &runner.Runner{Store: d.Store}
+	engine := &runner.Runner{Store: d.Store, AgentPath: d.AgentPath}
 	ctx, cancel := context.WithCancel(context.Background())
 	d.trackRun(runID, cancel)
 
