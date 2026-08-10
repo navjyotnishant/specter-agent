@@ -30,6 +30,9 @@ type NodeData struct {
 	Model              string   `json:"model"`
 	RuntimeName        string   `json:"runtime"`
 	SelectedSkills     []string `json:"selectedSkills"`
+	// MemoryScope decides which later nodes see this node's output as
+	// background. Empty means "workflow", matching Python's default.
+	MemoryScope string `json:"memoryScope"`
 }
 
 type Edge struct {
