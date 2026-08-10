@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/navjyotnishant/specter-agent/internal/auth"
+	"github.com/navjyotnishant/specter-agent/internal/hostops"
 	"github.com/navjyotnishant/specter-agent/internal/store"
 )
 
@@ -32,6 +33,13 @@ type Deps struct {
 	// AgentPath overrides agent CLI resolution. Set by tests so a run can be
 	// driven by a fake agent; empty means resolve the agent named on the node.
 	AgentPath string
+	// SecretsPath overrides where the integration key lives. Empty means the
+	// same location the Python backend uses, so credentials saved by either are
+	// readable by both.
+	SecretsPath string
+	// Prober and Service are injectable so tests do not touch the real machine.
+	Prober  *hostops.Prober
+	Service *hostops.Service
 }
 
 type contextKey string
@@ -63,6 +71,30 @@ func NewRouter(deps *Deps) http.Handler {
 			r.Use(deps.requireUser)
 			r.Get("/{runID}/memory", deps.runMemory)
 			r.Delete("/{runID}/memory", deps.clearRunMemory)
+		})
+		r.Route("/runtime-adapters", func(r chi.Router) {
+			r.Use(deps.requireUser)
+			r.Get("/direct-cli/status", deps.directCLIStatus)
+			r.Get("/codex-cli/status", deps.codexCLIStatus)
+			r.Get("/workspaces", deps.listWorkspaces)
+			r.Get("/host-runner/launchd/status", deps.launchdStatus)
+			r.Get("/mcp/list", deps.mcpList)
+
+			r.Group(func(r chi.Router) {
+				r.Use(requireAdmin)
+				// The workspace list IS the agent allowlist: whoever can add to
+				// it can point an agent at any directory on this machine.
+				r.Post("/workspaces", deps.createWorkspace)
+				r.Delete("/workspaces/{workspaceID}", deps.deactivateWorkspace)
+				r.Get("/telegram/config", deps.telegramConfig)
+				r.Post("/telegram/config", deps.saveTelegramConfig)
+				r.Delete("/telegram/config", deps.deleteTelegramConfig)
+				r.Post("/mcp/add", deps.mcpAdd)
+				r.Post("/mcp/remove/{name}", deps.mcpRemove)
+				r.Post("/host-runner/launchd/install", deps.launchdAction("install"))
+				r.Post("/host-runner/launchd/uninstall", deps.launchdAction("uninstall"))
+				r.Post("/host-runner/launchd/restart", deps.launchdAction("restart"))
+			})
 		})
 		r.Route("/workflows", func(r chi.Router) {
 			r.Use(deps.requireUser)
