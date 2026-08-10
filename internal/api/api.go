@@ -48,6 +48,19 @@ func NewRouter(deps *Deps) http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", deps.health)
+		r.Get("/health/system", deps.systemHealth)
+		r.Route("/approvals", func(r chi.Router) {
+			r.Use(deps.requireUser)
+			r.Get("/", deps.listApprovals)
+			r.Get("/{approvalID}", deps.getApproval)
+		})
+		// memory.py has no authentication in Python -- issue #40. DELETE wipes
+		// a run's memory with no session at all. This port requires one.
+		r.Route("/runs", func(r chi.Router) {
+			r.Use(deps.requireUser)
+			r.Get("/{runID}/memory", deps.runMemory)
+			r.Delete("/{runID}/memory", deps.clearRunMemory)
+		})
 		r.Route("/workflows", func(r chi.Router) {
 			r.Use(deps.requireUser)
 			r.Get("/", deps.listWorkflows)
@@ -101,6 +114,7 @@ func NewRouter(deps *Deps) http.Handler {
 			r.Get("/{runID}/steps", deps.runSteps)
 			r.Get("/{runID}/logs", deps.runLogs)
 			r.Get("/{runID}/steps/{stepID}/messages", deps.stepMessages)
+			r.Get("/{runID}/approvals", deps.runApprovals)
 		})
 		r.Route("/auth", func(r chi.Router) {
 			// Open by necessity: these are what you call BEFORE you have a
