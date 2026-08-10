@@ -1,14 +1,23 @@
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.db.session import db_session
 from app.runtime.agent_engine import start_security_review_demo
 from app.runtime.agent_events import demo_agent_event_stream
+from app.runtime.auth import require_admin, require_user
 
 router = APIRouter(tags=["agents"])
+
+# Every route here requires a signed-in user. These endpoints were previously
+# open: no auth import, no router-level dependency, and no global middleware --
+# they were never wired to the auth layer rather than deliberately public.
+#
+# Reads take require_user; anything that MUTATES takes require_admin. Creating
+# an agent definition decides what an agent is allowed to do, and starting a run
+# spawns one against a repository -- neither is a read.
 
 
 class AgentDefinitionRequest(BaseModel):
@@ -31,7 +40,7 @@ class DemoRunRequest(BaseModel):
 
 
 @router.get("/agents")
-def list_agents() -> list[dict]:
+def list_agents(_: dict = Depends(require_user)) -> list[dict]:
     with db_session() as db:
         rows = db.execute(
             """
@@ -47,7 +56,7 @@ def list_agents() -> list[dict]:
 
 
 @router.post("/agents")
-def create_agent(request: AgentDefinitionRequest) -> dict:
+def create_agent(request: AgentDefinitionRequest, _: dict = Depends(require_admin)) -> dict:
     agent_id = str(uuid4())
     with db_session() as db:
         _ensure_agent_definitions_table(db)
@@ -78,7 +87,7 @@ def create_agent(request: AgentDefinitionRequest) -> dict:
 
 
 @router.get("/agents/{agent_id}")
-def get_agent(agent_id: str) -> dict:
+def get_agent(agent_id: str, _: dict = Depends(require_user)) -> dict:
     with db_session() as db:
         if not _table_exists(db, "agent_definitions"):
             raise HTTPException(status_code=404, detail="Agent not found")
@@ -89,7 +98,7 @@ def get_agent(agent_id: str) -> dict:
 
 
 @router.patch("/agents/{agent_id}")
-def update_agent(agent_id: str, request: AgentDefinitionRequest) -> dict:
+def update_agent(agent_id: str, request: AgentDefinitionRequest, _: dict = Depends(require_admin)) -> dict:
     with db_session() as db:
         if not _table_exists(db, "agent_definitions"):
             raise HTTPException(status_code=404, detail="Agent not found")
@@ -121,7 +130,7 @@ def update_agent(agent_id: str, request: AgentDefinitionRequest) -> dict:
 
 
 @router.delete("/agents/{agent_id}")
-def delete_agent(agent_id: str) -> dict:
+def delete_agent(agent_id: str, _: dict = Depends(require_admin)) -> dict:
     with db_session() as db:
         if _table_exists(db, "agent_definitions"):
             db.execute("DELETE FROM agent_definitions WHERE id = ?", (agent_id,))
@@ -129,13 +138,13 @@ def delete_agent(agent_id: str) -> dict:
 
 
 @router.post("/runs/security-review-demo")
-def start_demo_run(request: DemoRunRequest) -> dict:
+def start_demo_run(request: DemoRunRequest, _: dict = Depends(require_admin)) -> dict:
     run_id = start_security_review_demo(request.workflow_id, request.objective)
     return {"run_id": run_id, "status": "waiting_for_approval"}
 
 
 @router.get("/runs/{run_id}/events")
-def run_events(run_id: str) -> StreamingResponse:
+def run_events(run_id: str, _: dict = Depends(require_user)) -> StreamingResponse:
     return StreamingResponse(demo_agent_event_stream(run_id), media_type="text/event-stream")
 
 

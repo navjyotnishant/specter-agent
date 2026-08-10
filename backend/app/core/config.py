@@ -17,7 +17,14 @@ class Settings(BaseSettings):
     telegram_backend_url: str = "http://127.0.0.1:8000"
     host_runner_timeout_seconds: float = 2.0
     scheduler_enabled: bool = True
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # The Vite dev server binds 8080 (see vite.config.ts), and a browser treats
+    # localhost and 127.0.0.1 as DIFFERENT origins -- so both spellings of each
+    # are listed. Without 8080 the dev frontend cannot make a single request.
+    cors_origins: list[str] = [
+        "http://localhost:8080", "http://127.0.0.1:8080",
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:3000", "http://127.0.0.1:3000",
+    ]
 
     # Linear integration (opt-in — no-op if token not set)
     linear_api_token: str = ""
