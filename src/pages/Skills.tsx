@@ -444,7 +444,7 @@ const ORIGIN_BADGE: Record<SkillOrigin, { label: string; className: string }> = 
   unsaved:  { label: "not saved",    className: "sp-src sp-src-unsaved" },
 };
 
-/** Ids seeded by backend/app/runtime/skill_seeds.py. Listed explicitly rather
+/** Ids seeded by internal/seed/data/skills.json. Listed explicitly rather
  *  than inferred from id shape: an imported skill whose source_repo was cleared
  *  has an identical slug id, so shape alone mislabels it. */
 const SEEDED_SKILL_IDS = new Set([

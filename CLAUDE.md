@@ -32,13 +32,23 @@ Read `AGENTS.md` before making any non-trivial change. It covers:
 
 ## Quick reference
 
+The backend is **Go, one binary**. `specter serve` is the API and the web UI;
+`specter run` executes a workflow in its own process. Same artifact, two entry
+points — there is no interpreter, no venv, and no second process to keep alive.
+
 | What | Where |
 |---|---|
-| FastAPI entrypoint | `backend/app/main.py` |
-| SQLite schema | `backend/app/db/session.py` |
-| API routers | `backend/app/routers/` |
-| Run/approval endpoints | `backend/app/routers/runs.py` |
-| Runtime helpers | `backend/app/runtime/` |
+| CLI + server entrypoint | `cmd/specter/` |
+| HTTP router and handlers | `internal/api/` |
+| Schema and queries | `internal/store/` (`schema.sql`, `migrations.sql`) |
+| Workflow execution engine | `internal/runner/` |
+| Graph parsing and scheduling | `internal/graph/` |
+| Agent spawning, streaming, cancel | `internal/exec/` |
+| OS confinement | `internal/confine/` |
+| Worktree per run | `internal/worktree/` |
+| Fernet, byte-compatible with Python | `internal/secretbox/` |
+| Built-in skills + workflow templates | `internal/seed/` |
+| State directory resolution | `internal/specterhome/` |
 | Frontend API client | `src/lib/api.ts` |
 | Type definitions | `src/lib/types.ts` |
 | Workflows list + history | `src/pages/Workflows.tsx` |
@@ -46,11 +56,7 @@ Read `AGENTS.md` before making any non-trivial change. It covers:
 | Workflow builder | `src/pages/WorkflowBuilder.tsx` |
 | React Flow nodes | `src/components/workflow/nodes/` |
 | Node config inspector | `src/components/agents/AgentInspector.tsx` |
-| Built-in templates | `backend/app/templates/` |
-| Codex host runner | `scripts/specter_host_runner.py` |
-| Host runner docs | `docs/docs/guides/codex-cli-host-runner.md` |
-| Docker Sandbox docs | `docs/docs/guides/docker-sandbox.md` |
-| Workflow execution docs | `docs/docs/guides/workflow-execution.md` |
+| End-to-end tests against the real binary | `test/e2e/` |
 | Docs site (Docusaurus project) | `docs/` (built via `cd docs && npm run build`, deployed to GitHub Pages) |
 
 ## Development
@@ -59,17 +65,24 @@ Read `AGENTS.md` before making any non-trivial change. It covers:
 # Frontend
 VITE_API_BASE_URL=http://127.0.0.1:8000/api pnpm dev -- --host 127.0.0.1
 
-# Backend
-PYTHONPATH=backend .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+# Backend — API and web UI
+go run ./cmd/specter serve
 
-# Host runner
-python3 scripts/specter_host_runner.py
+# Run a workflow from the terminal, no server needed
+go run ./cmd/specter run <workflow> --repo .
+
+# What this machine can do right now
+go run ./cmd/specter status
 
 # Docker (full stack)
 docker compose up -d --build
 ```
 
 Frontend: `http://127.0.0.1:5173` · Backend health: `http://127.0.0.1:8000/api/health`
+
+State lives in `~/.specter` (override with `SPECTER_HOME`), **not** in the
+checkout — deleting the repository must not delete the run history or the key
+that decrypts stored credentials.
 
 ## Docker build rule
 

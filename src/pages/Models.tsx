@@ -42,14 +42,16 @@ import { useModelPreference } from "@/lib/model-preference";
 const codexSigninCommand = "codex";
 const dockerSandboxMacInstallCommand = "brew install docker/tap/sbx";
 const dockerSandboxWindowsInstallCommand = "winget install Docker.sbx";
-const runnerSafeCommand = "python3 scripts/specter_host_runner.py";
+// The standalone Python host runner is gone. `specter serve` spawns agents
+// itself, so there is no second process on localhost:8765 to start — this is the
+// server, and the launchd service below supervises this same command.
+const runnerSafeCommand = "specter serve";
 
 const SANDBOX_AGENTS: Record<string, { label: string; authCommand: string; template: string }> = {
   codex:  { label: "Codex",       authCommand: "sbx secret set -g openai --oauth", template: "docker/sandbox-templates:codex" },
   claude: { label: "Claude Code", authCommand: "sbx secret set -g anthropic",      template: "docker/sandbox-templates:claude-code" },
   cursor: { label: "Cursor",      authCommand: "sbx run cursor",                   template: "docker/sandbox-templates:cursor-agent-docker" },
 };
-const runnerMaintenanceCommand = "SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 python3 scripts/specter_host_runner.py";
 const defaultRuntimePrompt = "Summarize this repository structure and identify the main application entry points. Do not modify files.";
 
 const sandboxPolicyDescriptions: Record<string, string> = {
@@ -898,18 +900,13 @@ export default function Models() {
                 </div>
                 <div className="flex gap-1.5">
                   {!launchdSvc?.installed ? (
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button type="button" size="sm" className="rounded-[6px] bg-slate-900 text-xs hover:bg-slate-800">Install</Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-lg rounded-[10px]">
-                        <DialogHeader>
-                          <DialogTitle>Install auto-start service</DialogTitle>
-                          <DialogDescription>Starts automatically on login and restarts on crash.</DialogDescription>
-                        </DialogHeader>
-                        <CommandCopy command="python3 scripts/specter_host_runner.py --install-service" copiedCommand={copiedCommand} onCopy={copyCommand} />
-                      </DialogContent>
-                    </Dialog>
+                    // The backend installs the service itself. This used to show
+                    // a copyable python3 command for a script that no longer
+                    // exists, while the mutation that does the work sat unused.
+                    <Button type="button" size="sm" className="rounded-[6px] bg-slate-900 text-xs hover:bg-slate-800"
+                      disabled={!canUseBackend || installLaunchd.isPending} onClick={() => installLaunchd.mutate()}>
+                      {installLaunchd.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Install"}
+                    </Button>
                   ) : (
                     <>
                       <Button type="button" size="sm" variant="outline" className="rounded-[6px] bg-white text-xs"

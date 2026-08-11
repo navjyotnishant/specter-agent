@@ -1,40 +1,55 @@
 #!/usr/bin/env bash
 # Specter Agent pre-commit gate — real enforcement layer.
 #
-# Runs a Specter Agent workflow against this repo and blocks the commit if it
-# fails. Uses the existing scripts/specter-agent CLI wrapper directly: a git
-# hook is executed by git itself (not by a coding assistant's tool-use loop),
-# so the long-blocking nature of the CLI call is not a problem here — git
-# natively waits for the hook process to exit before continuing the commit.
+# Runs a Specter workflow against this repo and blocks the commit if it fails.
+# A git hook is executed by git itself, not by a coding assistant's tool-use
+# loop, so a long-blocking run is fine here: git waits for the hook to exit
+# before continuing the commit.
+#
+# This calls `specter run` directly. There is no server to reach and no daemon
+# to keep alive — the binary executes the workflow in its own process and writes
+# to the same database the web UI reads, so the run appears in the app without
+# the hook and the app ever talking to each other.
 #
 # Setup (once per repo):
-#   1. Copy this file to .git/hooks/pre-commit in the target repository
-#      (or point a hook manager such as pre-commit/husky at it) and
+#   1. Copy this file to .git/hooks/pre-commit in the target repository (or
+#      point a hook manager such as pre-commit/husky at it) and
 #      `chmod +x .git/hooks/pre-commit`.
-#   2. Set SPECTER_WORKFLOW_ID (and SPECTER_TOKEN / SPECTER_API_BASE_URL if
-#      not already configured for scripts/specter-agent) in your shell
-#      profile or a local .env — never commit tokens to source control.
-#   3. Register this repository's path as an approved workspace in Specter
-#      (Connectors / Workspaces page in the web UI).
+#   2. Set SPECTER_WORKFLOW to the workflow's name or id.
+#   3. Register this repository as an approved workspace in Specter
+#      (Connectors / Workspaces in the web UI). An unapproved repository is
+#      refused before any agent is spawned, which is the point of the allowlist.
 #
-# SPECTER_AGENT_BIN may point at a vendored copy of scripts/specter-agent if
-# it isn't installed globally.
+# SPECTER_BIN may point at a specific binary if `specter` is not on PATH.
+# SPECTER_HOME relocates the state directory, and must match whatever the rest
+# of your install uses — otherwise the hook reads a different database and
+# reports that the workflow does not exist.
 
 set -euo pipefail
 
-if [ -z "${SPECTER_WORKFLOW_ID:-}" ]; then
-  echo "SPECTER_WORKFLOW_ID is not set — skipping Specter pre-commit gate." >&2
+# The gate is opt-in per repository. Unset means "not configured here", which is
+# not an error — a hook that failed every commit in every repo that had not
+# opted in would simply be removed.
+if [ -z "${SPECTER_WORKFLOW:-}" ]; then
+  echo "SPECTER_WORKFLOW is not set — skipping Specter pre-commit gate." >&2
   echo "Set it to enable this check. See scripts/precommit-gate/SKILL.md." >&2
   exit 0
 fi
 
-SPECTER_AGENT_BIN="${SPECTER_AGENT_BIN:-specter-agent}"
+SPECTER_BIN="${SPECTER_BIN:-specter}"
 
-if ! command -v "$SPECTER_AGENT_BIN" >/dev/null 2>&1; then
-  echo "Specter pre-commit gate: '$SPECTER_AGENT_BIN' not found on PATH." >&2
-  echo "Set SPECTER_AGENT_BIN to the full path of scripts/specter-agent, or install it." >&2
+if ! command -v "$SPECTER_BIN" >/dev/null 2>&1; then
+  echo "Specter pre-commit gate: '$SPECTER_BIN' not found on PATH." >&2
+  echo "Install it, or set SPECTER_BIN to the full path of the binary." >&2
   exit 1
 fi
 
-echo "Specter pre-commit gate: running workflow '$SPECTER_WORKFLOW_ID'..." >&2
-"$SPECTER_AGENT_BIN" "$SPECTER_WORKFLOW_ID" --workspace . --quiet
+echo "Specter pre-commit gate: running workflow '$SPECTER_WORKFLOW'..." >&2
+
+# --repo . rather than relying on the working directory: git runs hooks from the
+# repository root, but that is a property of git rather than something to depend
+# on silently.
+#
+# The exit code carries the verdict, so a failing workflow blocks the commit
+# without this script inspecting the output.
+"$SPECTER_BIN" run "$SPECTER_WORKFLOW" --repo .

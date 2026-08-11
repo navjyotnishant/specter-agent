@@ -42,13 +42,13 @@ Check logs:
 docker compose logs --tail 50 specter-agent
 ```
 
-Confirm the FastAPI app starts without errors and SQLite initializes successfully.
+Confirm the server starts without errors and SQLite initializes successfully.
 
 For fast development without Docker:
 
 ```bash
 VITE_API_BASE_URL=http://127.0.0.1:8000/api npm run dev -- --host 127.0.0.1
-PYTHONPATH=backend SDLC_DATABASE_PATH=/tmp/specter-agent-dev.db .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+SDLC_DATABASE_PATH=/tmp/specter-agent-dev.db go run ./cmd/specter serve
 ```
 
 Use `http://127.0.0.1:8080` for the frontend and `http://127.0.0.1:8000/api/health` for backend health.
@@ -68,10 +68,13 @@ Run the checks that exist for this repo:
 ```bash
 npm run build
 npm run lint
-PYTHONPATH=backend .venv/bin/python -m py_compile backend/app/main.py
+go build ./... && go vet ./...
+go test ./...
 ```
 
-When workflow persistence or backend runtime code changes, also run a SQLite smoke test that initializes the database and seeds the Security Review Team template.
+`go test ./test/e2e/` builds the real binary and drives it, which is where
+anything that only fails through the real transport, argument parser, or
+filesystem shows up — CORS, flag ordering, a missing state directory.
 
 If any check fails, report the failures and ask the user how to proceed. Do not auto-block unless the failure indicates a hard runtime or security issue.
 
@@ -228,10 +231,12 @@ If an issue cannot be confirmed or created because tooling is blocked, tell the 
 |---|---|---|
 | Frontend production build | `npm run build` | Before handoff or release |
 | Frontend lint | `npm run lint` | Before handoff or release |
-| Backend compile smoke | `PYTHONPATH=backend .venv/bin/python -m py_compile backend/app/main.py` | Backend changes |
+| Backend build + vet | `go build ./... && go vet ./...` | Backend changes |
+| Backend unit tests | `go test ./internal/...` | Backend changes |
+| End-to-end against the real binary | `go test ./test/e2e/` | Before handoff or release |
 | Backend health | `curl -sS http://127.0.0.1:8000/api/health` | When backend is running |
 
-When dependencies are not installed, install frontend packages with `pnpm install` and backend packages with `.venv/bin/pip install -r backend/requirements.txt`.
+When dependencies are not installed, install frontend packages with `pnpm install`. The backend has no install step — `go build` fetches what it needs.
 
 Known lint baseline: shadcn/auth files may emit Fast Refresh warnings when modules export helpers and components together. Treat lint errors as failures; treat existing warnings as non-blocking unless the task touches those files.
 
@@ -245,12 +250,15 @@ Known lint baseline: shadcn/auth files may emit Fast Refresh warnings when modul
 
 ---
 
-## Python Environment
+## Go Environment
 
-- Prefer a local virtual environment at `.venv` for backend work.
-- Prefer `.venv/bin/python` and `.venv/bin/pip` for Python commands.
-- Use `.venv/bin/python -m ...` style for module execution.
-- If `.venv` is absent and verification is needed, create one or use a temporary venv under `/tmp`.
+- The backend is Go. There is no interpreter, no virtual environment, and no
+  install step — `go build ./...` fetches its own dependencies.
+- `CGO_ENABLED=0` must keep working: the SQLite driver is pure Go
+  (`modernc.org/sqlite`), which is what allows a static binary and an Alpine
+  runtime image. A dependency that needs cgo would cost both.
+- State lives under `~/.specter` (`SPECTER_HOME` to relocate), never in the
+  checkout.
 
 ---
 
@@ -291,15 +299,22 @@ don't drift:
 
 ## Key Architecture Notes
 
-- FastAPI app entrypoint: `backend/app/main.py`
-- SQLite session/schema utilities: `backend/app/db/session.py`
-- Workflow persistence and Security Review Team seeding: `backend/app/runtime/workflows.py`
-- Workflow API routes: `backend/app/routers/workflows.py`
-- Workflow run routes (start, steps, logs, approve, reject, revision, cancel): `backend/app/routers/runs.py`
-- Auth uses bearer-token sessions stored in SQLite with password hashing via passlib/bcrypt.
-- Sensitive API routes should use `require_user`; admin-only operations should enforce role checks.
+- CLI and server entrypoint: `cmd/specter/` — one binary, two entry points.
+  `serve` is the API and web UI; `run` executes a workflow in its own process.
+- HTTP router and handlers: `internal/api/`
+- Schema, migrations and queries: `internal/store/` (`schema.sql` is embedded, so
+  the binary creates its own database rather than requiring a prior install)
+- Workflow execution engine: `internal/runner/`
+- Built-in skills and workflow templates: `internal/seed/`, seeded
+  insert-if-missing on startup so a user's edits survive every restart
+- Auth uses opaque bearer-token sessions stored in SQLite as SHA-256 digests,
+  with bcrypt password hashing. The hashes are byte-compatible with the ones
+  passlib wrote, so an existing user's password keeps working.
+- Sensitive API routes go through `requireUser`; admin-only operations through
+  `requireAdmin`.
 - Workflow graphs are stored as JSON in the `workflows.graph_json` column.
-- Built-in workflow and skill templates live under `backend/app/templates`.
+- Encrypted credentials use Fernet (`internal/secretbox/`), byte-compatible with
+  Python's `cryptography` — a token written by either side decrypts on the other.
 - Frontend API client: `src/lib/api.ts`
 - Type definitions: `src/lib/types.ts`
 - Workflow list + run history page: `src/pages/Workflows.tsx`

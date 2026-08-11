@@ -70,7 +70,7 @@ const nodeTypes = {
 // not carry `sandboxAgent` yet, and those are exactly the ones a bulk edit must reach.
 const AGENT_NODE_TYPES = new Set(["supervisorAgent", "specialistAgent", "conditional"]);
 
-// id of the seeded "Standard Report Format" skill (backend/app/runtime/skill_seeds.py)
+// id of the seeded "Standard Report Format" skill (internal/seed/data/skills.json)
 const STANDARD_REPORT_FORMAT_SKILL_ID = "standard-report-format";
 
 // ── default data per node type ──────────────────────────────────────────────

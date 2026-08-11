@@ -1,7 +1,0 @@
-{
-  "id": "security-report-writer",
-  "name": "Security Report Writer",
-  "description": "Aggregate specialist findings into a concise auditable Markdown or HTML security report.",
-  "compatible_agent_roles": ["Security report writer", "Supervisor Agent"],
-  "prompt_template": "Create a final report with executive summary, severity table, findings, evidence, remediations, memory references, and approval notes."
-}

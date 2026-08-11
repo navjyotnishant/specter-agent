@@ -1,7 +1,0 @@
-{
-  "id": "dependency-risk-review",
-  "name": "Dependency Risk Review",
-  "description": "Inspect dependency manifests and lockfiles for outdated, risky, or unexpected packages.",
-  "compatible_agent_roles": ["Dependency auditor"],
-  "prompt_template": "Analyze dependency context. Identify risky packages, ecosystem concerns, and practical remediation steps."
-}
