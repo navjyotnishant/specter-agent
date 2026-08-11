@@ -13,6 +13,7 @@ import (
 	"github.com/navjyotnishant/specter-agent/internal/agenthost"
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/graph"
+	"github.com/navjyotnishant/specter-agent/internal/isolation"
 	"github.com/navjyotnishant/specter-agent/internal/store"
 )
 
@@ -35,6 +36,11 @@ type Runner struct {
 	// ApprovalTimeout overrides the node's configured gate timeout. Tests only —
 	// deliberately unclamped so an already-expired gate can be exercised.
 	ApprovalTimeout time.Duration
+
+	// NetworkPolicy bounds what the agent may reach. Zero value allows
+	// everything, which is the current default and is reported as such by the
+	// Warden rather than implied to be a boundary.
+	NetworkPolicy isolation.NetworkPolicy
 }
 
 const defaultNodeTimeout = 30 * time.Minute
@@ -296,9 +302,25 @@ func (r *Runner) runAgent(ctx context.Context, runID string, node graph.Node, wo
 			return "failed", "", noAgentMessage(node.AgentName())
 		}
 
+		// One proxy per node, closed when the node ends: a proxy that outlives
+		// the agent it bounded is a hole left open.
+		env := os.Environ()
+		if r.NetworkPolicy.Restricted() {
+			proxy, err := isolation.StartProxy(r.NetworkPolicy)
+			if err != nil {
+				return "failed", "", "could not start the network proxy: " + err.Error()
+			}
+			defer proxy.Close()
+			proxy.OnRefused = func(host, reason string) {
+				r.writeLog(runID, "warning", "network refused: "+host+" — "+reason, nil)
+			}
+			env = isolation.ProxyEnv(env, proxy.Addr())
+		}
+
 		result = exec.RunStreaming(ctx, exec.Command{
 			Argv:    []string{agentPath, prompt},
 			Dir:     workspace,
+			Env:     env,
 			Timeout: timeout,
 		})
 	}

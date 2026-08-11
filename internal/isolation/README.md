@@ -13,6 +13,8 @@ disagree about what is protecting you.
 | `seatbelt.go` | macOS mechanism — generates a `sandbox-exec` profile from the policy. |
 | `bubblewrap.go` | Linux mechanism — the same policy as `bwrap` bind mounts. |
 | `isolation.go` | Detection, dispatch, path safety, workspace resolution. |
+| `network.go` | CONNECT-level filtering proxy — the boundary Seatbelt cannot express. |
+| `warden.go` | The one report: every layer, which hold, what the others expose. |
 
 Named for mechanisms rather than platforms: these files are **not** build-tagged,
 they compile everywhere, and `Detect()` picks between them at runtime.
@@ -70,11 +72,15 @@ is missing.
   and `~/.kube`. Deny-first is the intended direction; the obstacle is that a
   policy tight enough to break `npm install` gets switched off, which protects
   nothing.
-- **The network is unbounded.** `sandbox-exec` can express network rules, but
-  they are undocumented and deprecated — a boundary built on guesswork is worse
-  than an absent one that is declared. `Policy.NetworkRestricted()` reports this
-  honestly rather than letting callers assume containment. Domain filtering
-  belongs in a CONNECT-level proxy this package points the agent at.
+- **The network is unbounded UNTIL a policy names allowed hosts.** The proxy
+  exists (`network.go`) and is wired into both run paths, but an empty policy
+  forwards everything — and nothing sets one yet. The Warden reports `network`
+  as unheld until it does.
+- **Even a set policy is not a cage.** Filtering happens at CONNECT, via
+  `HTTPS_PROXY`, so an agent that ignores proxy environment variables reaches
+  the network directly. On Linux a network namespace could close that; on macOS
+  it cannot. This is a policy for well-behaved clients, and is described that
+  way rather than as containment.
 - **Windows has no mechanism.** `Detect()` returns `none`, and under the
   confinement-is-the-gate rule that means runs are refused rather than quietly
   downgraded.

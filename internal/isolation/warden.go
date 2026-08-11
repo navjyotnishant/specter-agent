@@ -17,7 +17,10 @@
 // than one they know is absent — the first gets trusted.
 package isolation
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Layer is one boundary, and whether it currently holds.
 type Layer struct {
@@ -46,6 +49,11 @@ type WardenStatus struct {
 // Reporting only the good news is how `sandbox-exec ✓` came to sit above an
 // unconfined execution path.
 func Warden() WardenStatus {
+	return WardenFor(DefaultNetworkPolicy())
+}
+
+// WardenFor reports the boundaries under a specific network policy.
+func WardenFor(policy NetworkPolicy) WardenStatus {
 	info := Detect()
 	status := WardenStatus{
 		Active:    info.Mechanism != MechanismNone,
@@ -87,14 +95,25 @@ func Warden() WardenStatus {
 		Gap:    gapWhenUnheld(status.Active, "an agent can read repositories you did not point it at"),
 	})
 
-	// Layer 4 — network. sandbox-exec can express network rules, but they are
-	// undocumented and deprecated; a boundary built on them would be guesswork
-	// dressed as containment.
-	status.Layers = append(status.Layers, Layer{
-		Name: "network", Held: false,
-		Detail: "unrestricted",
-		Gap:    "an agent can reach any host your machine can",
-	})
+	// Layer 4 — network. Held only when a policy names allowed hosts: the proxy
+	// exists either way, but an empty policy forwards everything, and reporting
+	// that as a boundary would be the report's most consequential lie.
+	//
+	// Even when held it is a policy for well-behaved clients rather than a cage:
+	// an agent that ignores HTTPS_PROXY reaches the network directly. Said in
+	// the detail rather than left for someone to discover.
+	if policy.Restricted() {
+		status.Layers = append(status.Layers, Layer{
+			Name: "network", Held: true,
+			Detail: fmt.Sprintf("%d host pattern(s) allowed, via proxy", len(policy.Allowed)),
+		})
+	} else {
+		status.Layers = append(status.Layers, Layer{
+			Name: "network", Held: false,
+			Detail: "unrestricted — no allowed-host policy is set",
+			Gap:    "an agent can reach any host your machine can",
+		})
+	}
 
 	return status
 }

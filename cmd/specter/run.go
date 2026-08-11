@@ -215,6 +215,10 @@ func runNode(
 	if allowWrite {
 		permission = "acceptEdits"
 	}
+	// Closed with the node, so a proxy never outlives the agent it bounded.
+	env, closeProxy := agentEnv(workspace, networkPolicy)
+	defer closeProxy()
+
 	argv := []string{agentPath, "--permission-mode", permission, "-p", prompt}
 	confined, info, err := isolation.Wrap(argv, workspace)
 	if err != nil {
@@ -230,7 +234,7 @@ func runNode(
 	result := exec.RunStreaming(nodeCtx, exec.Command{
 		Argv:    confined,
 		Dir:     workspace,
-		Env:     isolation.Env(os.Environ(), workspace),
+		Env:     env,
 		Timeout: timeout,
 		OnStdout: func(line string) {
 			exec.AppendProgress(line, func(text string) {
@@ -535,3 +539,25 @@ func firstLineOf(s string) string {
 	}
 	return line
 }
+
+// agentEnv builds the agent's environment, including a network proxy when a
+// policy is set. The proxy is per-run and closed with the run, so it cannot
+// outlive the agent it was bounding.
+func agentEnv(workspace string, policy isolation.NetworkPolicy) ([]string, func()) {
+	env := isolation.Env(os.Environ(), workspace)
+	if !policy.Restricted() {
+		return env, func() {}
+	}
+	proxy, err := isolation.StartProxy(policy)
+	if err != nil {
+		// Unproxied rather than failed — and the Warden reports the network as
+		// unbounded, so the downgrade is visible rather than silent.
+		return env, func() {}
+	}
+	return isolation.ProxyEnv(env, proxy.Addr()), func() { proxy.Close() }
+}
+
+// networkPolicy is the policy for this run. Unrestricted until something sets
+// it — the workflow graph is the obvious source, and inventing a config file
+// before anything reads it would be scaffolding.
+var networkPolicy isolation.NetworkPolicy
