@@ -930,9 +930,15 @@ function BuilderInner({
   return (
     <div className="flex h-full flex-col" onKeyDown={onKeyDown} tabIndex={-1}>
 
-      {/* ── top bar ── */}
-      <div className="flex items-start justify-between gap-4 border-b border-[#e8ecf1] bg-white px-6 py-3.5">
-        <div className="min-w-0">
+      {/* ── top bar ──
+          flex-wrap, and the title column carries a basis wide enough for the
+          breadcrumb. The toolbar's eleven buttons are all `white-space: nowrap`
+          inside a `shrink-0` row, so it has a hard intrinsic width of ~1066px —
+          at a 1600px viewport that left 126px for a title column that wants 240,
+          and the name clipped to "pre-p" with the description cut to "Use this s".
+          Wrapping puts the toolbar on its own line instead of starving the title. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 border-b border-[#e8ecf1] bg-white px-6 py-3.5">
+        <div className="min-w-0 flex-1 basis-[320px]">
           <div className="flex flex-wrap items-center gap-2">
             <nav className="sp-crumb mr-1 flex items-center gap-1">
               <Link to="/workflows" className="sp-crumb hover:text-[#374151]">Workflows</Link>
