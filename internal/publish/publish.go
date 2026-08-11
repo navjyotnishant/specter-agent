@@ -54,7 +54,21 @@ func Commit(repoDir, branch, objective string) (Result, error) {
 	message := fmt.Sprintf("%s\n\nProduced by a Specter agent run.\nObjective: %s\n",
 		firstLine(objective), objective)
 
-	if out, err := git(repoDir, "commit", "-m", message); err != nil {
+	// The identity is supplied rather than inherited. git refuses to commit with
+	// "empty ident name" when neither user.name nor user.email is configured,
+	// which is every CI runner and most containers — so a write run failed there
+	// while working on a developer machine that happened to have a global
+	// identity set. -c rather than `git config` so nothing is written to the
+	// user's repository.
+	//
+	// Naming the agent in the author field is also more honest than borrowing
+	// whoever happens to be configured: this commit was not written by them.
+	commit := []string{
+		"-c", "user.name=Specter Agent",
+		"-c", "user.email=specter-agent@localhost",
+		"commit", "-m", message,
+	}
+	if out, err := git(repoDir, commit...); err != nil {
 		return Result{}, fmt.Errorf("committing: %w\n%s", err, out)
 	}
 	return Result{Committed: true, FilesChanged: changed, Branch: branch}, nil

@@ -17,13 +17,31 @@ func gitRepoWithRemote(t *testing.T) string {
 	dir := t.TempDir()
 	dir, _ = filepath.EvalSymlinks(dir)
 
+	// No git identity, for the whole test process — Commit() shells out to git
+	// and inherits this environment, so it must supply its own identity rather
+	// than borrowing the developer's.
+	//
+	// Without this the suite passed on a machine with a global identity
+	// configured and failed on the first CI runner, which has none: git refuses
+	// with "empty ident name" and every write run dies at the commit.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	t.Setenv("HOME", dir)
+
+	// The fixture's OWN commits carry an identity via -c, but nothing is exported
+	// into the environment: production code must supply its own, and inheriting
+	// one here would hide the case where it does not. That is exactly what
+	// happened — the tests passed on a developer machine with a global identity
+	// configured and failed on the first CI runner, which has none.
 	run := func(args ...string) {
 		t.Helper()
+		args = append([]string{
+			"-c", "user.name=fixture", "-c", "user.email=fixture@localhost",
+		}, args...)
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
-			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		// A developer's global identity must not leak in and mask the failure.
+		cmd.Env = append(os.Environ(), "HOME="+dir, "GIT_CONFIG_GLOBAL=/dev/null")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
