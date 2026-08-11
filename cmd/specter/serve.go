@@ -14,12 +14,18 @@ import (
 	"github.com/navjyotnishant/specter-agent/internal/api"
 	"github.com/navjyotnishant/specter-agent/internal/seed"
 	"github.com/navjyotnishant/specter-agent/internal/store"
+	"github.com/navjyotnishant/specter-agent/internal/worktree"
 )
 
 // cmdServe runs the HTTP API the React frontend talks to.
 //
 // Same binary as the CLI, different entry point — which is the whole reason for
 // the rewrite. There is no separate server artifact to version-match.
+// worktreeRetention is how long a failed run's checkout stays inspectable.
+// Long enough to look at it the next working day; short enough that a month of
+// failures is not still on disk.
+const worktreeRetention = 7 * 24 * time.Hour
+
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8000", "address to listen on")
@@ -43,6 +49,14 @@ func cmdServe(args []string) error {
 		return fmt.Errorf("seeding built-ins: %w", err)
 	} else if res.Skills > 0 || res.Workflows > 0 {
 		fmt.Printf("seeded         →  %d skill(s), %d template(s)\n", res.Skills, res.Workflows)
+	}
+
+	// Retained worktrees are deliberate — a failed run stays inspectable — but
+	// nothing was ever clearing them, so they accumulated forever. Swept at
+	// startup rather than on a timer: a server that is never restarted is not
+	// the case that fills a disk.
+	if removed, err := worktree.Reap(worktreeRetention); err == nil && removed > 0 {
+		fmt.Printf("reaped         →  %d run worktree(s) older than %s\n", removed, worktreeRetention)
 	}
 
 	deps := &api.Deps{Store: s, DBPath: *dbPath, FrontendDir: *frontend}

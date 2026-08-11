@@ -17,6 +17,25 @@ disagree about what is protecting you.
 Named for mechanisms rather than platforms: these files are **not** build-tagged,
 they compile everywhere, and `Detect()` picks between them at runtime.
 
+## The agent never touches your repository
+
+```
+your repo  ──clone──►  ~/.specter/runs/run-abc123/  ──► agent runs here, confined
+```
+
+`worktree.Prepare` makes a git worktree; the runner hands the AGENT that
+worktree, never the source; the Warden's profile is built around it. Your
+checkout is read exactly once, by Specter's own process, to create the clone.
+
+This is why the approved-repository list was retired. It read as a permission to
+operate inside a repository — but nothing ever operates inside your repository.
+A repository is a SOURCE TO CLONE FROM, which is an input to a run like the
+prompt, not an access grant.
+
+A read-only run detaches at HEAD. A `--write` run gets its own branch, which is
+what makes the pull-request path possible: the work arrives as a branch you
+review, never as edits already in your tree.
+
 ## The one decision worth knowing
 
 **Specter owns the policy. It does not implement the enforcement.**

@@ -1015,7 +1015,11 @@ export default function Models() {
 
                     {/* Workspace */}
                     <div className="space-y-2">
-                      <Label>Workspace</Label>
+                      {/* A source to clone from, not a place the agent works:
+                          every run gets a git worktree under ~/.specter and the
+                          agent is confined there. "Workspace" implied both a
+                          location and a permission, and neither was true. */}
+                      <Label>Repository</Label>
                       <Select value={selectedWorkspaceId} onValueChange={setSelectedWorkspaceId}>
                         <SelectTrigger className="rounded-[8px]">
                           <SelectValue placeholder="Select repository" />

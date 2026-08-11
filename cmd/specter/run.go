@@ -84,6 +84,9 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, a
 	if write {
 		mode = worktree.ModeReadWrite
 	}
+	// Old failed-run checkouts, swept before adding another.
+	worktree.Reap(7 * 24 * time.Hour)
+
 	wt, err := worktree.Prepare(approved, "run-"+runID[:8], mode)
 	if err != nil {
 		_ = db.CompleteRun(ctx, runID, "failed", "")
