@@ -239,11 +239,14 @@ export const api = {
       headers: authHeaders(token),
       body: JSON.stringify(payload),
     }),
-  cloneRepository: (token: string, payload: { repo_url: string }) =>
+  cloneRepository: (token: string, payload: { repo_url: string; destination: string }) =>
     request<ClonedRepository>("/runtime-adapters/repositories/clone", {
       method: "POST",
       headers: authHeaders(token),
-      body: JSON.stringify(payload),
+      // The Go handler's request struct reads `url`, not `repo_url` -- this
+      // mismatch meant every clone failed with "A repository URL is required"
+      // even once a destination was supplied, because the URL never arrived.
+      body: JSON.stringify({ url: payload.repo_url, destination: payload.destination }),
     }),
   codexRuntimeRuns: (token: string) => request<RuntimeRun[]>("/runtime-adapters/codex-cli/runs", { headers: authHeaders(token) }),
   createCodexRuntimeRun: (token: string, run: { workspace_id: string; prompt: string; mode: "read-only"; timeout_seconds: number; agent?: string; runtime?: "sandbox" | "direct" }) =>

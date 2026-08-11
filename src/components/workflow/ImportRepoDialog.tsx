@@ -37,6 +37,12 @@ export function ImportRepoDialog({ token, existingSkills, onClose, onImport, onI
   const [sourceMode, setSourceMode] = useState<"local" | "url">("local");
   const [repoPath, setRepoPath] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
+  // Where a cloned repo lands. Cloning writes to disk, so the destination must
+  // be an approved workspace -- the backend refuses an unapproved one, but
+  // until now the UI never asked, so the clone request always sent no
+  // destination and every git-URL import failed with "Workspace path is
+  // required."
+  const [cloneDestination, setCloneDestination] = useState("");
   const [parsed, setParsed] = useState<ParsedRepository | null>(null);
   const [selection, setSelection] = useState<ImportSelection>({ skills: new Set(), agents: new Set() });
   const [error, setError] = useState("");
@@ -61,7 +67,10 @@ export function ImportRepoDialog({ token, existingSkills, onClose, onImport, onI
     mutationFn: async (): Promise<ParsedRepository> => {
       let path = repoPath.trim();
       if (sourceMode === "url") {
-        const cloned = await api.cloneRepository(token, { repo_url: repoUrl.trim() });
+        const cloned = await api.cloneRepository(token, {
+          repo_url: repoUrl.trim(),
+          destination: cloneDestination,
+        });
         if (!cloned.ok || !cloned.path) throw new Error(cloned.message ?? "Clone failed.");
         // A /tree/<ref>/<subdir> URL scopes the scan to that subdirectory.
         setScopedTo(cloned.subpath || "");
@@ -262,18 +271,30 @@ export function ImportRepoDialog({ token, existingSkills, onClose, onImport, onI
               />
             </div>
           ) : (
-            <input
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/owner/repo (or …/tree/main/subdir)"
-              style={{ width: "100%", fontSize: 12, padding: "6px 8px", border: "1px solid #e2e8f0", borderRadius: 6 }}
-            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <input
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                placeholder="https://github.com/owner/repo (or …/tree/main/subdir)"
+                style={{ width: "100%", fontSize: 12, padding: "6px 8px", border: "1px solid #e2e8f0", borderRadius: 6 }}
+              />
+              <select
+                value={cloneDestination}
+                onChange={(e) => setCloneDestination(e.target.value)}
+                style={{ width: "100%", fontSize: 12, padding: "6px 8px", border: "1px solid #e2e8f0", borderRadius: 6 }}
+              >
+                <option value="">Clone into which approved workspace?</option>
+                {(workspacesQuery.data ?? []).filter((w) => w.is_active).map((w) => (
+                  <option key={w.id} value={w.path}>{w.name} — {w.path}</option>
+                ))}
+              </select>
+            </div>
           )}
 
           <div style={{ marginTop: 10 }}>
             <Button
               onClick={() => analyze.mutate()}
-              disabled={analyze.isPending || (sourceMode === "local" ? !repoPath.trim() : !repoUrl.trim())}
+              disabled={analyze.isPending || (sourceMode === "local" ? !repoPath.trim() : !repoUrl.trim() || !cloneDestination)}
               className="h-8 rounded-none bg-[#0f1117] px-3 text-[11px] font-medium text-white hover:bg-[#1f2937] disabled:opacity-40"
             >
               {analyze.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Download className="mr-1.5 h-3 w-3" />}
