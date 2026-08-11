@@ -31,11 +31,11 @@ func TestHostMatching(t *testing.T) {
 	}
 }
 
-// Empty means allow-everything, NOT deny-everything. Those are opposite
-// defaults and getting it wrong either removes the boundary silently or breaks
-// every run.
+// An EMPTY policy allows everything — the zero value must not accidentally deny,
+// or a caller who forgot to set one breaks every run. That is different from the
+// DEFAULT policy, which is deliberately restricted.
 func TestAnEmptyPolicyAllowsRatherThanDenies(t *testing.T) {
-	p := DefaultNetworkPolicy()
+	p := UnrestrictedNetworkPolicy()
 	if p.Restricted() {
 		t.Error("an unconfigured policy reports itself as restricting")
 	}
@@ -117,5 +117,68 @@ func TestProxyEnvReplacesInheritedSettings(t *testing.T) {
 		if !found {
 			t.Errorf("missing %s", want)
 		}
+	}
+}
+
+// The default is restricted, and it is built from what a real agent was
+// observed reaching: its model API and MCP endpoints, plus the registries a
+// coding agent installs from. Telemetry was observed too and deliberately left
+// out — an agent working on your code should not ship logs off the machine as a
+// side effect.
+func TestTheDefaultPolicyAllowsTheAgentAndRefusesTelemetry(t *testing.T) {
+	p := DefaultNetworkPolicy()
+
+	if !p.Restricted() {
+		t.Fatal("the default policy bounds nothing")
+	}
+
+	for _, host := range []string{
+		"api.anthropic.com",     // the model API — without this no agent runs
+		"github.com",            // clone and the PR path
+		"registry.npmjs.org",    // an agent that cannot npm install looks broken
+		"api.githubcopilot.com", // observed in a real run
+	} {
+		if allowed, reason := p.Permits(host); !allowed {
+			t.Errorf("the default refuses %s, which an agent needs: %s", host, reason)
+		}
+	}
+
+	// Observed, and excluded on purpose.
+	if allowed, _ := p.Permits("http-intake.logs.us5.datadoghq.com"); allowed {
+		t.Error("the default allows a telemetry sink")
+	}
+	// Nothing in the default should open the whole internet.
+	if allowed, _ := p.Permits("evil.example.com"); allowed {
+		t.Error("the default allows an arbitrary host")
+	}
+}
+
+// A node's hosts EXTEND the default rather than replacing it. A workflow that
+// needs one internal registry must not have to re-list the model API its agent
+// cannot run without — and a list that must be complete is one that silently
+// breaks when the default grows.
+func TestNodeHostsExtendTheDefaultRatherThanReplacingIt(t *testing.T) {
+	p := DefaultNetworkPolicy()
+	p.Allowed = append(p.Allowed, "internal.registry.example")
+
+	if allowed, _ := p.Permits("internal.registry.example"); !allowed {
+		t.Error("the added host was not permitted")
+	}
+	// Still there, which is the point of additive.
+	if allowed, _ := p.Permits("api.anthropic.com"); !allowed {
+		t.Error("extending the policy dropped the model API, so no agent could run")
+	}
+}
+
+// A denial beats the DEFAULT too, not just an explicit allow — otherwise a
+// workflow could not refuse a host the default happens to permit.
+func TestADenialOverridesTheDefaultAllowlist(t *testing.T) {
+	p := DefaultNetworkPolicy()
+	p.Denied = append(p.Denied, "github.com")
+
+	if allowed, reason := p.Permits("github.com"); allowed {
+		t.Error("a denied host was permitted because the default allows it")
+	} else if reason == "" {
+		t.Error("the refusal gave no reason")
 	}
 }

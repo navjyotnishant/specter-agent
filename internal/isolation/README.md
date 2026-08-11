@@ -77,10 +77,12 @@ is missing.
   and `~/.kube`. Deny-first is the intended direction; the obstacle is that a
   policy tight enough to break `npm install` gets switched off, which protects
   nothing.
-- **The network is unbounded UNTIL a policy names allowed hosts.** The proxy
-  exists (`network.go`) and is wired into both run paths, but an empty policy
-  forwards everything — and nothing sets one yet. The Warden reports `network`
-  as unheld until it does.
+- **The network default was built from observation, not guesswork.** A real
+  agent was run through a deny-all proxy and the hosts it reached were recorded:
+  its model API, its MCP endpoints, and a telemetry sink. The first two are in
+  the default; the third is deliberately not — an agent working on your code
+  should not ship logs off the machine as a side effect. Verified: an agent runs
+  normally under the default while its telemetry is refused.
 - **Even a set policy is not a cage.** Filtering happens at CONNECT, via
   `HTTPS_PROXY`, so an agent that ignores proxy environment variables reaches
   the network directly. On Linux a network namespace could close that; on macOS

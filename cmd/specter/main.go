@@ -91,6 +91,12 @@ func usage() {
 Options for run
   --repo <path>              which repository to run against
   --timeout <duration>       per-node limit (default 10m)
+  --write                    let the agent change files, and open a pull request
+  --allow-host <hosts>       extra hosts the agent may reach, comma-separated
+  --deny-host <hosts>        hosts it may not reach — wins over every allow
+
+The default policy already allows the model APIs, GitHub and the package
+registries. --allow-host adds to that rather than replacing it.
 
 Runs execute in this process. Nothing needs to be running first.
 `)

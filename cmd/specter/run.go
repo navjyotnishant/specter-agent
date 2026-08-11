@@ -274,6 +274,10 @@ func cmdRun(args []string) error {
 	dbPath := flags.String("db", defaultDBPath(), "path to the Specter database")
 	asJSON := flags.Bool("json", false, "emit a machine-readable result")
 	write := flags.Bool("write", false, "allow the agent to change files, and open a pull request with the result")
+	// Additive: the default already covers the model APIs, source hosts and
+	// package registries, so this names what THIS run needs beyond them.
+	allowHosts := flags.String("allow-host", "", "extra hosts the agent may reach, comma-separated (e.g. internal.registry,*.example.com)")
+	denyHosts := flags.String("deny-host", "", "hosts the agent may not reach, comma-separated — wins over every allow")
 	// Go's flag package stops parsing at the first positional argument, so
 	// `specter run my-workflow --json` would silently ignore every flag — the
 	// run proceeds against the wrong repo, unconfined, with no warning. People
@@ -295,6 +299,17 @@ func cmdRun(args []string) error {
 		}
 		workspace = cwd
 	}
+	for _, host := range strings.Split(*allowHosts, ",") {
+		if host = strings.TrimSpace(host); host != "" {
+			networkPolicy.Allowed = append(networkPolicy.Allowed, host)
+		}
+	}
+	for _, host := range strings.Split(*denyHosts, ",") {
+		if host = strings.TrimSpace(host); host != "" {
+			networkPolicy.Denied = append(networkPolicy.Denied, host)
+		}
+	}
+
 	return runWorkflow(*dbPath, flags.Arg(0), workspace, *timeout, *asJSON, *write)
 }
 
@@ -557,7 +572,6 @@ func agentEnv(workspace string, policy isolation.NetworkPolicy) ([]string, func(
 	return isolation.ProxyEnv(env, proxy.Addr()), func() { proxy.Close() }
 }
 
-// networkPolicy is the policy for this run. Unrestricted until something sets
-// it — the workflow graph is the obvious source, and inventing a config file
-// before anything reads it would be scaffolding.
-var networkPolicy isolation.NetworkPolicy
+// networkPolicy is the policy for this run: the observed default, plus whatever
+// --allow-host adds.
+var networkPolicy = isolation.DefaultNetworkPolicy()

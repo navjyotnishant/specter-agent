@@ -218,17 +218,20 @@ func TestWardenReportsTheGapsNotJustTheBoundaries(t *testing.T) {
 		}
 	}
 
-	// The network is not bounded today. Claiming it would be the most
-	// consequential lie the report could tell, so it is asserted rather than
-	// left to a reader's assumption. (Reads WERE in this list until the profile
-	// became deny-first within $HOME.)
-	for _, name := range []string{"network"} {
-		layer := byName[name]
+	// Under the DEFAULT policy every layer holds. What must stay true is that an
+	// UNRESTRICTED policy is reported as unheld with its consequence named —
+	// claiming a boundary that is not there is the most consequential lie this
+	// report could tell.
+	open := WardenFor(UnrestrictedNetworkPolicy())
+	for _, layer := range open.Layers {
+		if layer.Name != "network" {
+			continue
+		}
 		if layer.Held {
-			t.Errorf("the warden claims the %q layer holds, and nothing implements it", name)
+			t.Error("an unrestricted policy is reported as a network boundary")
 		}
 		if layer.Gap == "" {
-			t.Errorf("the %q layer does not hold but names no consequence", name)
+			t.Error("the unheld network layer names no consequence")
 		}
 	}
 }

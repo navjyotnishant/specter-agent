@@ -56,6 +56,16 @@ type NodeData struct {
 	Reason string `json:"reason"`
 	// TimeoutHours bounds how long a gate stays open. Clamped, not trusted.
 	TimeoutHours int `json:"timeoutHours"`
+	// AllowedHosts extends the default network policy for this node.
+	//
+	// Additive, not a replacement: a workflow that needs an internal registry
+	// says so without also having to re-list the model API its agent cannot run
+	// without. Supports the same "*.example.com" wildcard the policy does.
+	AllowedHosts []string `json:"allowedHosts"`
+	// DeniedHosts subtracts from it, and wins over any allow — including the
+	// defaults, so a workflow can refuse a host the default permits.
+	DeniedHosts []string `json:"deniedHosts"`
+
 	// URL, Method and PayloadTemplate configure a webhook node.
 	URL             string `json:"url"`
 	Method          string `json:"method"`
@@ -195,4 +205,17 @@ func (g *Graph) ExecutionOrder() ([]Node, error) {
 			len(g.Nodes)-len(order), len(g.Nodes))
 	}
 	return order, nil
+}
+
+// NetworkPolicyFor builds this node's effective host policy.
+//
+// The default is the FLOOR, not the ceiling: allowedHosts adds to it rather
+// than replacing it, because a workflow that needs one extra host should not
+// have to re-list the model API its agent cannot run without — and a list that
+// must be complete is one that silently breaks when the default grows.
+func (n Node) AllowedHostsWithDefaults(defaults []string) []string {
+	if len(n.Data.AllowedHosts) == 0 {
+		return defaults
+	}
+	return append(append([]string(nil), defaults...), n.Data.AllowedHosts...)
 }

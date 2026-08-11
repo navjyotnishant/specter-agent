@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/navjyotnishant/specter-agent/internal/graph"
+	"github.com/navjyotnishant/specter-agent/internal/isolation"
 	"github.com/navjyotnishant/specter-agent/internal/runner"
 )
 
@@ -186,7 +187,13 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request) {
 // immediately, and tying execution to the request would kill the run the moment
 // the client disconnected — a browser tab closing would stop an agent mid-edit.
 func (d *Deps) startExecution(runID, workflowID string, g graph.Graph, workspace string, runInput map[string]string) {
-	engine := &runner.Runner{Store: d.Store, AgentPath: d.AgentPath}
+	// Bounded unless a node says otherwise. The previous default was
+	// "everything", which was not a decision anyone made.
+	engine := &runner.Runner{
+		Store:         d.Store,
+		AgentPath:     d.AgentPath,
+		NetworkPolicy: isolation.DefaultNetworkPolicy(),
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	d.trackRun(runID, cancel)
 

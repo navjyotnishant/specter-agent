@@ -322,9 +322,16 @@ func (r *Runner) runAgent(ctx context.Context, runID string, node graph.Node, wo
 
 		// One proxy per node, closed when the node ends: a proxy that outlives
 		// the agent it bounded is a hole left open.
+		// The node's own hosts, on top of the run's policy. Additive so a
+		// workflow needing one internal registry does not have to re-list the
+		// model API its agent cannot run without.
+		policy := r.NetworkPolicy
+		policy.Allowed = node.AllowedHostsWithDefaults(policy.Allowed)
+		policy.Denied = append(append([]string(nil), policy.Denied...), node.Data.DeniedHosts...)
+
 		env := os.Environ()
-		if r.NetworkPolicy.Restricted() {
-			proxy, err := isolation.StartProxy(r.NetworkPolicy)
+		if policy.Restricted() {
+			proxy, err := isolation.StartProxy(policy)
 			if err != nil {
 				return "failed", "", "could not start the network proxy: " + err.Error()
 			}

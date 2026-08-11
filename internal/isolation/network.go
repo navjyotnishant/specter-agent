@@ -57,9 +57,50 @@ type NetworkPolicy struct {
 	Denied []string
 }
 
-// DefaultNetworkPolicy is what an agent gets when nothing is configured:
-// unrestricted, and honest about it.
-func DefaultNetworkPolicy() NetworkPolicy { return NetworkPolicy{} }
+// DefaultNetworkPolicy is what an agent gets when a workflow says nothing.
+//
+// Built from OBSERVATION, not guesswork: a real agent was run through a
+// deny-all proxy and the hosts it reached were recorded. It wanted its model
+// API, its MCP endpoints, and a telemetry sink. The first two are the job; the
+// third is not, and is left out deliberately — an agent working on your code
+// should not be shipping logs off the machine as a side effect.
+//
+// Package registries are here because a coding agent legitimately installs
+// dependencies, and an agent that cannot run `npm install` fails in a way that
+// looks like a broken tool rather than a policy, which is how policies get
+// switched off.
+//
+// This is a DEFAULT, not a ceiling. A workflow that needs more says so; one
+// that needs less can deny-all. What it replaces is the previous default of
+// "everything", which was not a decision anyone made.
+func DefaultNetworkPolicy() NetworkPolicy {
+	return NetworkPolicy{Allowed: []string{
+		// The agent CLIs and their model APIs.
+		"api.anthropic.com", "*.anthropic.com",
+		"api.openai.com", "*.openai.com",
+		"generativelanguage.googleapis.com", "*.googleapis.com",
+		"api.cursor.sh", "*.cursor.sh", "api2.cursor.sh",
+		"api.githubcopilot.com",
+
+		// Source hosting: clone, fetch, and the PR path.
+		"github.com", "*.github.com", "*.githubusercontent.com",
+		"gitlab.com", "*.gitlab.com",
+
+		// Package registries. A coding agent installs dependencies.
+		"registry.npmjs.org", "*.npmjs.org",
+		"pypi.org", "*.pypi.org", "files.pythonhosted.org",
+		"crates.io", "*.crates.io", "static.crates.io",
+		"proxy.golang.org", "sum.golang.org",
+		"repo.maven.apache.org", "*.rubygems.org",
+
+		// MCP endpoints an agent may hold connections to.
+		"*.mcp.claude.com", "mcp.linear.app", "mcp.notion.com",
+	}}
+}
+
+// UnrestrictedNetworkPolicy allows everything. Named rather than expressed as
+// an empty struct, so a caller choosing it is choosing it.
+func UnrestrictedNetworkPolicy() NetworkPolicy { return NetworkPolicy{} }
 
 // Restricted reports whether this policy actually bounds anything.
 func (p NetworkPolicy) Restricted() bool { return len(p.Allowed) > 0 }
