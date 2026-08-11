@@ -370,16 +370,17 @@ export function AgentInspector({
             <SectionHeader>Runtime</SectionHeader>
             <Field label="Execution mode">
               <SelectField
-                value={String(d.runtime ?? "sandbox")}
+                value={String(d.runtime ?? "direct")}
                 onChange={(v) => patch({ runtime: v })}
                 options={[
-                  { value: "sandbox", label: "Docker Sandbox (isolated microVM)" },
-                  { value: "direct",  label: "Direct CLI (fast, runs on host)" },
+                  { value: "direct",  label: "Direct CLI (confined by the OS)" },
+                  { value: "sandbox", label: "Docker Sandbox (deprecated — see docs)" },
                 ]}
               />
-              {(d.runtime ?? "sandbox") === "direct" && (
+              {d.runtime === "sandbox" && (
                 <p className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-semibold text-amber-700">
-                  No isolation — runs as host user. Safe for read-only tasks.
+                  Docker Sandbox execution is not implemented in the current runner —
+                  this node will fail to run. Switch to Direct CLI.
                 </p>
               )}
             </Field>
@@ -617,11 +618,11 @@ export function AgentInspector({
             <SectionHeader>Evaluator</SectionHeader>
             <Field label="Execution mode">
               <SelectField
-                value={String(d.runtime ?? "sandbox")}
+                value={String(d.runtime ?? "direct")}
                 onChange={(v) => patch({ runtime: v })}
                 options={[
-                  { value: "sandbox", label: "Docker Sandbox (isolated microVM)" },
-                  { value: "direct",  label: "Direct CLI (fast, runs on host)" },
+                  { value: "direct",  label: "Direct CLI (confined by the OS)" },
+                  { value: "sandbox", label: "Docker Sandbox (deprecated — see docs)" },
                 ]}
               />
             </Field>

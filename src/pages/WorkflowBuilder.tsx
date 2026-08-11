@@ -120,7 +120,7 @@ const palette: { category: string; items: { icon: typeof Bot; label: string; nod
     items: [
       { icon: ShieldCheck, label: "Generic Supervisor", nodeType: "supervisorAgent", description: "Coordinates specialists you wire up yourself" },
       { icon: Sparkles, label: "Smart Supervisor", nodeType: "supervisorAgent", presetKey: "smartSupervisor", description: "Plans a specialist workflow from an objective" },
-      { icon: Bot, label: "Specialist Agent", nodeType: "specialistAgent", description: "Runs one focused task in the sandbox" },
+      { icon: Bot, label: "Specialist Agent", nodeType: "specialistAgent", description: "Runs one focused task, confined by the OS" },
       { icon: FileText, label: "Report Writer", nodeType: "specialistAgent", presetKey: "reportWriter", description: "Aggregates prior findings into a report" },
       { icon: GitMerge, label: "Aggregator", nodeType: "specialistAgent", presetKey: "aggregator", description: "Merges parallel branches into one summary" },
     ],
@@ -490,7 +490,7 @@ function BuilderInner({
       return api.planWorkflow(token, {
         objective: String(d.objective ?? ""),
         supervisor_node_id: sup.id,
-        runtime: String(d.runtime ?? "sandbox"),
+        runtime: String(d.runtime ?? "direct"),
         agent: String(d.sandboxAgent ?? d.agent ?? "claude"),
         workspace_path: selectedWorkspace.path,
         system_instructions: String(d.systemInstructions ?? ""),
@@ -573,7 +573,7 @@ function BuilderInner({
           systemInstructions: String(d.systemInstructions ?? ""),
         },
         instruction,
-        runtime: String(d.runtime ?? "sandbox"),
+        runtime: String(d.runtime ?? "direct"),
         agent: String(d.sandboxAgent ?? d.agent ?? "claude"),
         workspace_path: selectedWorkspace.path,
       });
@@ -1025,9 +1025,6 @@ function BuilderInner({
                     <p style={bulkHeading}>Execution mode</p>
                     <button style={bulkItem} onClick={() => applyToAll({ runtime: "direct" }, "Direct CLI")}>
                       Direct CLI <span style={bulkHint}>fast, runs on host</span>
-                    </button>
-                    <button style={bulkItem} onClick={() => applyToAll({ runtime: "sandbox" }, "Docker Sandbox")}>
-                      Docker Sandbox <span style={bulkHint}>isolated microVM</span>
                     </button>
 
                     <p style={{ ...bulkHeading, borderTop: "1px solid #f1f5f9" }}>Agent</p>
