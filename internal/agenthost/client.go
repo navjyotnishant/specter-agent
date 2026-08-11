@@ -12,6 +12,7 @@ import (
 
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/hostops"
+	"github.com/navjyotnishant/specter-agent/internal/isolation"
 	"github.com/navjyotnishant/specter-agent/internal/models"
 )
 
@@ -166,5 +167,12 @@ func (c *Client) Sandbox(ctx context.Context) (hostops.SandboxStatus, error) {
 func (c *Client) SandboxPolicy(ctx context.Context) (hostops.PolicyStatus, error) {
 	var out hostops.PolicyStatus
 	err := c.getJSON(ctx, "/sandbox/policy", &out)
+	return out, err
+}
+
+// Warden asks the host which boundaries hold around the agent.
+func (c *Client) Warden(ctx context.Context) (isolation.WardenStatus, error) {
+	var out isolation.WardenStatus
+	err := c.getJSON(ctx, "/warden", &out)
 	return out, err
 }

@@ -200,3 +200,47 @@ func TestNetworkIsHonestlyReportedAsUnrestricted(t *testing.T) {
 		t.Error("the default policy claims to restrict the network, and nothing implements that")
 	}
 }
+
+// The Warden must report layers that do NOT hold, not just the ones that do.
+// Reporting only good news is how "sandbox-exec ✓" came to sit above an
+// execution path that applied no confinement at all.
+func TestWardenReportsTheGapsNotJustTheBoundaries(t *testing.T) {
+	w := Warden()
+
+	byName := map[string]Layer{}
+	for _, layer := range w.Layers {
+		byName[layer.Name] = layer
+	}
+
+	for _, name := range []string{"filesystem", "credentials", "reads", "network"} {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("the warden does not report the %q layer at all", name)
+		}
+	}
+
+	// Reads and network are not bounded today. Claiming either would be the
+	// most consequential lie the report could tell, so it is asserted rather
+	// than left to a reader's assumption.
+	for _, name := range []string{"reads", "network"} {
+		layer := byName[name]
+		if layer.Held {
+			t.Errorf("the warden claims the %q layer holds, and nothing implements it", name)
+		}
+		if layer.Gap == "" {
+			t.Errorf("the %q layer does not hold but names no consequence", name)
+		}
+	}
+}
+
+// A layer that does not hold must say what is exposed. "reads: open" tells a
+// reader nothing they can act on.
+func TestEveryUnheldLayerNamesWhatIsExposed(t *testing.T) {
+	for _, layer := range Warden().Layers {
+		if !layer.Held && layer.Gap == "" {
+			t.Errorf("layer %q is not held and explains no consequence", layer.Name)
+		}
+		if layer.Detail == "" {
+			t.Errorf("layer %q has no detail", layer.Name)
+		}
+	}
+}

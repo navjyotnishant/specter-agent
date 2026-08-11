@@ -14,6 +14,7 @@ import (
 
 	"github.com/navjyotnishant/specter-agent/internal/agenthost"
 	"github.com/navjyotnishant/specter-agent/internal/hostops"
+	"github.com/navjyotnishant/specter-agent/internal/isolation"
 	"github.com/navjyotnishant/specter-agent/internal/models"
 	"github.com/navjyotnishant/specter-agent/internal/secretbox"
 )
@@ -506,6 +507,27 @@ func (d *Deps) sandbox() *hostops.Sandbox {
 		return d.Sandbox
 	}
 	return &hostops.Sandbox{}
+}
+
+// warden reports every isolation boundary, including the ones that do not hold.
+//
+// Asked of the agent host when there is one: a containerized backend probing
+// itself would report its own container's boundaries, not those around the
+// agent, which actually runs on the host.
+func (d *Deps) warden(w http.ResponseWriter, r *http.Request) {
+	if host := agenthost.Configured(); host != "" {
+		status, err := agenthost.NewClient().Warden(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusOK, isolation.WardenStatus{
+				Active: false,
+				Reason: "the agent host is not answering: " + err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, status)
+		return
+	}
+	writeJSON(w, http.StatusOK, isolation.Warden())
 }
 
 // sandboxStatus reports the Docker Sandbox runtime, asking the agent host when

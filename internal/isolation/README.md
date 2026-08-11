@@ -1,6 +1,11 @@
-# internal/isolation
+# internal/isolation — the Warden
 
-What stops an agent doing something you did not ask for.
+What stands between an agent and the rest of your machine.
+
+`Warden()` is the single report: every boundary, which hold, and what is exposed
+by the ones that do not. `specter status` prints it and `GET
+/api/runtime-adapters/warden` serves it, so the terminal and the browser cannot
+disagree about what is protecting you.
 
 | File | What it holds |
 |---|---|

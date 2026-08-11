@@ -99,6 +99,9 @@ func NewRouter(deps *Deps) http.Handler {
 			r.Get("/workspaces", deps.listWorkspaces)
 			r.Get("/host-runner/launchd/status", deps.launchdStatus)
 			r.Get("/mcp/list", deps.mcpList)
+			// The Warden: which boundaries hold right now. Same report the CLI
+			// prints, so the two cannot disagree about what is protecting you.
+			r.Get("/warden", deps.warden)
 			r.Get("/docker-sandbox/status", deps.sandboxStatus)
 			r.Get("/docker-sandbox/policy", deps.sandboxPolicy)
 			r.Get("/models", deps.agentModels)

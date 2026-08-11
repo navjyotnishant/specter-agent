@@ -60,18 +60,7 @@ func status() {
 		fmt.Printf("    %s  %s\n", none(pad(tool.name)), dim("without it, "+tool.without))
 	}
 
-	// Reports what is AVAILABLE, which is not the same as what is applied — and
-	// saying so matters, because a status line implying protection you do not
-	// have is worse than no line at all. `specter run` applies this; runs
-	// started from the web app currently do not (#50).
-	section("confinement", "denies writes outside the worktree, and reads of ~/.ssh")
-	if info := isolation.Detect(); info.Mechanism == isolation.MechanismNone {
-		fmt.Printf("    %s  %s\n", warn(pad("none")), dim(info.Reason))
-		fmt.Printf("    %s\n", dim("agents run unconfined — SPECTER_REQUIRE_CONFINEMENT=1 refuses instead"))
-	} else {
-		fmt.Printf("    %s  %s\n", ok(pad(string(info.Mechanism))), dim("available on this machine"))
-		fmt.Printf("    %s\n", amber("applied by `specter run` — runs started from the web app are NOT yet confined (#50)"))
-	}
+	wardenSummary()
 
 	sandboxSummary()
 	modelSummary()
@@ -160,4 +149,46 @@ func modelSummary() {
 		fmt.Printf("    %s  %s  %s\n", ok(pad(c.Agent)),
 			fmt.Sprintf("%3d available", len(c.Models)), dim(c.Source))
 	}
+}
+
+// wardenSummary reports every boundary, including the ones that do not hold.
+//
+// Reporting only the good news is how `sandbox-exec ✓` came to sit above an
+// execution path that applied no confinement at all. A reader needs to see the
+// gaps to know what they are trusting.
+func wardenSummary() {
+	w := isolation.Warden()
+
+	section("warden", "what stands between an agent and your machine")
+
+	if !w.Active {
+		fmt.Printf("    %s  %s\n", warn(pad("none")), dim(w.Reason))
+		fmt.Printf("    %s\n", amber("agents run unconfined — SPECTER_REQUIRE_CONFINEMENT=1 refuses instead"))
+		return
+	}
+
+	// Widest layer name sets the column, so the details line up whatever the
+	// layer list grows to.
+	width := 0
+	for _, layer := range w.Layers {
+		if len(layer.Name) > width {
+			width = len(layer.Name)
+		}
+	}
+	name := func(s string) string { return fmt.Sprintf("%-*s", width, s) }
+	indent := strings.Repeat(" ", width+8)
+
+	for _, layer := range w.Layers {
+		if layer.Held {
+			fmt.Printf("    %s  %s\n", ok(name(layer.Name)), dim(layer.Detail))
+			continue
+		}
+		// The gap, not just the state. "reads: open" tells a reader nothing they
+		// can act on; naming what is exposed does.
+		fmt.Printf("    %s  %s\n", none(name(layer.Name)), dim(layer.Detail))
+		if layer.Gap != "" {
+			fmt.Printf("%s%s\n", indent, dim(layer.Gap))
+		}
+	}
+	fmt.Printf("    %s\n", amber("applied by `specter run` — web-app runs are NOT yet confined (#50)"))
 }

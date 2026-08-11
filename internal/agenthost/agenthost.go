@@ -35,6 +35,7 @@ import (
 
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/hostops"
+	"github.com/navjyotnishant/specter-agent/internal/isolation"
 	"github.com/navjyotnishant/specter-agent/internal/models"
 )
 
@@ -156,6 +157,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/agents", s.authenticated(s.agents))
 	mux.HandleFunc("/models", s.authenticated(s.models))
 	// Same reason as /agents: sbx is installed on the host, not in the container.
+	mux.HandleFunc("/warden", s.authenticated(func(w http.ResponseWriter, _ *http.Request) {
+		// The boundaries around the agent, which runs HERE — not around the
+		// container that asked.
+		writeJSON(w, http.StatusOK, isolation.Warden())
+	}))
 	mux.HandleFunc("/sandbox", s.authenticated(s.sandbox))
 	mux.HandleFunc("/sandbox/policy", s.authenticated(s.sandboxPolicy))
 	return mux
