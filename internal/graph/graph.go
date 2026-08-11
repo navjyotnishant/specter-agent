@@ -136,9 +136,21 @@ func (g *Graph) ExecutionOrder() ([]Node, error) {
 
 	// A node with nothing to ask the agent cannot run. Refusing beats spawning
 	// an agent with an empty prompt.
+	//
+	// Only agent nodes are held to this. A trigger carries the run input, an
+	// approval gate asks a human, a memory node reads and writes context, a
+	// webhook posts a payload — none of them prompt an agent, and none of them
+	// carry an objective in a graph the web builder produced. Requiring one
+	// everywhere rejected every workflow with a trigger node, which is all of
+	// them; the server never hit it because the runner schedules through
+	// Levels() instead, so the CLI and the server disagreed about which graphs
+	// were valid.
 	for _, node := range g.Nodes {
-		if strings.TrimSpace(node.Data.Objective) == "" {
-			return nil, fmt.Errorf("node %q has no objective set", node.Name())
+		switch node.Type {
+		case "supervisorAgent", "specialistAgent":
+			if strings.TrimSpace(node.Data.Objective) == "" {
+				return nil, fmt.Errorf("node %q has no objective set", node.Name())
+			}
 		}
 	}
 

@@ -103,3 +103,31 @@ func TestNodesNeedAnObjective(t *testing.T) {
 		t.Fatal("a node with no objective must be reported before the run starts")
 	}
 }
+
+// ...but only agent nodes. A trigger carries the run input, a gate asks a
+// human, a memory node reads context, a webhook posts a payload — none of them
+// prompt an agent, and the web builder gives none of them an objective. Holding
+// them to the rule above rejected every workflow with a trigger node, which is
+// every real workflow, and only through `specter run` — the server schedules
+// via Levels() and never saw it.
+func TestNonAgentNodesNeedNoObjective(t *testing.T) {
+	for _, nodeType := range []string{"trigger", "humanApproval", "memory", "webhook", "conditional"} {
+		raw := `{"nodes":[
+			{"id":"t","type":"` + nodeType + `","data":{"label":"gate"}},
+			{"id":"a","type":"specialistAgent","data":{"label":"work","objective":"do it"}}
+		],"edges":[{"id":"e","source":"t","target":"a"}]}`
+
+		g, err := Parse([]byte(raw))
+		if err != nil {
+			t.Fatalf("%s: %v", nodeType, err)
+		}
+		order, err := g.ExecutionOrder()
+		if err != nil {
+			t.Errorf("a %s node with no objective must still schedule: %v", nodeType, err)
+			continue
+		}
+		if len(order) != 2 {
+			t.Errorf("%s: scheduled %d nodes, want 2", nodeType, len(order))
+		}
+	}
+}

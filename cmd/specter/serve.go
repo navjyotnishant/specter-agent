@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/navjyotnishant/specter-agent/internal/api"
+	"github.com/navjyotnishant/specter-agent/internal/seed"
 	"github.com/navjyotnishant/specter-agent/internal/store"
 )
 
@@ -34,6 +35,15 @@ func cmdServe(args []string) error {
 		return fmt.Errorf("opening the database: %w", err)
 	}
 	defer s.Close()
+
+	// A database with no skills and no templates renders an empty palette and an
+	// empty gallery — indistinguishable from a broken install. Seeding is
+	// insert-if-missing, so this is a no-op on every start after the first.
+	if res, err := seed.Run(s.DB()); err != nil {
+		return fmt.Errorf("seeding built-ins: %w", err)
+	} else if res.Skills > 0 || res.Workflows > 0 {
+		fmt.Printf("seeded         →  %d skill(s), %d template(s)\n", res.Skills, res.Workflows)
+	}
 
 	deps := &api.Deps{Store: s, DBPath: *dbPath, FrontendDir: *frontend}
 

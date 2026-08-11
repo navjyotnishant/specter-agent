@@ -1,0 +1,68 @@
+[
+  {
+    "id": "standard-report-format",
+    "name": "Standard Report Format",
+    "description": "A consistent Summary / Findings / Next Steps structure with severity ratings, for any agent that writes a final report.",
+    "prompt_template": "Write your findings as a report in exactly this structure:\n\n# Summary\n2-3 sentences: what was reviewed and the overall verdict.\n\n# Findings\nFor each finding, use this format:\n### [SEVERITY] Short title\n- **Location:** file/path or component\n- **Issue:** what's wrong, in 1-2 sentences\n- **Recommendation:** the concrete fix\n\nSeverity is one of: CRITICAL, HIGH, MEDIUM, LOW, INFO. Order findings by severity,\nmost severe first. If there are no findings, state that explicitly under Findings.\n\n# Next Steps\nA short bullet list of recommended follow-up actions, ordered by priority.\n\nDo not add extra sections. Keep prose tight — this report will be read by someone\ndeciding what to act on next, not learning the codebase."
+  },
+  {
+    "id": "secure-code-review",
+    "name": "Secure Code Review",
+    "description": "OWASP-style checklist review: injection, auth gaps, secrets, SSRF, path traversal — every finding severity-rated with file:line and a concrete fix.",
+    "prompt_template": "Review the code against this security checklist:\n- Injection: SQL, command, template, and header injection via unsanitized input\n- Authentication/authorization: missing checks, privilege escalation paths, insecure session handling\n- Hardcoded secrets: credentials, tokens, or keys committed in source\n- Unsafe deserialization of untrusted data\n- SSRF: user-controlled URLs reaching internal services\n- Path traversal: user input in filesystem paths\n- Missing input validation at trust boundaries (API handlers, file parsers, queue consumers)\n\nFor every finding: cite the exact file:line, assign CRITICAL / HIGH / MEDIUM / LOW,\nand give the concrete fix — not generic advice. Report only what you can verify in\nthe code you inspected; no speculative or theoretical findings. If an area on the\nchecklist is clean, do not pad the report with it."
+  },
+  {
+    "id": "pr-readiness-review",
+    "name": "PR-Readiness Review",
+    "description": "Pre-landing review — correctness bugs, regressions, missing validation — split into Blockers vs Nits with a READY / NOT READY verdict.",
+    "prompt_template": "Review the changes as a pre-landing gate. Look for:\n- Correctness bugs: logic errors, off-by-one, wrong operator, inverted conditions\n- Regressions: existing behavior this change silently alters or breaks\n- Missing validation or unhandled error paths on new code\n- Dead code, leftover debug statements, commented-out blocks\n- Inconsistencies with the surrounding code's conventions\n\nStructure your output as exactly two lists:\n## Blockers\nIssues that must be fixed before this lands. Each with file:line and why it blocks.\n## Nits\nOptional improvements. Keep these brief.\n\nNever mix the two categories. End with a single line: VERDICT: READY or\nVERDICT: NOT READY — <one-sentence reason>."
+  },
+  {
+    "id": "performance-review",
+    "name": "Performance Review",
+    "description": "Finds N+1 queries, sync IO in hot paths, unbounded allocations, missing pagination/indexes — each rated Impact × Effort.",
+    "prompt_template": "Review the code for performance problems:\n- N+1 query patterns (queries inside loops, per-item fetches)\n- Synchronous/blocking IO in hot paths or request handlers\n- Unbounded loops, allocations, or collections that grow with input size\n- Missing pagination on list endpoints or bulk reads\n- Missing database indexes for evident query patterns\n- Obvious caching opportunities for repeated expensive work\n\nRate every finding: Impact (HIGH/MED/LOW) × Effort to fix (HIGH/MED/LOW), and cite\nfile:line. Order the report with high-impact/low-effort findings first. Do not\nreport micro-optimizations with no measurable effect. If nothing significant is\nfound, say so in one line."
+  },
+  {
+    "id": "dependency-risk-review",
+    "name": "Dependency Risk Audit",
+    "description": "Audits manifests and lockfiles for vulnerable, outdated, unmaintained, or license-problematic packages.",
+    "prompt_template": "Inspect the dependency manifests and lockfiles. Flag:\n- Versions with known security vulnerabilities\n- Packages multiple major versions behind current\n- Unmaintained or archived packages still in use\n- License red flags (copyleft in a proprietary context, missing licenses)\n- Duplicate or conflicting versions of the same package\n\nOutput a table: | Package | Current | Issue | Recommended action |\nFollow the table with at most 3 sentences of overall assessment. Only include\npackages with a real issue — do not list healthy dependencies. If everything is\nclean, output a single line saying so."
+  },
+  {
+    "id": "secrets-config-review",
+    "name": "Secrets & Config Review",
+    "description": "Scans for hardcoded credentials, secrets in logs, insecure defaults, and undocumented env vars — masking any secret-like values.",
+    "prompt_template": "Review source and configuration for secrets and config hygiene:\n- Hardcoded credentials, API keys, tokens, or private keys in source files\n- Secret-like values written to logs or error messages\n- Insecure defaults: debug mode on, permissive CORS, weak crypto parameters, default passwords\n- Environment variables the code reads vs what setup docs/.env.example document\n\nWhen reporting any secret-like value, MASK it: show the first 4 characters followed\nby •••• — never reproduce a full secret in your report. Cite file:line for every\nfinding, with severity CRITICAL for live credentials, HIGH for insecure defaults,\nMEDIUM/LOW for hygiene issues."
+  },
+  {
+    "id": "test-gap-analysis",
+    "name": "Test Gap Analysis",
+    "description": "Maps critical code paths to existing tests, lists untested branches, and proposes concrete named test cases.",
+    "prompt_template": "Map the changed or critical code paths against the existing test suite:\n1. Identify which functions/branches are covered by existing tests (name the test files).\n2. List untested branches, edge cases, and error paths — especially failure modes,\n   boundary values, and concurrent/ordering issues.\n3. For each gap, propose a concrete test:\n   - **Test name:** e.g. test_refund_rejects_already_refunded_order\n   - **Arrange/Act/Assert:** one line each — what it sets up, what it calls, what it asserts\n\nBe specific enough that an implementer can write each test without re-analyzing the\ncode. Prioritize gaps by risk (what breaks worst in production if wrong). Do not\npropose redundant tests for already-covered paths."
+  },
+  {
+    "id": "error-observability-review",
+    "name": "Error Handling & Observability Review",
+    "description": "Finds swallowed exceptions, missing timeouts/retries, unactionable errors, and log-quality gaps — prioritized by incident-hiding risk.",
+    "prompt_template": "Review error handling and observability:\n- Swallowed or blanket exception handlers (catch-all with no logging or re-raise)\n- Network/external calls missing timeouts or retry policies\n- Error messages without actionable context (no identifiers, no cause, no next step)\n- Log-level misuse (errors logged as info, noise logged as error)\n- Multi-step flows missing correlation/request ids for tracing\n\nClassify each finding: **INCIDENT-HIDING** (would mask or worsen a production\nincident) vs **HYGIENE** (cosmetic/consistency). Lead with incident-hiding issues.\nCite file:line and give the concrete fix for each. Skip theoretical concerns about\ncode paths that cannot receive external input."
+  },
+  {
+    "id": "release-notes-writer",
+    "name": "Release Notes Writer",
+    "description": "Turns the diff/commit history into user-facing release notes: Features, Fixes, Breaking Changes, and Upgrade Steps.",
+    "prompt_template": "Write user-facing release notes from the changes. Structure:\n\n## Features\n## Fixes\n## Breaking Changes\n## Upgrade Steps\n\nOmit any empty section. Write for USERS of the software, not its developers: no\ninternal file paths, no refactoring chatter, no commit-message jargon, no issue\nids without context. Every breaking-change entry must state both what breaks and\nexactly what the user must do about it. Group related commits into one entry —\nrelease notes describe outcomes, not the commit log. Keep each entry to 1-2 lines."
+  },
+  {
+    "id": "breaking-change-detector",
+    "name": "Breaking Change Detector",
+    "description": "Diffs the public surface — APIs, endpoints, schemas, config, CLI flags — and produces migration notes for each break.",
+    "prompt_template": "Compare the public surface before and after the changes:\n- Exported functions/classes: removed, renamed, or changed signatures\n- HTTP endpoints: paths, methods, request/response field shapes, status codes\n- Database schema and migrations\n- Configuration and environment variable names or semantics\n- CLI commands and flags\n\nFor each breaking change, report: **What changed** · **Who is affected** ·\n**Migration note** (the exact step a consumer must take). Internal-only changes\nthat no external consumer can observe are NOT breaking — exclude them. If there\nare no breaking changes, say exactly that in one line: \"No breaking changes\ndetected.\" Do not hedge."
+  },
+  {
+    "id": "deployment-risk-assessment",
+    "name": "Deployment Risk Assessment",
+    "description": "Rates release risk — migration reversibility, blast radius, data-loss potential — with a rollback plan and post-deploy watchlist.",
+    "prompt_template": "Assess the deployment risk of these changes:\n- Migration reversibility: can the database/config changes be rolled back cleanly?\n- Blast radius: which features/users break if this deploy is bad?\n- Data-loss potential: any destructive migrations, truncations, or format changes?\n- Feature-flag coverage: is risky behavior gated, or live for everyone at once?\n- External dependency changes: new services, version bumps, API contract shifts\n\nOutput exactly:\n**Overall risk:** LOW / MEDIUM / HIGH — one-sentence justification.\n**Rollback plan:** the concrete steps to revert, or \"not cleanly reversible\" + why.\n**Watch after deploy:** 3-5 specific signals (metrics, logs, endpoints) to monitor\nin the first hour."
+  }
+]
