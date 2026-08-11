@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/navjyotnishant/specter-agent/internal/exec"
@@ -77,6 +78,21 @@ type Server struct {
 	DefaultTimeout time.Duration
 	// ResolveAgent is injectable so tests do not need a real CLI installed.
 	ResolveAgent func(agent string) string
+
+	// One prober for the life of the server, because its cache lives on the
+	// struct. Building a fresh one per request — which this did — throws the
+	// 60-second TTL away every time, so every status call re-probed all four
+	// agents: 5.5s on an endpoint the settings page polls, warm or cold.
+	proberOnce sync.Once
+	prober     *hostops.Prober
+
+	sandboxOnce sync.Once
+	sandboxSvc  *hostops.Sandbox
+}
+
+func (s *Server) agentProber() *hostops.Prober {
+	s.proberOnce.Do(func() { s.prober = &hostops.Prober{} })
+	return s.prober
 }
 
 const defaultTimeout = 10 * time.Minute
@@ -139,12 +155,30 @@ func (s *Server) Handler() http.Handler {
 	// healthy system, which is worse than no answer at all.
 	mux.HandleFunc("/agents", s.authenticated(s.agents))
 	mux.HandleFunc("/models", s.authenticated(s.models))
+	// Same reason as /agents: sbx is installed on the host, not in the container.
+	mux.HandleFunc("/sandbox", s.authenticated(s.sandbox))
+	mux.HandleFunc("/sandbox/policy", s.authenticated(s.sandboxPolicy))
 	return mux
 }
 
 // agents reports what this machine has installed and signed in.
 func (s *Server) agents(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, (&hostops.Prober{}).DirectCLIStatus())
+	writeJSON(w, http.StatusOK, s.agentProber().DirectCLIStatus())
+}
+
+// sandbox reports the Docker Sandbox runtime on THIS machine.
+func (s *Server) sandbox(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.sandboxOps().Status())
+}
+
+// sandboxPolicy reports the network policy sbx is configured with.
+func (s *Server) sandboxPolicy(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.sandboxOps().PolicyStatus())
+}
+
+func (s *Server) sandboxOps() *hostops.Sandbox {
+	s.sandboxOnce.Do(func() { s.sandboxSvc = &hostops.Sandbox{} })
+	return s.sandboxSvc
 }
 
 // models reports what each installed CLI here supports.

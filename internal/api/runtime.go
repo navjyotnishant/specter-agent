@@ -508,7 +508,23 @@ func (d *Deps) sandbox() *hostops.Sandbox {
 	return &hostops.Sandbox{}
 }
 
-func (d *Deps) sandboxStatus(w http.ResponseWriter, _ *http.Request) {
+// sandboxStatus reports the Docker Sandbox runtime, asking the agent host when
+// one is configured — sbx is installed on the host, and a container probing
+// itself reports "not installed" for a CLI that is right there.
+func (d *Deps) sandboxStatus(w http.ResponseWriter, r *http.Request) {
+	if agenthost.Configured() != "" {
+		status, err := agenthost.NewClient().Sandbox(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusOK, hostops.SandboxStatus{
+				RuntimeID: "docker-sandbox", DisplayName: "Docker Sandbox Runtime",
+				Status:  "missing",
+				Message: "Docker Sandbox runs on the agent host: " + err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, status)
+		return
+	}
 	writeJSON(w, http.StatusOK, d.sandbox().Status())
 }
 
@@ -516,7 +532,21 @@ func (d *Deps) sandboxDaemonStart(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, d.sandbox().StartDaemon())
 }
 
-func (d *Deps) sandboxPolicy(w http.ResponseWriter, _ *http.Request) {
+func (d *Deps) sandboxPolicy(w http.ResponseWriter, r *http.Request) {
+	if agenthost.Configured() != "" {
+		policy, err := agenthost.NewClient().SandboxPolicy(r.Context())
+		if err != nil {
+			// The policy is unknown, not permissive. Reporting a specific policy
+			// from a host that did not answer would tell the user their network
+			// is in a state it may not be in.
+			writeJSON(w, http.StatusOK, hostops.PolicyStatus{
+				Status: "missing", Message: "Docker Sandbox runs on the agent host: " + err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, policy)
+		return
+	}
 	writeJSON(w, http.StatusOK, d.sandbox().PolicyStatus())
 }
 

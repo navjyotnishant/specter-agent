@@ -153,3 +153,18 @@ func (c *Client) getJSON(ctx context.Context, path string, into any) error {
 	}
 	return json.NewDecoder(resp.Body).Decode(into)
 }
+
+// Sandbox asks the host about its Docker Sandbox runtime. `sbx` is installed on
+// the host, not in the container, so this is the only source that can answer.
+func (c *Client) Sandbox(ctx context.Context) (hostops.SandboxStatus, error) {
+	var out hostops.SandboxStatus
+	err := c.getJSON(ctx, "/sandbox", &out)
+	return out, err
+}
+
+// SandboxPolicy asks the host which network policy sbx is configured with.
+func (c *Client) SandboxPolicy(ctx context.Context) (hostops.PolicyStatus, error) {
+	var out hostops.PolicyStatus
+	err := c.getJSON(ctx, "/sandbox/policy", &out)
+	return out, err
+}

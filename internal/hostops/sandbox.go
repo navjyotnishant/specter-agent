@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,6 +24,13 @@ type Sandbox struct {
 	HomeDir string
 	// DaemonWait bounds how long StartDaemon polls for readiness.
 	DaemonWait time.Duration
+
+	// Status shells out twice, so it is cached — but ON THE STRUCT, not in a
+	// package variable. A package-level cache leaks between tests that inject
+	// different sandboxes, and between two Sandboxes pointed at different roots.
+	mu       sync.Mutex
+	cached   SandboxStatus
+	cachedAt time.Time
 }
 
 type SandboxStatus struct {
@@ -81,7 +89,29 @@ func (s *Sandbox) run(timeout time.Duration, args ...string) execpkg.Result {
 	})
 }
 
+// sandboxStatusTTL caches the probe. Status shells out to `sbx` twice — version
+// and daemon state — which the settings page polls, and neither answer changes
+// second to second.
+const sandboxStatusTTL = 30 * time.Second
+
 func (s *Sandbox) Status() SandboxStatus {
+	s.mu.Lock()
+	if !s.cachedAt.IsZero() && time.Since(s.cachedAt) < sandboxStatusTTL {
+		cached := s.cached
+		s.mu.Unlock()
+		return cached
+	}
+	s.mu.Unlock()
+
+	status := s.probeStatus()
+
+	s.mu.Lock()
+	s.cached, s.cachedAt = status, time.Now()
+	s.mu.Unlock()
+	return status
+}
+
+func (s *Sandbox) probeStatus() SandboxStatus {
 	status := SandboxStatus{
 		RuntimeID: "docker-sandbox", DisplayName: "Docker Sandbox Runtime",
 		InstallCommand: "brew install docker/tap/sbx",
