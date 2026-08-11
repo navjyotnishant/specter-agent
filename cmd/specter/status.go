@@ -5,9 +5,9 @@ import (
 	osexec "os/exec"
 	"strings"
 
-	"github.com/navjyotnishant/specter-agent/internal/confine"
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/hostops"
+	"github.com/navjyotnishant/specter-agent/internal/isolation"
 	"github.com/navjyotnishant/specter-agent/internal/models"
 	"github.com/navjyotnishant/specter-agent/internal/specterhome"
 )
@@ -65,7 +65,7 @@ func status() {
 	// have is worse than no line at all. `specter run` applies this; runs
 	// started from the web app currently do not (#50).
 	section("confinement", "denies writes outside the worktree, and reads of ~/.ssh")
-	if info := confine.Detect(); info.Mechanism == confine.MechanismNone {
+	if info := isolation.Detect(); info.Mechanism == isolation.MechanismNone {
 		fmt.Printf("    %s  %s\n", warn(pad("none")), dim(info.Reason))
 		fmt.Printf("    %s\n", dim("agents run unconfined — SPECTER_REQUIRE_CONFINEMENT=1 refuses instead"))
 	} else {

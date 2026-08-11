@@ -1,4 +1,4 @@
-// Package confine restricts what a running agent can reach.
+// Package isolation restricts what a running agent can reach.
 //
 // Before this, "no isolation" was literally true: an agent ran as the host user
 // with the host user's credentials and full filesystem access, and the only
@@ -8,7 +8,7 @@
 // That is proportionate for the actual threat — a confused agent following a bad
 // prompt — and not sufficient for running genuinely untrusted code. The
 // difference is stated rather than implied.
-package confine
+package isolation
 
 import (
 	"fmt"
@@ -136,117 +136,6 @@ func resolve(path string) (string, error) {
 	return filepath.Abs(resolved)
 }
 
-// macOSProfile builds a sandbox-exec profile scoped to one workspace.
-//
-// Structured as (allow default) then targeted denies rather than deny-by-default.
-// A deny-by-default profile breaks node, git and every toolchain immediately, and
-// keeping an allowlist of everything a build might touch is unmaintainable — the
-// realistic outcome is that people turn it off.
-func macOSProfile(workspace string) (string, error) {
-	workspace, err := resolve(workspace)
-	if err != nil {
-		return "", fmt.Errorf("resolving workspace: %w", err)
-	}
-	if err := safeForProfile(workspace); err != nil {
-		return "", err
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("locating home directory: %w", err)
-	}
-	home, err = resolve(home)
-	if err != nil {
-		return "", err
-	}
-	if err := safeForProfile(home); err != nil {
-		return "", err
-	}
-
-	var b strings.Builder
-	b.WriteString("(version 1)\n(allow default)\n\n")
-
-	// ORDER MATTERS: sandbox-exec is last-match-wins, so every deny comes first
-	// and the workspace allow comes last. Written the other way round, the deny
-	// on the shared temp roots overrides the workspace itself whenever the
-	// workspace happens to live under one -- which it does for every Go test
-	// directory, and for any run whose repository sits in /tmp.
-	fmt.Fprintf(&b, "(deny file-write* (subpath %q))\n", home)
-	b.WriteString(`(deny file-write* (subpath "/private/tmp") (subpath "/private/var/folders"))` + "\n\n")
-
-	// Agent state. These CLIs write session and history files as they run; deny
-	// them and the agent fails for reasons that look nothing like confinement.
-	for _, dir := range []string{".claude", ".codex", ".cursor", ".gemini", ".config/gh"} {
-		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n", filepath.Join(home, dir))
-	}
-
-	// Toolchain caches. npm, pip and cargo write here constantly; denying them
-	// produces confusing failures rather than security.
-	for _, dir := range []string{".cache", ".npm", ".config", ".local/state", ".gitconfig"} {
-		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n", filepath.Join(home, dir))
-	}
-
-	// LAST, so it wins over the denies above. Temp lives inside the workspace
-	// (see TempDir) rather than in a shared root a confined agent could use to
-	// reach another run.
-	fmt.Fprintf(&b, "\n(allow file-write* (subpath %q))\n", workspace)
-
-	// Reads. Writes alone are not enough: with only deny file-write*, an agent
-	// can still read every private key on the machine. Verified.
-	b.WriteString("\n")
-	for _, dir := range []string{".ssh", ".aws", ".gnupg", ".kube"} {
-		fmt.Fprintf(&b, "(deny file-read* (subpath %q))\n", filepath.Join(home, dir))
-	}
-
-	return b.String(), nil
-}
-
-// linuxCommand builds a bubblewrap invocation.
-//
-// UNTESTED. bwrap was not available on the development machine, so this is
-// written from documentation rather than verified behaviour. Detect() reports
-// bwrap only when the binary exists, and this path should be exercised on real
-// Linux before being relied on.
-func linuxCommand(argv []string, workspace string) ([]string, error) {
-	workspace, err := resolve(workspace)
-	if err != nil {
-		return nil, err
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-
-	args := []string{
-		"bwrap",
-		// The whole filesystem readable but not writable, so every toolchain
-		// stays visible, then selectively re-bind what must be writable.
-		"--ro-bind", "/", "/",
-		"--dev", "/dev",
-		"--proc", "/proc",
-		"--bind", workspace, workspace,
-		"--bind", "/tmp", "/tmp",
-	}
-
-	for _, dir := range []string{".claude", ".codex", ".cursor", ".gemini", ".cache", ".npm"} {
-		path := filepath.Join(home, dir)
-		if _, err := os.Stat(path); err == nil {
-			args = append(args, "--bind", path, path)
-		}
-	}
-
-	// Empty tmpfs over the credential directories: present but empty, which
-	// fails more gracefully than a missing path.
-	for _, dir := range []string{".ssh", ".aws", ".gnupg", ".kube"} {
-		args = append(args, "--tmpfs", filepath.Join(home, dir))
-	}
-
-	// Without this the wrapper survives a kill and the agent keeps running,
-	// which would defeat the cancellation the engine depends on.
-	args = append(args, "--die-with-parent", "--")
-	return append(args, argv...), nil
-}
-
 func lookPath(name string) string {
 	for _, dir := range []string{"/usr/bin", "/bin", "/usr/local/bin"} {
 		candidate := filepath.Join(dir, name)
@@ -284,4 +173,58 @@ func Env(base []string, workspace string) []string {
 		out = append(out, entry)
 	}
 	return append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
+}
+
+// ResolveWorkspace decides whether a run may proceed, and where.
+//
+// CONFINEMENT IS THE GATE. Any repository may be run against, provided the
+// agent can be confined to it — the OS boundary denies writes outside the
+// worktree and reads of ~/.ssh, ~/.aws, ~/.gnupg and ~/.kube, which is a
+// stronger promise than a list of paths someone remembered to approve.
+//
+// The approved-workspace list existed BECAUSE there was no confinement: it was
+// the only thing standing between an agent and the wrong repository. With
+// confinement applied that job is done, and requiring both means asking the user
+// to register every repository for a boundary the OS is already enforcing.
+//
+// So the rule is one sentence: no confinement, no run. Not "warn and continue" —
+// the whole premise of the product is running agents against your code, and
+// doing that unconfined while printing a notice is the failure this layer exists
+// to prevent. Windows has no mechanism today and is therefore refused rather
+// than quietly downgraded.
+//
+// SPECTER_ALLOWLIST_ONLY=1 restores the old gate on top, for a shared or
+// production machine where "any repo on this host" is too wide even confined.
+func ResolveWorkspace(path string, allowlist func(string) (string, string)) (string, Info, error) {
+	info := Detect()
+	if info.Mechanism == MechanismNone {
+		return "", info, fmt.Errorf(
+			"agents cannot be confined on this machine (%s), so the run was refused. "+
+				"Confinement is what keeps an agent inside its worktree and away from "+
+				"your credentials", info.Reason)
+	}
+
+	// Opt-in tightening. Off by default: the OS boundary is the gate.
+	if allowlistOnly() {
+		approved, reason := allowlist(path)
+		if approved == "" {
+			return "", info, fmt.Errorf("%s", reason)
+		}
+		return approved, info, nil
+	}
+
+	resolved, err := resolve(path)
+	if err != nil {
+		return "", info, fmt.Errorf("resolving the workspace: %w", err)
+	}
+	return resolved, info, nil
+}
+
+// AllowlistOnlyEnv restores the approved-workspace requirement on top of
+// confinement.
+const AllowlistOnlyEnv = "SPECTER_ALLOWLIST_ONLY"
+
+func allowlistOnly() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(AllowlistOnlyEnv)))
+	return value == "1" || value == "true" || value == "yes"
 }

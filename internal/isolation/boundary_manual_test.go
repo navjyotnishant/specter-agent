@@ -1,4 +1,4 @@
-package confine
+package isolation
 
 import (
 	"context"

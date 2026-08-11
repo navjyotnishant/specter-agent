@@ -12,9 +12,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/navjyotnishant/specter-agent/internal/confine"
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/graph"
+	"github.com/navjyotnishant/specter-agent/internal/isolation"
 	"github.com/navjyotnishant/specter-agent/internal/publish"
 	"github.com/navjyotnishant/specter-agent/internal/specterhome"
 	"github.com/navjyotnishant/specter-agent/internal/store"
@@ -208,12 +208,12 @@ func runNode(
 		permission = "acceptEdits"
 	}
 	argv := []string{agentPath, "--permission-mode", permission, "-p", prompt}
-	confined, info, err := confine.Wrap(argv, workspace)
+	confined, info, err := isolation.Wrap(argv, workspace)
 	if err != nil {
 		_ = db.CompleteStep(ctx, stepID, "failed")
 		return err
 	}
-	if info.Mechanism == confine.MechanismNone {
+	if info.Mechanism == isolation.MechanismNone {
 		// Said out loud rather than left implicit: a run nobody knows is
 		// unconfined is the failure this whole layer exists to prevent.
 		jobs.Append(stepID, "warning: running unconfined — "+info.Reason)
@@ -222,7 +222,7 @@ func runNode(
 	result := exec.RunStreaming(nodeCtx, exec.Command{
 		Argv:    confined,
 		Dir:     workspace,
-		Env:     confine.Env(os.Environ(), workspace),
+		Env:     isolation.Env(os.Environ(), workspace),
 		Timeout: timeout,
 		OnStdout: func(line string) {
 			exec.AppendProgress(line, func(text string) {
@@ -398,7 +398,7 @@ func runWithLiveView(
 // Honest about absence: an unconfined run says so on screen rather than
 // implying an isolation it does not have. Real enforcement lands in #36.
 func confinementMechanism() string {
-	return string(confine.Detect().Mechanism)
+	return string(isolation.Detect().Mechanism)
 }
 
 // runQuiet executes without any progress output at all.

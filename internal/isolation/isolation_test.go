@@ -1,4 +1,4 @@
-package confine
+package isolation
 
 import (
 	"context"
@@ -163,4 +163,40 @@ func runConfined(t *testing.T, workspace string, argv ...string) exec.Result {
 	return exec.RunStreaming(context.Background(), exec.Command{
 		Argv: wrapped, Dir: workspace, Timeout: 20_000_000_000,
 	})
+}
+
+// The generated profile must come FROM the policy. Two copies of a security
+// rule drift, and the copy nobody edits is the one still being enforced — so
+// this asserts the profile contains what the policy declares, rather than
+// re-listing the paths and creating a third copy.
+func TestTheProfileIsBuiltFromThePolicy(t *testing.T) {
+	requireMacOS(t)
+	workspace := t.TempDir()
+
+	profile, err := macOSProfile(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := DefaultPolicy(workspace)
+
+	for _, path := range policy.WritablePaths {
+		if !strings.Contains(profile, path) {
+			t.Errorf("policy allows writing %s, but the profile never mentions it", path)
+		}
+	}
+	for _, path := range policy.UnreadablePaths {
+		if !strings.Contains(profile, `(deny file-read* (subpath "`+path+`"))`) {
+			t.Errorf("policy denies reading %s, but the profile does not", path)
+		}
+	}
+}
+
+// The network is NOT bounded today, and the code must say so rather than let a
+// caller assume the whole machine is contained. sandbox-exec can express network
+// rules but they are undocumented and deprecated; a boundary built on guesswork
+// is worse than an absent one that is declared.
+func TestNetworkIsHonestlyReportedAsUnrestricted(t *testing.T) {
+	if DefaultPolicy(t.TempDir()).NetworkRestricted() {
+		t.Error("the default policy claims to restrict the network, and nothing implements that")
+	}
 }
