@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -45,6 +46,12 @@ type Deps struct {
 	Prober  *hostops.Prober
 	Service *hostops.Service
 	Sandbox *hostops.Sandbox
+
+	// The prober used when none is injected. Held here rather than built per
+	// request because its cache lives on the struct — a fresh one every request
+	// means the cache never survives to be used.
+	proberOnce   sync.Once
+	sharedProber *hostops.Prober
 }
 
 type contextKey string

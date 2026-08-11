@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	execpkg "github.com/navjyotnishant/specter-agent/internal/exec"
@@ -120,6 +121,29 @@ func (m *MCP) RemoveClaudeServer(name string) error {
 	return m.writeClaudeSettings(settings)
 }
 
+// mcpListTTL caches the server list.
+//
+// `claude mcp list` HEALTH-CHECKS every configured server over the network
+// before printing — the "Checking MCP server health…" header — which measured
+// 10.3s on a machine with a dozen servers. The Models page waits on it, so that
+// was the entire page load; model discovery, the thing it looks like it is
+// waiting for, is under a second.
+//
+// The health result is not even used: MCPServer carries no connected field and
+// the UI never renders one. Caching keeps the parseable output the health check
+// produces without paying for it on every page view.
+const mcpListTTL = 5 * time.Minute
+
+var (
+	mcpCacheMu sync.Mutex
+	mcpCache   = map[string]mcpCacheEntry{}
+)
+
+type mcpCacheEntry struct {
+	at      time.Time
+	servers []MCPServer
+}
+
 // ListClaudeServers asks the CLI, because only the CLI knows the live auth
 // state. A server in settings.json may still need a login.
 func (m *MCP) ListClaudeServers() []MCPServer {
@@ -128,6 +152,13 @@ func (m *MCP) ListClaudeServers() []MCPServer {
 		// Not an error: the settings page must still render on a machine where
 		// the CLI is not installed.
 		return nil
+	}
+
+	mcpCacheMu.Lock()
+	entry, ok := mcpCache[exe]
+	mcpCacheMu.Unlock()
+	if ok && time.Since(entry.at) < mcpListTTL {
+		return entry.servers
 	}
 
 	result := execpkg.RunStreaming(context.Background(), execpkg.Command{
@@ -175,6 +206,10 @@ func (m *MCP) ListClaudeServers() []MCPServer {
 			Transport: map[string]any{"type": "streamable_http", "url": serverURL},
 		})
 	}
+
+	mcpCacheMu.Lock()
+	mcpCache[exe] = mcpCacheEntry{at: time.Now(), servers: servers}
+	mcpCacheMu.Unlock()
 	return servers
 }
 

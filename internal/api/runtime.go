@@ -33,11 +33,19 @@ type runtimeWorkspace struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// prober returns ONE long-lived prober, because its cache lives on the struct.
+//
+// This used to hand back a fresh &hostops.Prober{} whenever Deps.Prober was nil
+// — which is every production request, since only tests inject one. A new
+// struct has an empty cache, so the 60-second TTL never survived a single
+// request and every page view re-probed all four agents: 5s on /direct-cli/status,
+// 4.5s on /codex-cli/status, on an endpoint the settings page polls.
 func (d *Deps) prober() *hostops.Prober {
 	if d.Prober != nil {
 		return d.Prober
 	}
-	return &hostops.Prober{}
+	d.proberOnce.Do(func() { d.sharedProber = &hostops.Prober{} })
+	return d.sharedProber
 }
 
 func (d *Deps) service() *hostops.Service {

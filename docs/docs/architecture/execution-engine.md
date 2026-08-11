@@ -7,28 +7,59 @@ That is the whole design: **one implementation, two entry points**, with no HTTP
 between a caller and a subprocess it is about to spawn on the same machine.
 
 ```
-  specter run   ──import──► exec ──► claude / codex / cursor / gemini
-  specter serve ──import──►  ▲
-                             │
-                       same package, same process
+NATIVE — today                       CONTAINERIZED — #49, not yet built
+
+  specter run   ──import──► exec       ┌─ container ─────────┐
+  specter serve ──import──►  ▲         │  specter serve      │
+                             │         │  ✗ no agent binary  │
+                             ▼         │  ✗ no credentials   │
+              claude / codex / …       └────────┬────────────┘
+                                                │ HTTP :8765
+        same package, same process      ┌─ host ─▼────────────┐
+                                        │ specter agent-host  │
+                                        │   ──import──► exec ──► claude
+                                        └─────────────────────┘
 ```
 
-There used to be a second path. The Python backend ran inside a container, and a
-container has no agent binary and no credentials — verified: `which claude`
+Both columns are the same binary. On the right it is started twice with
+different subcommands, which is what keeps "one artifact" true while letting the
+app itself stay contained.
+
+:::warning This holds for a NATIVE deployment only
+
+A container has no agent binary and no credentials — verified: `which claude`
 inside it returns nothing, and `~/.claude` does not exist there. It **cannot**
-run an agent. So it posted to a host process on `host.docker.internal:8765`,
-which imported the engine and spawned the agent on its behalf.
+run an agent.
 
-That bridge is gone. Not because the constraint changed — a container still has
-no agent binary — but because the constraint moved: the binary that spawns
-agents now runs on the host in the first place. `specter serve` is the server,
-and it is on the machine that has the agents. A containerized deployment is for
-the API and the web UI; agent execution happens where the credentials are.
+Python solved that with a host runner: the app ran in a container and posted to
+a host process on `host.docker.internal:8765`, which spawned the agent on its
+behalf. That bridge was removed in the Go port on the reasoning below, and the
+reasoning was **wrong for anyone who runs the app in Docker** — which is the
+documented way to run it. A containerized Specter currently cannot execute a
+workflow at all.
 
-The bridge was worth removing on its own terms. It was a second process to keep
-alive, a second thing to install, a port to bind, and an entire class of failure
-where the app was running and the runner was not — reported by users as "the
-agent doesn't work" with nothing in the app's own logs.
+Being restored as `specter agent-host`, a subcommand of this same binary rather
+than a separate program to install: **#49**.
+
+:::
+
+The bridge was removed because the constraint appeared to move: the binary that
+spawns agents can run on the host in the first place, so `specter serve` is the
+server *and* it is on the machine that has the agents.
+
+That is true, and it is not the whole picture. It assumes the operator is
+willing to run the app process on their host, with the host's filesystem and
+credentials in reach. Wanting the app contained is a legitimate boundary, and
+the host-runner architecture existed to respect it: the container gets the API
+and the UI, and only agent execution — the part that genuinely needs the
+credentials — happens outside it.
+
+What the bridge really cost was worth naming, and is what the replacement has to
+avoid: a second process to keep alive, a second thing to install and
+version-match, a port to bind, and a class of failure where the app was running
+and the runner was not — reported as "the agent doesn't work", with nothing in
+the app's own logs. Shipping the shim as a subcommand of the same binary removes
+the install and version-skew problems; the rest are the price of the boundary.
 
 ---
 

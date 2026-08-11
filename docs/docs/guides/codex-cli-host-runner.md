@@ -10,16 +10,22 @@ Specter runs coding agents on your machine, with your own CLIs and your own
 credentials. This page describes how a workflow node reaches an agent, and what
 stands between that agent and the rest of your filesystem.
 
-:::info The host runner is gone
+:::caution The host runner is gone — and containerized runs need it back
 
 Earlier versions ran a **separate Python process** on `localhost:8765`. The
 containerized backend had no agent binary and no credentials, so it posted to
 that process over HTTP and the process spawned the agent.
 
-`specter serve` spawns agents itself. There is no second process to start, no
-port to bind, and no bridge to keep alive — which removes an entire class of
-failure where the app was running and the runner was not. The URL of this page
-is unchanged so existing links still resolve.
+`specter serve` spawns agents itself **when it runs on your host**. There is no
+second process to start, no port to bind, and no bridge to keep alive.
+
+That does not hold in Docker. A container has no agent binary and no
+credentials, so a containerized Specter currently cannot execute a workflow at
+all. The bridge is being restored as `specter agent-host` — a subcommand of the
+same binary rather than a separate program — so the app can stay contained while
+only agent execution happens on the host: **#49**.
+
+The URL of this page is unchanged so existing links still resolve.
 
 :::
 
