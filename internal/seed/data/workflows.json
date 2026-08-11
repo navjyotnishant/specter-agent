@@ -1,6 +1,6 @@
 [
   {
-    "id": "security-review-team",
+    "id": "builtin-security-review-team",
     "name": "Security Review Team",
     "description": "A supervisor fans work out to three security specialists — code, dependencies, secrets — then a report writer merges their findings into one severity-ordered report.",
     "graph": {
@@ -32,7 +32,9 @@
             "label": "Code Security",
             "role": "specialist",
             "objective": "Run the secure code review checklist over the code in scope.",
-            "selectedSkills": ["secure-code-review"],
+            "selectedSkills": [
+              "secure-code-review"
+            ],
             "runtime": "direct",
             "sandboxAgent": "claude"
           }
@@ -44,7 +46,9 @@
             "label": "Dependency Risk",
             "role": "specialist",
             "objective": "Audit the dependency manifests for risky, unpinned, abandoned, or typosquatted packages.",
-            "selectedSkills": ["dependency-risk-review"],
+            "selectedSkills": [
+              "dependency-risk-review"
+            ],
             "runtime": "direct",
             "sandboxAgent": "claude"
           }
@@ -56,7 +60,9 @@
             "label": "Secrets & Config",
             "role": "specialist",
             "objective": "Look for committed credentials and insecure configuration defaults.",
-            "selectedSkills": ["secrets-config-review"],
+            "selectedSkills": [
+              "secrets-config-review"
+            ],
             "runtime": "direct",
             "sandboxAgent": "claude"
           }
@@ -68,25 +74,55 @@
             "label": "Report Writer",
             "role": "specialist",
             "objective": "Merge every specialist's findings into one report. Do not re-review the code — the findings above are your only input.",
-            "selectedSkills": ["standard-report-format"],
+            "selectedSkills": [
+              "standard-report-format"
+            ],
             "runtime": "direct",
             "sandboxAgent": "claude"
           }
         }
       ],
       "edges": [
-        { "id": "e1", "source": "trigger", "target": "supervisor" },
-        { "id": "e2", "source": "supervisor", "target": "code" },
-        { "id": "e3", "source": "supervisor", "target": "deps" },
-        { "id": "e4", "source": "supervisor", "target": "secrets" },
-        { "id": "e5", "source": "code", "target": "report" },
-        { "id": "e6", "source": "deps", "target": "report" },
-        { "id": "e7", "source": "secrets", "target": "report" }
+        {
+          "id": "e1",
+          "source": "trigger",
+          "target": "supervisor"
+        },
+        {
+          "id": "e2",
+          "source": "supervisor",
+          "target": "code"
+        },
+        {
+          "id": "e3",
+          "source": "supervisor",
+          "target": "deps"
+        },
+        {
+          "id": "e4",
+          "source": "supervisor",
+          "target": "secrets"
+        },
+        {
+          "id": "e5",
+          "source": "code",
+          "target": "report"
+        },
+        {
+          "id": "e6",
+          "source": "deps",
+          "target": "report"
+        },
+        {
+          "id": "e7",
+          "source": "secrets",
+          "target": "report"
+        }
       ]
     }
   },
   {
-    "id": "pre-push-review",
+    "id": "builtin-pre-push-review",
     "name": "Pre-Push Review",
     "description": "Correctness and test-coverage review of the current change, gated on a human approval before anything is reported as ready to push.",
     "graph": {
@@ -106,7 +142,9 @@
             "label": "Correctness",
             "role": "specialist",
             "objective": "Review the change as a pre-landing gate: logic bugs, regressions, missing validation. Split findings into Blockers and Nits.",
-            "selectedSkills": ["pr-readiness-review"],
+            "selectedSkills": [
+              "pr-readiness-review"
+            ],
             "runtime": "direct",
             "sandboxAgent": "claude"
           }
@@ -118,7 +156,9 @@
             "label": "Test Coverage",
             "role": "specialist",
             "objective": "Identify code paths the change touches that no test would catch if they broke.",
-            "selectedSkills": ["test-gap-analysis"],
+            "selectedSkills": [
+              "test-gap-analysis"
+            ],
             "runtime": "direct",
             "sandboxAgent": "claude"
           }
@@ -139,23 +179,45 @@
             "label": "Verdict",
             "role": "specialist",
             "objective": "Write the final verdict from the two reviews above. State READY or NOT READY in the first line.",
-            "selectedSkills": ["standard-report-format"],
+            "selectedSkills": [
+              "standard-report-format"
+            ],
             "runtime": "direct",
             "sandboxAgent": "claude"
           }
         }
       ],
       "edges": [
-        { "id": "e1", "source": "trigger", "target": "correctness" },
-        { "id": "e2", "source": "trigger", "target": "tests" },
-        { "id": "e3", "source": "correctness", "target": "gate" },
-        { "id": "e4", "source": "tests", "target": "gate" },
-        { "id": "e5", "source": "gate", "target": "report" }
+        {
+          "id": "e1",
+          "source": "trigger",
+          "target": "correctness"
+        },
+        {
+          "id": "e2",
+          "source": "trigger",
+          "target": "tests"
+        },
+        {
+          "id": "e3",
+          "source": "correctness",
+          "target": "gate"
+        },
+        {
+          "id": "e4",
+          "source": "tests",
+          "target": "gate"
+        },
+        {
+          "id": "e5",
+          "source": "gate",
+          "target": "report"
+        }
       ]
     }
   },
   {
-    "id": "release-readiness",
+    "id": "builtin-release-readiness",
     "name": "Release Readiness",
     "description": "Detects breaking changes, rates deployment risk, and drafts the release notes for a version about to ship.",
     "graph": {
@@ -175,7 +237,9 @@
             "label": "Breaking Changes",
             "role": "specialist",
             "objective": "Find every change in this range that breaks an existing caller.",
-            "selectedSkills": ["breaking-change-detector"],
+            "selectedSkills": [
+              "breaking-change-detector"
+            ],
             "runtime": "direct",
             "sandboxAgent": "claude"
           }
@@ -187,7 +251,9 @@
             "label": "Deployment Risk",
             "role": "specialist",
             "objective": "Rate the deployment risk of this release and give the rollback plan.",
-            "selectedSkills": ["deployment-risk-assessment"],
+            "selectedSkills": [
+              "deployment-risk-assessment"
+            ],
             "runtime": "direct",
             "sandboxAgent": "claude"
           }
@@ -199,17 +265,35 @@
             "label": "Release Notes",
             "role": "specialist",
             "objective": "Draft the user-facing release notes, folding in the breaking changes found above.",
-            "selectedSkills": ["release-notes-writer"],
+            "selectedSkills": [
+              "release-notes-writer"
+            ],
             "runtime": "direct",
             "sandboxAgent": "claude"
           }
         }
       ],
       "edges": [
-        { "id": "e1", "source": "trigger", "target": "breaking" },
-        { "id": "e2", "source": "trigger", "target": "risk" },
-        { "id": "e3", "source": "breaking", "target": "notes" },
-        { "id": "e4", "source": "risk", "target": "notes" }
+        {
+          "id": "e1",
+          "source": "trigger",
+          "target": "breaking"
+        },
+        {
+          "id": "e2",
+          "source": "trigger",
+          "target": "risk"
+        },
+        {
+          "id": "e3",
+          "source": "breaking",
+          "target": "notes"
+        },
+        {
+          "id": "e4",
+          "source": "risk",
+          "target": "notes"
+        }
       ]
     }
   }

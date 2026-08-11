@@ -250,3 +250,31 @@ func TestOpenIsIdempotent(t *testing.T) {
 		s.Close()
 	}
 }
+
+// A seeded template's id is a slug, so it can collide with the NAME of a
+// workflow you built. Both rows match the same reference, and this used to be a
+// QueryRow that silently took whichever SQLite returned first — so which
+// workflow ran depended on row order, and a completed run could land on the
+// template while its history was looked for under yours.
+func TestYourOwnWorkflowWinsOverATemplateOfTheSameName(t *testing.T) {
+	s := testDB(t)
+
+	// The template is inserted FIRST and given an id that sorts first, so an
+	// unordered query returns it before the user's workflow. Without that the
+	// test passes either way and proves nothing — which is the same
+	// nondeterminism the fix exists to remove.
+	if _, err := s.DB().Exec(
+		`INSERT INTO workflows (id, name, graph_json, is_template) VALUES
+		   ('aaa-pre-push-review', 'pre-push-review', '{}', 1),
+		   ('zzz-my-own',          'pre-push-review', '{}', 0)`); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.FindWorkflow(context.Background(), "pre-push-review")
+	if err != nil {
+		t.Fatalf("FindWorkflow: %v", err)
+	}
+	if got.ID != "zzz-my-own" {
+		t.Errorf("resolved to %q (%s), want the user's own workflow", got.ID, got.Name)
+	}
+}

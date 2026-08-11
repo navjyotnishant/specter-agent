@@ -296,9 +296,20 @@ type Workflow struct {
 // prefix is an error listing the candidates rather than a guess — running the
 // wrong workflow is worse than being asked to be specific.
 func (s *Store) FindWorkflow(ctx context.Context, ref string) (Workflow, error) {
+	// An exact match on YOUR OWN workflow wins over a template, and a template
+	// only answers when nothing of yours matches.
+	//
+	// A seeded template's id is a slug, so `pre-push-review` can name both a
+	// template and a workflow you built. This used to be a QueryRow over
+	// `id = ? OR name = ?`, which silently took whichever row SQLite returned
+	// first — so which workflow ran depended on row order, and a run could land
+	// on the template while you looked for its history under yours.
 	var w Workflow
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, graph_json FROM workflows WHERE id = ? OR name = ?`, ref, ref).
+		`SELECT id, name, graph_json FROM workflows
+		  WHERE id = ? OR name = ?
+		  ORDER BY is_template ASC, updated_at DESC
+		  LIMIT 1`, ref, ref).
 		Scan(&w.ID, &w.Name, &w.GraphJSON)
 	if err == nil {
 		return w, nil
