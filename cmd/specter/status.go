@@ -60,12 +60,17 @@ func status() {
 		fmt.Printf("    %s  %s\n", none(pad(tool.name)), dim("without it, "+tool.without))
 	}
 
-	section("confinement", "what stops an agent leaving its worktree")
+	// Reports what is AVAILABLE, which is not the same as what is applied — and
+	// saying so matters, because a status line implying protection you do not
+	// have is worse than no line at all. `specter run` applies this; runs
+	// started from the web app currently do not (#50).
+	section("confinement", "denies writes outside the worktree, and reads of ~/.ssh")
 	if info := confine.Detect(); info.Mechanism == confine.MechanismNone {
 		fmt.Printf("    %s  %s\n", warn(pad("none")), dim(info.Reason))
 		fmt.Printf("    %s\n", dim("agents run unconfined — SPECTER_REQUIRE_CONFINEMENT=1 refuses instead"))
 	} else {
-		fmt.Printf("    %s  %s\n", ok(pad(string(info.Mechanism))), dim("writes outside the worktree are denied"))
+		fmt.Printf("    %s  %s\n", ok(pad(string(info.Mechanism))), dim("available on this machine"))
+		fmt.Printf("    %s\n", amber("applied by `specter run` — runs started from the web app are NOT yet confined (#50)"))
 	}
 
 	sandboxSummary()
