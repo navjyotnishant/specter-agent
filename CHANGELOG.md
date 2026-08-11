@@ -26,13 +26,12 @@ produce a commit list rather than a changelog.
   comes back on the next start. Skills seed the same way, and both backends use
   the same ids — pointed at one database, the second to start finds the library
   already there rather than inserting a duplicate set.
-- **Import an agentic-orchestrator repo into a workflow.** Point Specter at a
-  local path or a GitHub URL, review a compatibility report, pick which skills
-  and agents to bring in, and get real `skills` rows plus a laid-out graph on
-  the canvas. The parser is shape-agnostic — any markdown with `name` and
-  `description` frontmatter is a candidate — so a repo with a different layout
-  works without a code change. Pipeline order from the source prose is preserved,
-  including sequential chains, fan-out, and fan-in.
+- ~~**Import an agentic-orchestrator repo into a workflow.**~~ **Not working in
+  this release.** The scanner that reads skills and agents out of a repo lived in
+  the Python host runner and was not ported when that was removed, so the import
+  dialog asks for a repository's contents and gets back a parsed URL. Repo
+  *discovery* (finding git repos under a root, detecting their stack) does work.
+  Tracked in #44.
 - **Telegram trigger.** Send a topic or draft from an allowlisted Telegram chat
   and it is delivered to the supervisor as the run's input. `/list` shows the
   available workflows; a bare `/workflow_name` asks whether to supply input or
