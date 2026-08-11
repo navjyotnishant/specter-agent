@@ -82,10 +82,11 @@ func usage() {
 
   specter                    what this machine can do right now
   specter run <workflow>     run a workflow here
-  specter workflows          what you can run
-  specter status             agents, confinement, approved repositories
-  specter models             what each installed agent can run
+  specter serve              serve the API and web UI
   specter agent-host         spawn agents for a containerized backend
+  specter workflows          what you can run
+  specter status             agents, tools, the Warden, models, state
+  specter models             what each installed agent can run
   specter version            build information
 
 Options for run
