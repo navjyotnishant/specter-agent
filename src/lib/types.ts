@@ -506,3 +506,19 @@ export type MemoryEntry = {
   created_by_agent?: string;
   created_at: string;
 };
+
+/** What stands between an agent and the machine. Mirrors internal/isolation. */
+export type WardenLayer = {
+  name: string;
+  held: boolean;
+  detail: string;
+  /** What is still exposed when a layer does not hold. */
+  gap?: string;
+};
+
+export type WardenStatus = {
+  active: boolean;
+  mechanism: string;
+  reason?: string;
+  layers: WardenLayer[];
+};

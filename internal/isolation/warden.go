@@ -17,6 +17,8 @@
 // than one they know is absent — the first gets trusted.
 package isolation
 
+import "strings"
+
 // Layer is one boundary, and whether it currently holds.
 type Layer struct {
 	Name string `json:"name"`
@@ -76,14 +78,13 @@ func Warden() WardenStatus {
 		Gap:    gapWhenUnheld(status.Active, "private keys and cloud credentials are readable"),
 	})
 
-	// Layer 3 — reads. Reported as NOT held even when confinement is active,
-	// because the profile is (allow default) with targeted denials: everything
-	// outside the four credential paths stays readable. Claiming this layer
-	// would be the most consequential lie in the report.
+	// Layer 3 — reads. Held only when confinement is active, because the
+	// denial is expressed in the profile itself: $HOME is unreadable except for
+	// the toolchain paths the policy re-allows.
 	status.Layers = append(status.Layers, Layer{
-		Name: "reads", Held: false,
-		Detail: "open outside the credential paths",
-		Gap:    "an agent can read repositories and files you did not point it at",
+		Name: "reads", Held: status.Active,
+		Detail: "confined to the worktree; $HOME denied except toolchain paths",
+		Gap:    gapWhenUnheld(status.Active, "an agent can read repositories you did not point it at"),
 	})
 
 	// Layer 4 — network. sandbox-exec can express network rules, but they are
@@ -110,5 +111,19 @@ func (w WardenStatus) Summary() string {
 	if !w.Active {
 		return "unconfined — " + w.Reason
 	}
-	return string(w.Mechanism) + " — filesystem and credentials held, reads and network open"
+	// Built from the layers rather than hardcoded, so it cannot fall out of
+	// date the way this line already did once when reads became confined.
+	held, open := []string{}, []string{}
+	for _, layer := range w.Layers {
+		if layer.Held {
+			held = append(held, layer.Name)
+		} else {
+			open = append(open, layer.Name)
+		}
+	}
+	summary := string(w.Mechanism) + " — " + strings.Join(held, ", ") + " held"
+	if len(open) > 0 {
+		summary += "; " + strings.Join(open, ", ") + " open"
+	}
+	return summary
 }

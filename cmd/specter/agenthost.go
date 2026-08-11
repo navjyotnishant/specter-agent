@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/navjyotnishant/specter-agent/internal/agenthost"
 	"github.com/navjyotnishant/specter-agent/internal/exec"
+	"github.com/navjyotnishant/specter-agent/internal/isolation"
 )
 
 // cmdAgentHost spawns agents for a backend that cannot spawn its own.
@@ -43,6 +43,15 @@ func cmdAgentHost(args []string) error {
 		return fmt.Errorf("no runner token available, and this must not serve unauthenticated")
 	}
 
+	// Confinement is the gate. A host that cannot confine an agent must not
+	// offer to spawn one — refusing at startup is clearer than accepting
+	// requests and rejecting each in turn.
+	w := isolation.Warden()
+	if !w.Active {
+		return fmt.Errorf(
+			"agents cannot be confined on this machine (%s), so this host will not start", w.Reason)
+	}
+
 	server := &agenthost.Server{Token: token, DefaultTimeout: *timeout}
 
 	srv := &http.Server{
@@ -60,17 +69,10 @@ func cmdAgentHost(args []string) error {
 
 	fmt.Printf("\n  %s\n\n", bold("specter agent-host"))
 	fmt.Printf("  listening    %s\n", *addr)
-	fmt.Printf("  allowlist    %s\n", dim(shorten(exec.AllowlistPath())))
+	fmt.Printf("  warden       %s\n", dim(w.Summary()))
 	fmt.Println()
 	fmt.Println(dim("  Point the containerized backend at this host:"))
 	fmt.Printf("  %s\n\n", dim("  "+agenthost.AddrEnv+"=http://host.docker.internal:"+port(*addr)))
-
-	// An empty allowlist refuses every request, so say it now rather than let it
-	// be discovered on the first run.
-	if _, reason := exec.ApprovedWorkspace(exec.AllowlistPath(), exec.AllowlistPath()); strings.Contains(reason, "no approved-workspace list") {
-		fmt.Println(dim("  No approved workspaces yet — add them in the web UI, or every run is refused."))
-		fmt.Println()
-	}
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err

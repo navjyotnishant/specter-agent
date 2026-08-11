@@ -5,7 +5,6 @@ import (
 	osexec "os/exec"
 	"strings"
 
-	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/hostops"
 	"github.com/navjyotnishant/specter-agent/internal/isolation"
 	"github.com/navjyotnishant/specter-agent/internal/models"
@@ -69,17 +68,6 @@ func status() {
 	fmt.Printf("    %s  %s\n", dim(pad("home")), shorten(specterhome.Dir()))
 	fmt.Printf("    %s  %s\n", dim(pad("database")), shorten(defaultDBPath()))
 
-	section("approved repositories", "an agent runs nowhere else")
-	config := exec.AllowlistPath()
-	// Probing with the config path itself: it is never an approved workspace, so
-	// a rejection is expected. WHICH rejection is the signal — "not provisioned"
-	// and "not approved" are different states.
-	if _, reason := exec.ApprovedWorkspace(config, config); strings.Contains(reason, "no approved-workspace list") {
-		fmt.Printf("    %s  %s\n", warn(pad("none")), dim("no allowlist at "+shorten(config)))
-		fmt.Printf("    %s\n", dim("add one in the web UI, or every run is refused"))
-	} else {
-		fmt.Printf("    %s  %s\n", ok(pad("listed")), dim(shorten(config)))
-	}
 	fmt.Println()
 }
 

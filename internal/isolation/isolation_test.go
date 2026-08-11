@@ -218,10 +218,11 @@ func TestWardenReportsTheGapsNotJustTheBoundaries(t *testing.T) {
 		}
 	}
 
-	// Reads and network are not bounded today. Claiming either would be the
-	// most consequential lie the report could tell, so it is asserted rather
-	// than left to a reader's assumption.
-	for _, name := range []string{"reads", "network"} {
+	// The network is not bounded today. Claiming it would be the most
+	// consequential lie the report could tell, so it is asserted rather than
+	// left to a reader's assumption. (Reads WERE in this list until the profile
+	// became deny-first within $HOME.)
+	for _, name := range []string{"network"} {
 		layer := byName[name]
 		if layer.Held {
 			t.Errorf("the warden claims the %q layer holds, and nothing implements it", name)
@@ -242,5 +243,56 @@ func TestEveryUnheldLayerNamesWhatIsExposed(t *testing.T) {
 		if layer.Detail == "" {
 			t.Errorf("layer %q has no detail", layer.Name)
 		}
+	}
+}
+
+// Reads outside the worktree are denied, not just credential paths.
+//
+// Before this, the profile was (allow default) with four denials — so a
+// "confined" agent could read every other repository on the machine and the
+// whole of ~/Desktop. The denial is now broad within $HOME, with toolchain
+// paths re-allowed explicitly.
+func TestReadsOutsideTheWorktreeAreDenied(t *testing.T) {
+	requireMacOS(t)
+	workspace := t.TempDir()
+	home, _ := os.UserHomeDir()
+
+	// A directory in $HOME that is nobody's toolchain and nobody's worktree.
+	victim := filepath.Join(home, ".specter-read-probe")
+	if err := os.MkdirAll(victim, 0o755); err != nil {
+		t.Skip("cannot create a probe directory in $HOME")
+	}
+	t.Cleanup(func() { os.RemoveAll(victim) })
+	secret := filepath.Join(victim, "notes.txt")
+	os.WriteFile(secret, []byte("private"), 0o600)
+
+	argv, _, err := Wrap([]string{"/bin/cat", secret}, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := exec.RunStreaming(context.Background(), exec.Command{Argv: argv, Dir: workspace})
+	if result.OK() {
+		t.Error("a confined agent read a file in $HOME outside its worktree")
+	}
+}
+
+// ...but the toolchain still works, which is the constraint that makes the
+// policy adoptable. A read policy that breaks `git status` gets switched off.
+func TestToolchainPathsStayReadable(t *testing.T) {
+	requireMacOS(t)
+	workspace := t.TempDir()
+	home, _ := os.UserHomeDir()
+
+	config := filepath.Join(home, ".config")
+	if _, err := os.Stat(config); err != nil {
+		t.Skip("no ~/.config on this machine")
+	}
+
+	argv, _, err := Wrap([]string{"/bin/ls", config}, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := exec.RunStreaming(context.Background(), exec.Command{Argv: argv, Dir: workspace}); !result.OK() {
+		t.Error("~/.config is unreadable, which breaks tools and gets confinement disabled")
 	}
 }

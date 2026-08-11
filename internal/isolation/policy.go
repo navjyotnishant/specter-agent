@@ -50,6 +50,15 @@ type Policy struct {
 	// machine. Verified, and the reason this field exists separately.
 	UnreadablePaths []string
 
+	// ReadablePaths are re-allowed after the broad read denial on $HOME.
+	//
+	// The policy denies reading the home directory outright and then re-opens
+	// what a toolchain genuinely needs — shell profiles, language version
+	// managers, package caches, agent state. Verified against git, node, and
+	// the claude CLI before adoption: a read policy that breaks `git status`
+	// gets switched off, and a disabled boundary protects nothing.
+	ReadablePaths []string
+
 	// AllowedDomains, when non-empty, is the only network the agent may reach.
 	// Empty means unrestricted — which is the current behaviour and is stated
 	// plainly rather than implied, because "no policy" and "deny all" are
@@ -76,8 +85,20 @@ func DefaultPolicy(workspace string) Policy {
 			".cache", ".npm", ".config", ".local/state", ".gitconfig",
 		),
 
-		// The credential directories. This list is the one part of the policy
-		// that should only ever grow.
+		// Re-allowed after the broad $HOME read denial. Everything a coding
+		// agent legitimately reads outside its worktree: shell configuration,
+		// version managers, package caches, and its own state.
+		ReadablePaths: prefixed(home,
+			".claude", ".codex", ".cursor", ".gemini",
+			".config", ".cache", ".npm", ".local", ".gitconfig",
+			".zshrc", ".bashrc", ".profile",
+			".nvm", ".rustup", ".cargo", ".pyenv", ".rbenv", ".gem", ".m2", ".gradle",
+		),
+
+		// The credential directories. Denied LAST so they win over the
+		// re-allows above — .config is readable, but nothing puts a private key
+		// back on the table. This list is the one part of the policy that
+		// should only ever grow.
 		UnreadablePaths: prefixed(home, ".ssh", ".aws", ".gnupg", ".kube"),
 	}
 }

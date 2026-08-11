@@ -114,7 +114,7 @@ function ChainLink({ tone, name, detail }: { tone: "ok" | "warn" | "bad"; name: 
  *  reporting a symptom rather than a cause. */
 function DependencyChain({
   hostRunnerOnline, hostRunnerVersion, sandboxReady, sandboxLabel,
-  agentsReady, agentsTotal, approvedPaths,
+  agentsReady, agentsTotal, wardenActive, wardenLabel,
 }: {
   hostRunnerOnline: boolean;
   hostRunnerVersion: string | null;
@@ -122,7 +122,8 @@ function DependencyChain({
   sandboxLabel: string;
   agentsReady: number;
   agentsTotal: number;
-  approvedPaths: number;
+  wardenActive: boolean;
+  wardenLabel: string;
 }) {
   const arrow = <span className="sp-chain-arw">→</span>;
   return (
@@ -145,11 +146,14 @@ function DependencyChain({
         detail={`${agentsReady} of ${agentsTotal} ready`}
       />
       {arrow}
-      {/* Zero approved paths is not a healthy state: nothing can run. */}
+      {/* The Warden replaces the approved-repository count. Approval was a gate
+          only because there was no confinement; now the question worth asking
+          at a glance is whether a run CAN be confined, since one that cannot is
+          refused outright. */}
       <ChainLink
-        tone={approvedPaths ? "ok" : "warn"}
-        name="Approved repos"
-        detail={`${approvedPaths} path${approvedPaths === 1 ? "" : "s"}`}
+        tone={wardenActive ? "ok" : "warn"}
+        name="Warden"
+        detail={wardenLabel}
       />
     </div>
   );
@@ -250,6 +254,12 @@ export default function Models() {
     enabled: canUseBackend && dockerSandboxRuntime?.status !== "host_runner_unavailable",
     retry: false,
   });
+  const { data: warden } = useQuery({
+    queryKey: ["warden"],
+    queryFn: () => api.warden(token ?? ""),
+    enabled: Boolean(token),
+  });
+
   const { data: runtimeWorkspaces = [] } = useQuery({
     queryKey: ["runtime-workspaces"],
     queryFn: () => api.runtimeWorkspaces(token ?? ""),
@@ -361,14 +371,6 @@ export default function Models() {
       setError(err instanceof Error
         ? `Could not revoke access: ${err.message}`
         : "Could not revoke access — the path is still approved."),
-  });
-  const discoverRepositories = useMutation({
-    mutationFn: () => api.discoverRepositories(token ?? "", { root_path: discoveryRoot, max_depth: 3, max_results: 50 }),
-    onSuccess: () => {
-      setSelectedDiscoveredPaths([]);
-      queryClient.invalidateQueries({ queryKey: ["host-runner", "logs"] });
-    },
-    onError: (err) => setError(err instanceof Error ? err.message : "Unable to discover repositories"),
   });
   const approveSelectedRepositories = useMutation({
     mutationFn: async () => {
@@ -509,8 +511,6 @@ export default function Models() {
     return path.includes("/.specter/imports/") ? "imported · unused" : "unused";
   };
 
-  const approvedWorkspacePaths = new Set(activeRuntimeWorkspaces.map((workspace) => workspace.path));
-  const discoveredRepositories = discoverRepositories.data?.repositories ?? [];
   const completedRuntimeRuns = runtimeRuns.filter((run) => run.status === "completed").length;
   const preferredRuntime =
     dockerSandboxRuntime?.status === "ready"
@@ -573,7 +573,8 @@ export default function Models() {
         sandboxLabel={dockerSandboxBadge.label}
         agentsReady={agentReadiness.ready}
         agentsTotal={agentReadiness.total}
-        approvedPaths={activeRuntimeWorkspaces.length}
+        wardenActive={warden?.active ?? false}
+        wardenLabel={warden?.active ? String(warden.mechanism) : "unconfined"}
         />
       </div>
 
@@ -585,9 +586,6 @@ export default function Models() {
         <TabsList className="sp-tabs sp-tabs-lg h-auto justify-start rounded-none bg-transparent p-0">
           <TabsTrigger value="infrastructure" className="sp-tb rounded-none">
             Runtimes
-          </TabsTrigger>
-          <TabsTrigger value="access" className="sp-tb rounded-none">
-            Access
           </TabsTrigger>
           <TabsTrigger value="logs" className="sp-tb rounded-none">
             <span className="flex items-center gap-2">
@@ -1258,135 +1256,7 @@ export default function Models() {
             )}
           </div>
         </TabsContent>
-        {/* Access is its own tab panel. It used to sit outside <Tabs>,
-            so it rendered under Console and Models as well. */}
-        <TabsContent value="access" className="mt-4">
-        <div className="sp-frame">
-          <div className="sp-hdr">
-            <h1>Access</h1>
-            <p>Repositories agents are allowed to read and write</p>
-          </div>
-          <div className="sp-sec">
-            <div className="sp-warnbox">
-              <div className="t">⚠ Approving a repository grants agent access to it</div>
-              <div className="b">
-                Agents can read every file in an approved path, and in <b>Direct CLI</b> mode
-                they run on this host with no isolation — including any <code>.env</code>,
-                credentials or client work inside. Approve only repositories you would hand
-                to a contractor.
-              </div>
-            </div>
-
-            <h2>Approved · {activeRuntimeWorkspaces.length} path{activeRuntimeWorkspaces.length === 1 ? "" : "s"}</h2>
-            <div className="sp-sub">Shown by default. This is the answer to “what can agents touch?”</div>
-
-            {activeRuntimeWorkspaces.length === 0 && (
-              <p className="text-sm text-slate-500">
-                No repositories approved yet — nothing can run until one is.
-              </p>
-            )}
-
-            {activeRuntimeWorkspaces.map((workspace) => (
-              <div className="sp-pathrow" key={workspace.id}>
-                <code title={workspace.path}>{workspace.path}</code>
-                <span style={{ color: "#94a3b8", fontSize: 11 }}>{workspaceUsage(workspace.path)}</span>
-                <button
-                  type="button"
-                  className="sp-rm"
-                  disabled={!canUseBackend || deleteWorkspace.isPending}
-                  onClick={() => deleteWorkspace.mutate(workspace.id)}
-                >
-                  Revoke
-                </button>
-              </div>
-            ))}
-
-            <h2 style={{ marginTop: 17 }}>Scan for repositories</h2>
-            <div className="sp-sub">
-              {discoveredRepositories.length
-                ? `Found ${discoveredRepositories.length} under this root. Review before approving — there is no bulk approve.`
-                : "Review before approving — there is no bulk approve."}
-            </div>
-            <div className="sp-pathrow" style={discoveredRepositories.length ? undefined : { borderBottom: "none" }}>
-              <input
-                className="flex-1 border-0 bg-transparent font-mono text-[11px] outline-none"
-                value={discoveryRoot}
-                onChange={(e) => setDiscoveryRoot(e.target.value)}
-                placeholder="Absolute path to scan, e.g. ~/code"
-              />
-              <button
-                type="button"
-                className="sp-rm"
-                style={{ color: "#334155", borderColor: "#dde3ea" }}
-                disabled={!canUseBackend || !discoveryRoot.trim() || discoverRepositories.isPending || hostRunnerOffline}
-                onClick={() => discoverRepositories.mutate()}
-              >
-                {discoverRepositories.isPending ? "Scanning…" : "Scan"}
-              </button>
-            </div>
-
-            {/* Scan results. Each path is approved on its own — the confirm names
-                the single repository, so nobody grants access to fifty at once and
-                discovers afterwards which ones actually took. */}
-            {discoveredRepositories.map((repo) => {
-              const already = approvedWorkspacePaths.has(repo.path);
-              return (
-                <div className="sp-pathrow" key={repo.path}>
-                  <code title={repo.path}>{repo.path}</code>
-                  {already && <span style={{ color: "#16a34a", fontSize: 11 }}>already approved</span>}
-                  {!already && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <button
-                          type="button"
-                          className="sp-rm"
-                          style={{ color: "#334155", borderColor: "#dde3ea" }}
-                          disabled={!canUseBackend || approveSelectedRepositories.isPending}
-                        >
-                          Approve…
-                        </button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="rounded-[10px]">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Grant agent access to this repository?</AlertDialogTitle>
-                          <AlertDialogDescription asChild>
-                            <div>
-                              <p className="font-mono text-xs text-slate-700">{repo.path}</p>
-                              <p className="mt-2">
-                                Agents will be able to read every file inside it, and in Direct CLI
-                                mode they run on this host with no isolation.
-                              </p>
-                            </div>
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel className="rounded-[6px]">Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            className="rounded-[6px] bg-slate-900 hover:bg-slate-800"
-                            onClick={() => {
-                              setSelectedDiscoveredPaths([repo.path]);
-                              approveSelectedRepositories.mutate();
-                            }}
-                          >
-                            Grant access
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        </TabsContent>
       </Tabs>
-
-      {/* Access is its own frame below Runtimes, not a tab — the design shows
-          both at once on purpose. "What can agents reach?" is a question you
-          ask while looking at whether they are ready, and hiding it behind a
-          tab means the security control is only seen by someone who goes
-          looking for it. */}
     </div>
   );
 }

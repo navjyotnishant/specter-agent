@@ -192,10 +192,7 @@ func Env(base []string, workspace string) []string {
 // doing that unconfined while printing a notice is the failure this layer exists
 // to prevent. Windows has no mechanism today and is therefore refused rather
 // than quietly downgraded.
-//
-// SPECTER_ALLOWLIST_ONLY=1 restores the old gate on top, for a shared or
-// production machine where "any repo on this host" is too wide even confined.
-func ResolveWorkspace(path string, allowlist func(string) (string, string)) (string, Info, error) {
+func ResolveWorkspace(path string) (string, Info, error) {
 	info := Detect()
 	if info.Mechanism == MechanismNone {
 		return "", info, fmt.Errorf(
@@ -204,27 +201,35 @@ func ResolveWorkspace(path string, allowlist func(string) (string, string)) (str
 				"your credentials", info.Reason)
 	}
 
-	// Opt-in tightening. Off by default: the OS boundary is the gate.
-	if allowlistOnly() {
-		approved, reason := allowlist(path)
-		if approved == "" {
-			return "", info, fmt.Errorf("%s", reason)
-		}
-		return approved, info, nil
+	if strings.TrimSpace(path) == "" {
+		return "", info, fmt.Errorf("no workspace was given")
 	}
 
 	resolved, err := resolve(path)
 	if err != nil {
 		return "", info, fmt.Errorf("resolving the workspace: %w", err)
 	}
+
+	// The directory must exist. With the approved-workspace list gone,
+	// confinement is the only gate — and a profile is built FROM this path, so
+	// accepting one that is not there produces a boundary around nothing.
+	//
+	// Checked after resolution rather than before: a symlink is resolved first
+	// so the check and the profile agree about which directory this is.
+	info_, err := os.Stat(resolved)
+	if err != nil {
+		return "", info, fmt.Errorf("the workspace %s does not exist", resolved)
+	}
+	if !info_.IsDir() {
+		return "", info, fmt.Errorf("the workspace %s is not a directory", resolved)
+	}
+
+	// Refuse paths the profile cannot express. A profile that fails to parse is
+	// a profile that is not applied, and sandbox-exec would report that as a
+	// launch failure rather than a confinement failure.
+	if err := safeForProfile(resolved); err != nil {
+		return "", info, err
+	}
+
 	return resolved, info, nil
-}
-
-// AllowlistOnlyEnv restores the approved-workspace requirement on top of
-// confinement.
-const AllowlistOnlyEnv = "SPECTER_ALLOWLIST_ONLY"
-
-func allowlistOnly() bool {
-	value := strings.ToLower(strings.TrimSpace(os.Getenv(AllowlistOnlyEnv)))
-	return value == "1" || value == "true" || value == "yes"
 }

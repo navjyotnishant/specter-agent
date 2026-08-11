@@ -191,6 +191,8 @@ export const api = {
     }),
   hostRunnerLogs: (token: string, since = 0, level?: string) =>
     request<HostRunnerLogs>(`/runtime-adapters/host-runner/logs?since=${since}${level ? `&level=${level}` : ""}`, { headers: authHeaders(token) }),
+  warden: (token: string) =>
+    request<WardenStatus>("/runtime-adapters/warden", { headers: authHeaders(token) }),
   runtimeWorkspaces: (token: string) => request<RuntimeWorkspace[]>("/runtime-adapters/workspaces", { headers: authHeaders(token) }),
   createRuntimeWorkspace: (token: string, workspace: { name: string; path: string }) =>
     request<RuntimeWorkspace>("/runtime-adapters/workspaces", {

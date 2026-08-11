@@ -225,12 +225,12 @@ func (s *Server) spawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The allowlist is checked BEFORE resolving or spawning anything. This is
-	// the whole security boundary of the shim: without it, anything that can
-	// reach the port can run an agent against any directory on the machine.
-	approved, reason := exec.ApprovedWorkspace(req.Workspace, s.allowlist())
-	if approved == "" {
-		writeJSON(w, http.StatusForbidden, SpawnResponse{Refused: reason})
+	// Confinement is checked BEFORE resolving or spawning anything. It is the
+	// security boundary of the shim: an agent that cannot be confined must not
+	// be spawned at all, however it was requested.
+	approved, _, err := isolation.ResolveWorkspace(req.Workspace)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, SpawnResponse{Refused: err.Error()})
 		return
 	}
 

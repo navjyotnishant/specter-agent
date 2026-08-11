@@ -66,12 +66,30 @@ func macOSProfile(workspace string) (string, error) {
 	// reach another run.
 	fmt.Fprintf(&b, "\n(allow file-write* (subpath %q))\n", workspace)
 
-	// Reads. Writes alone are not enough: with only deny file-write*, an agent
-	// can still read every private key on the machine. Verified.
+	// READS — deny-first within $HOME, then re-allow what tools need.
+	//
+	// Writes alone are not enough: with only deny file-write*, an agent can
+	// read every private key on the machine. But denying only the credential
+	// paths left everything else readable — an agent could read repositories
+	// nobody pointed it at, and the whole of ~/Desktop. Verified, which is why
+	// the denial is now broad and the allowances explicit.
+	//
+	// $HOME only. Denying reads machine-wide breaks the toolchain itself: node,
+	// git and every CLI live outside it, and a policy that breaks `git status`
+	// gets switched off — a disabled boundary protects nothing.
 	b.WriteString("\n")
+	fmt.Fprintf(&b, "(deny file-read* (subpath %q))\n", home)
+	for _, dir := range policy.ReadablePaths {
+		fmt.Fprintf(&b, "(allow file-read* (subpath %q))\n", dir)
+	}
+	// LAST, so credentials win over the re-allows above: ~/.config is readable,
+	// and nothing puts ~/.ssh back on the table.
 	for _, dir := range policy.UnreadablePaths {
 		fmt.Fprintf(&b, "(deny file-read* (subpath %q))\n", dir)
 	}
+	// The worktree itself, after the $HOME denial, for a repository that lives
+	// under home — which most do.
+	fmt.Fprintf(&b, "(allow file-read* (subpath %q))\n", workspace)
 
 	return b.String(), nil
 }

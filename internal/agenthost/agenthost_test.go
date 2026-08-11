@@ -11,24 +11,6 @@ import (
 	"testing"
 )
 
-// approvedWorkspace writes an allowlist naming dir, and returns its path.
-func approvedWorkspace(t *testing.T, dir string) string {
-	t.Helper()
-	resolved, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "workspaces.json")
-	// The real format: {"paths": [...]}. An earlier version of this helper
-	// invented a shape, so the list parsed as empty and every request was
-	// refused for the RIGHT reason with the WRONG cause.
-	body, _ := json.Marshal(map[string]any{"paths": []string{resolved}})
-	if err := os.WriteFile(path, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
 // fakeAgent writes a script standing in for an agent CLI.
 func fakeAgent(t *testing.T, body string) string {
 	t.Helper()
@@ -64,9 +46,8 @@ func post(t *testing.T, srv *httptest.Server, token string, req SpawnRequest) (i
 func TestSpawnRequiresTheRunnerToken(t *testing.T) {
 	workspace := t.TempDir()
 	server := &Server{
-		Token:         "the-real-token",
-		AllowlistPath: approvedWorkspace(t, workspace),
-		ResolveAgent:  func(string) string { return fakeAgent(t, `echo "should not run"`) },
+		Token:        "the-real-token",
+		ResolveAgent: func(string) string { return fakeAgent(t, `echo "should not run"`) },
 	}
 	srv := httptest.NewServer(server.Handler())
 	defer srv.Close()
@@ -92,11 +73,16 @@ func TestSpawnRequiresTheRunnerToken(t *testing.T) {
 
 // The allowlist is the whole security boundary: without it, anything that can
 // reach the port runs an agent against any directory on the machine.
-func TestAnUnapprovedWorkspaceIsRefusedBeforeSpawning(t *testing.T) {
+// A workspace that cannot be resolved is refused BEFORE the agent is touched.
+//
+// Confinement replaced the approved-workspace list as the gate: any repository
+// may be run against provided the agent can be confined to it. What must still
+// hold is the ORDER — nothing about the agent is resolved for a workspace the
+// host will not accept.
+func TestAnUnresolvableWorkspaceIsRefusedBeforeSpawning(t *testing.T) {
 	spawned := false
 	server := &Server{
-		Token:         "t",
-		AllowlistPath: approvedWorkspace(t, t.TempDir()), // approves a DIFFERENT dir
+		Token: "t",
 		ResolveAgent: func(string) string {
 			spawned = true
 			return fakeAgent(t, `echo ran`)
@@ -106,7 +92,8 @@ func TestAnUnapprovedWorkspaceIsRefusedBeforeSpawning(t *testing.T) {
 	defer srv.Close()
 
 	code, out := post(t, srv, "t", SpawnRequest{
-		Agent: "claude", Prompt: "hello", Workspace: t.TempDir(),
+		Agent: "claude", Prompt: "hello",
+		Workspace: filepath.Join(t.TempDir(), "does-not-exist"),
 	})
 	if code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", code)
@@ -114,19 +101,16 @@ func TestAnUnapprovedWorkspaceIsRefusedBeforeSpawning(t *testing.T) {
 	if out.Refused == "" {
 		t.Error("no reason given for the refusal")
 	}
-	// Resolution happens AFTER the allowlist check, so this proves the order:
-	// nothing about the agent is touched for an unapproved path.
 	if spawned {
-		t.Error("the agent was resolved for an unapproved workspace")
+		t.Error("the agent was resolved for a workspace the host refused")
 	}
 }
 
 func TestAnApprovedWorkspaceRuns(t *testing.T) {
 	workspace := t.TempDir()
 	server := &Server{
-		Token:         "t",
-		AllowlistPath: approvedWorkspace(t, workspace),
-		ResolveAgent:  func(string) string { return fakeAgent(t, `echo "the agent replied"`) },
+		Token:        "t",
+		ResolveAgent: func(string) string { return fakeAgent(t, `echo "the agent replied"`) },
 	}
 	srv := httptest.NewServer(server.Handler())
 	defer srv.Close()
@@ -150,9 +134,8 @@ func TestAnApprovedWorkspaceRuns(t *testing.T) {
 func TestAMissingAgentNamesTheHost(t *testing.T) {
 	workspace := t.TempDir()
 	server := &Server{
-		Token:         "t",
-		AllowlistPath: approvedWorkspace(t, workspace),
-		ResolveAgent:  func(string) string { return "" },
+		Token:        "t",
+		ResolveAgent: func(string) string { return "" },
 	}
 	srv := httptest.NewServer(server.Handler())
 	defer srv.Close()
@@ -207,13 +190,14 @@ func TestAnUnreachableHostIsAnErrorNotAFallback(t *testing.T) {
 // A refusal from the host must reach the caller as a refusal, with its reason —
 // not as an empty successful run.
 func TestARefusalReachesTheCaller(t *testing.T) {
-	server := &Server{Token: "t", AllowlistPath: approvedWorkspace(t, t.TempDir())}
+	server := &Server{Token: "t"}
 	srv := httptest.NewServer(server.Handler())
 	defer srv.Close()
 
 	client := &Client{BaseURL: srv.URL, Token: "t", HTTP: srv.Client()}
 	_, err := client.Spawn(context.Background(), SpawnRequest{
-		Agent: "claude", Prompt: "hello", Workspace: t.TempDir(),
+		Agent: "claude", Prompt: "hello",
+		Workspace: filepath.Join(t.TempDir(), "does-not-exist"),
 	})
 	if err == nil {
 		t.Fatal("a refused run was reported as success")

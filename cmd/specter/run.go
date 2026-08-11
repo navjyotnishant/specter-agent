@@ -58,9 +58,14 @@ func runWorkflow(dbPath, workflowRef, workspace string, timeout time.Duration, a
 		return fmt.Errorf("%s: %w", workflow.Name, err)
 	}
 
-	approved, reason := exec.ApprovedWorkspace(workspace, exec.AllowlistPath())
-	if approved == "" {
-		return fmt.Errorf("%s", reason)
+	// Confinement is the gate. Any repository may be run against, provided the
+	// agent can be confined to it — the approved-workspace list existed BECAUSE
+	// there was no confinement, and asking a user to register every repository
+	// for a boundary the OS already enforces is friction with no security left
+	// to buy.
+	approved, _, err := isolation.ResolveWorkspace(workspace)
+	if err != nil {
+		return err
 	}
 
 	runID, err := db.CreateRun(ctx, workflow.ID, approved)
