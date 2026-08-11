@@ -8,15 +8,18 @@ services:
       SPECTER_DB_PATH: /app/data/app.db
       SPECTER_DATA_DIR: /app/data
       SPECTER_ARTIFACTS_DIR: /app/artifacts
-      # Agent execution from a container needs a host-side spawner: a container
-      # has no agent binary and no credentials. Restoring it as
-      # `specter agent-host` is tracked in #49; until then, runs started from a
-      # containerized backend fail with "no agent CLI found".
-      # SPECTER_AGENT_HOST: http://host.docker.internal:8765
+      # A container has no agent binary and no credentials, so agent execution
+      # happens on the host: run `specter agent-host` there. Unset this to spawn
+      # in-process instead, which is right when the backend runs natively.
+      SPECTER_AGENT_HOST: ${SPECTER_AGENT_HOST-http://host.docker.internal:8765}
       # Linear integration — set this to enable automatic failure logging
       SDLC_LINEAR_API_TOKEN: ${LINEAR_API_TOKEN:-}
       SDLC_LINEAR_TEAM_ID: ${LINEAR_TEAM_ID:-SPE}
       SDLC_LINEAR_PROJECT_NAME: ${LINEAR_PROJECT_NAME:-specter-agent}
+    # host.docker.internal resolves automatically on Docker Desktop but NOT on
+    # Linux, where the agent host would be unreachable without this.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Persistent state lives under the user's home, not in this checkout.
       # Deleting the repository would otherwise delete the run history and the

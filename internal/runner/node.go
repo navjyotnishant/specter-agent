@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/navjyotnishant/specter-agent/internal/agenthost"
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/graph"
 	"github.com/navjyotnishant/specter-agent/internal/store"
@@ -260,24 +262,46 @@ func (r *Runner) runAgent(ctx context.Context, runID string, node graph.Node, wo
 	memoryContext := r.memoryContextFor(runID)
 	prompt := BuildPrompt(node, context_, memoryContext)
 
-	agentPath := r.AgentPath
-	if agentPath == "" {
-		agentPath = exec.ResolveCLI(agentBinaries(node.AgentName()), nil)
-	}
-	if agentPath == "" {
-		return "failed", "", "No " + node.AgentName() + " CLI found on this machine."
-	}
-
 	timeout := r.NodeTimeout
 	if timeout == 0 {
 		timeout = defaultNodeTimeout
 	}
 
-	result := exec.RunStreaming(ctx, exec.Command{
-		Argv:    []string{agentPath, prompt},
-		Dir:     workspace,
-		Timeout: timeout,
-	})
+	var result exec.Result
+
+	// A containerized backend has no agent binary and no credentials, so it asks
+	// a host-side spawner instead. Unset means spawn here, which is the native
+	// deployment and the default. AgentPath (a test injecting a fake agent)
+	// always wins, so this never reaches the network in tests.
+	if host := agenthost.Configured(); host != "" && r.AgentPath == "" {
+		spawned, err := agenthost.NewClient().Spawn(ctx, agenthost.SpawnRequest{
+			Agent:          node.AgentName(),
+			Prompt:         prompt,
+			Workspace:      workspace,
+			TimeoutSeconds: int(timeout.Seconds()),
+		})
+		if err != nil {
+			// Named as a host problem. Reporting "no agent CLI found" here would
+			// send someone to install an agent they already have, on the wrong
+			// machine.
+			return "failed", "", err.Error()
+		}
+		result = spawned
+	} else {
+		agentPath := r.AgentPath
+		if agentPath == "" {
+			agentPath = exec.ResolveCLI(agentBinaries(node.AgentName()), nil)
+		}
+		if agentPath == "" {
+			return "failed", "", noAgentMessage(node.AgentName())
+		}
+
+		result = exec.RunStreaming(ctx, exec.Command{
+			Argv:    []string{agentPath, prompt},
+			Dir:     workspace,
+			Timeout: timeout,
+		})
+	}
 
 	// Cancellation is checked FIRST. A killed process also reports a non-zero
 	// exit, so testing OK() first would report every cancellation as a failure —
@@ -341,4 +365,26 @@ func agentBinaries(agent string) []string {
 	default:
 		return []string{agent}
 	}
+}
+
+// noAgentMessage explains a missing CLI in terms of where it is missing.
+//
+// Inside a container the answer is never "install it" — a container has no agent
+// binary and no credentials by design, and telling an operator to install one
+// there sends them to fix the wrong machine. Naming the container and pointing
+// at the host spawner is the actionable version.
+func noAgentMessage(agent string) string {
+	if inContainer() {
+		return "No " + agent + " CLI in this container, and no agent host is configured. " +
+			"Agents cannot run inside a container: set " + agenthost.AddrEnv +
+			" and run `specter agent-host` on your machine."
+	}
+	return "No " + agent + " CLI found on this machine."
+}
+
+// inContainer detects Docker cheaply. /.dockerenv is created by the daemon, and
+// its absence on a non-container is reliable enough for a message.
+func inContainer() bool {
+	_, err := os.Stat("/.dockerenv")
+	return err == nil
 }

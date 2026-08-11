@@ -49,6 +49,11 @@ func main() {
 		fmt.Printf("specter %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
 	case "status":
 		status()
+	case "agent-host":
+		if err := cmdAgentHost(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "  %v\n", err)
+			os.Exit(1)
+		}
 	case "models":
 		if err := cmdModels(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "  %v\n", err)
@@ -161,6 +166,7 @@ func usage() {
   specter workflows          what you can run
   specter status             agents, confinement, approved repositories
   specter models             what each installed agent can run
+  specter agent-host         spawn agents for a containerized backend
   specter version            build information
 
 Options for run
