@@ -15,9 +15,21 @@ services:
       SDLC_LINEAR_TEAM_ID: ${LINEAR_TEAM_ID:-SPE}
       SDLC_LINEAR_PROJECT_NAME: ${LINEAR_PROJECT_NAME:-specter-agent}
     volumes:
-      # Persistent host-mounted state. Do not remove these mounts unless you
-      # intentionally want the container to run without durable local data.
-      - ./data:/app/data
-      - ./artifacts:/app/artifacts
-      - ./secrets:/app/secrets
+      # Persistent state lives under the user's home, not in this checkout.
+      # Deleting the repository would otherwise delete the run history and the
+      # key that decrypts every stored credential — and the CLI defaults to the
+      # same directory, so both read one database instead of whichever one the
+      # current working directory happens to contain.
+      #
+      # SPECTER_HOME overrides it. That matters where $HOME is set but empty
+      # (some CI and systemd contexts), because the :- default only fires when a
+      # variable is UNSET — an empty $HOME would otherwise mount /data.
+      #
+      # These directories must exist before the first start: Docker creates a
+      # missing bind-mount source as root, and the host user then cannot write
+      # to it.
+      - ${SPECTER_HOME:-${HOME}/.specter}/data:/app/data
+      - ${SPECTER_HOME:-${HOME}/.specter}/artifacts:/app/artifacts
+      - ${SPECTER_HOME:-${HOME}/.specter}/secrets:/app/secrets
+      # Stays repo-relative: this is the code being worked on, not app state.
       - ./codebases:/app/codebases:ro

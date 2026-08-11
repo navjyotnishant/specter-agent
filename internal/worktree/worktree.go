@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/navjyotnishant/specter-agent/internal/specterhome"
 )
 
 type Mode string
@@ -41,14 +43,11 @@ type Worktree struct {
 	Source string // the repository it came from
 }
 
-// Root is where run worktrees live. Under ~/.specter rather than beside the
-// repository, so a run never puts anything inside the tree it is examining.
+// Root is where run worktrees live. Under the state directory rather than
+// beside the repository, so a run never puts anything inside the tree it is
+// examining.
 func Root() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(os.TempDir(), "specter-runs")
-	}
-	return filepath.Join(home, ".specter", "runs")
+	return specterhome.Path("runs")
 }
 
 // safeToken rejects anything that could escape the runs directory.

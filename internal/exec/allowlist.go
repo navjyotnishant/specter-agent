@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/navjyotnishant/specter-agent/internal/specterhome"
 )
 
 // Who may drive execution, and where it may run.
@@ -51,11 +53,7 @@ func tokenCandidates() []string {
 		return []string{override}
 	}
 
-	out := []string{"/app/secrets/runner-token"}
-	if home, err := os.UserHomeDir(); err == nil {
-		out = append(out, filepath.Join(home, ".specter", "runner-token"))
-	}
-	return out
+	return []string{"/app/secrets/runner-token", specterhome.Path("runner-token")}
 }
 
 // RunnerToken returns the shared secret, or "" when unprovisioned.
@@ -104,11 +102,7 @@ func AllowlistPath() string {
 	if override := os.Getenv(allowlistEnv); override != "" {
 		return override
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "workspaces.json"
-	}
-	return filepath.Join(home, ".specter", "workspaces.json")
+	return specterhome.Path("workspaces.json")
 }
 
 // approvedRoots reads the synced allowlist.

@@ -20,6 +20,8 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -66,6 +68,21 @@ func Open(path string) (*Store, error) {
 	// WAL and busy_timeout in the DSN so they apply to every pooled connection,
 	// not just the first. Setting them once after Open leaves later connections
 	// unconfigured, and the failure only appears under concurrency.
+	// SQLite creates the database file but not the directory holding it, so a
+	// first run on a machine where nothing has created ~/.specter/data yet fails
+	// with "unable to open database file (14)" — a message that names neither
+	// the path nor the reason. This only ever worked because docker-compose
+	// created the directory as a bind-mount side effect; a `curl | sh` install
+	// with no container hit it on the very first command.
+	//
+	// 0o700 rather than 0o755: this holds run history and session-token hashes,
+	// and other users on the machine have no business reading it.
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("creating the database directory %s: %w", dir, err)
+		}
+	}
+
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", path)
 
 	db, err := sql.Open("sqlite", dsn)

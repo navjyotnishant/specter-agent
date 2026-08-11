@@ -11,6 +11,7 @@ import (
 	"time"
 
 	execpkg "github.com/navjyotnishant/specter-agent/internal/exec"
+	"github.com/navjyotnishant/specter-agent/internal/specterhome"
 )
 
 // PolicyValues are the only network policies that may be applied.
@@ -140,7 +141,12 @@ func (s *Sandbox) StartDaemon() DaemonResult {
 		return DaemonResult{OK: true, Message: "The sbx daemon is already running."}
 	}
 
-	logPath := filepath.Join(s.home(), ".specter", "sbx-daemon.log")
+	// HomeDir is a test seam and wins when set; otherwise the log follows the
+	// state directory wherever SPECTER_HOME puts it.
+	logPath := specterhome.Path("sbx-daemon.log")
+	if s.HomeDir != "" {
+		logPath = filepath.Join(s.HomeDir, ".specter", "sbx-daemon.log")
+	}
 	os.MkdirAll(filepath.Dir(logPath), 0o755)
 	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {

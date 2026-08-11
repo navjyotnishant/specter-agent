@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/navjyotnishant/specter-agent/internal/exec"
 	"github.com/navjyotnishant/specter-agent/internal/graph"
 	"github.com/navjyotnishant/specter-agent/internal/publish"
+	"github.com/navjyotnishant/specter-agent/internal/specterhome"
 	"github.com/navjyotnishant/specter-agent/internal/store"
 	"github.com/navjyotnishant/specter-agent/internal/worktree"
 )
@@ -309,26 +309,27 @@ func cmdWorkflows() error {
 	return nil
 }
 
-// defaultDBPath finds the database the web UI uses, so both see one set of runs.
+// defaultDBPath is ~/.specter/data/app.db — the same file docker-compose mounts,
+// so the CLI and the web UI see one set of runs.
+//
+// It used to prefer ./data/app.db whenever that file happened to exist, which
+// made the answer depend on the current working directory: `specter workflows`
+// from the repo listed four, the same command from home listed none and created
+// a second empty database on the way. Worse, any unrelated project containing a
+// data/app.db would silently adopt the CLI. A directory's contents are not
+// consent, so nothing but the explicit override chooses the path now.
+//
+// State lives under the user's home rather than a checkout because deleting the
+// checkout would otherwise delete the run history and the key that decrypts
+// every stored credential.
 func defaultDBPath() string {
 	if override := os.Getenv("SDLC_DATABASE_PATH"); override != "" {
 		return override
 	}
-	if cwd, err := os.Getwd(); err == nil {
-		if candidate := filepath.Join(cwd, "data", "app.db"); fileExists(candidate) {
-			return candidate
-		}
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "app.db"
-	}
-	return filepath.Join(home, ".specter", "app.db")
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+	// SPECTER_HOME relocates the whole state directory, and docker-compose reads
+	// the same variable — without it, overriding one side would silently point
+	// the CLI and the server at different databases.
+	return specterhome.Path("data", "app.db")
 }
 
 // runPlain reports line by line. Used when output is piped, redirected, or
