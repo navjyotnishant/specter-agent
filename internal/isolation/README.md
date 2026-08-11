@@ -7,6 +7,11 @@ by the ones that do not. `specter status` prints it and `GET
 /api/runtime-adapters/warden` serves it, so the terminal and the browser cannot
 disagree about what is protecting you.
 
+Applied by every path that spawns an agent — `specter run`, the runner behind
+`specter serve`, and the `specter agent-host` shim. For a while it was applied by
+only the first, so a run started from the browser was less contained than the
+same run from a terminal.
+
 | File | What it holds |
 |---|---|
 | `policy.go` | **The rules.** What an agent may read, write and reach. |

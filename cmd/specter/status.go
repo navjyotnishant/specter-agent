@@ -178,5 +178,4 @@ func wardenSummary() {
 			fmt.Printf("%s%s\n", indent, dim(layer.Gap))
 		}
 	}
-	fmt.Printf("    %s\n", amber("applied by `specter run` — web-app runs are NOT yet confined (#50)"))
 }

@@ -75,7 +75,7 @@ func TestNodesRunInDependencyOrderAndContextFlowsForward(t *testing.T) {
 	r, s, runID := testRunner(t)
 	// The fake agent echoes back the prompt it was given, so the second node's
 	// stored output reveals whether it saw the first node's summary.
-	r.AgentPath = fakeAgent(t, `echo "PROMPT-WAS: $1"`)
+	r.AgentPath = fakeAgent(t, `echo "PROMPT-WAS: $@"`)
 
 	g := graph.Graph{
 		Nodes: []graph.Node{agent("n1", "First"), agent("n2", "Second")},
@@ -195,7 +195,7 @@ func TestTriggerInputReachesTheFirstNode(t *testing.T) {
 	// The trigger value is the user's instruction. If it does not reach the
 	// prompt the run ignores what the user actually asked for.
 	r, _, runID := testRunner(t)
-	r.AgentPath = fakeAgent(t, `echo "PROMPT: $1"`)
+	r.AgentPath = fakeAgent(t, `echo "PROMPT: $@"`)
 
 	g := graph.Graph{
 		Nodes: []graph.Node{

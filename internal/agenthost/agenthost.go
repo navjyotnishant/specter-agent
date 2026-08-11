@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -244,9 +245,30 @@ func (s *Server) spawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Confined here too. A containerized deployment must not be the unconfined
+	// one: the whole reason this shim exists is that the app is contained and
+	// the agent is not, which makes the boundary around the agent the only one
+	// left.
+	confined, info, err := isolation.Wrap([]string{agentPath, req.Prompt}, approved)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, SpawnResponse{
+			Refused: "could not confine the agent: " + err.Error(),
+		})
+		return
+	}
+	if info.Mechanism == isolation.MechanismNone {
+		// ResolveWorkspace already refuses when no mechanism exists, so this is
+		// belt and braces — but an unconfined spawn must never be silent.
+		writeJSON(w, http.StatusForbidden, SpawnResponse{
+			Refused: "agents cannot be confined on this host: " + info.Reason,
+		})
+		return
+	}
+
 	result := exec.RunStreaming(r.Context(), exec.Command{
-		Argv:    []string{agentPath, req.Prompt},
+		Argv:    confined,
 		Dir:     approved,
+		Env:     isolation.Env(os.Environ(), approved),
 		Timeout: s.timeout(req.TimeoutSeconds),
 	})
 

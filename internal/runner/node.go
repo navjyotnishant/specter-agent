@@ -37,6 +37,11 @@ type Runner struct {
 	// deliberately unclamped so an already-expired gate can be exercised.
 	ApprovalTimeout time.Duration
 
+	// AllowWrite selects the agent's own permission mode. Read-only unless
+	// asked: an agent that can edit by default is one bad prompt away from
+	// changing something nobody reviewed.
+	AllowWrite bool
+
 	// NetworkPolicy bounds what the agent may reach. Zero value allows
 	// everything, which is the current default and is reported as such by the
 	// Warden rather than implied to be a boundary.
@@ -273,6 +278,19 @@ func (r *Runner) runAgent(ctx context.Context, runID string, node graph.Node, wo
 		timeout = defaultNodeTimeout
 	}
 
+	// A node asking for the sandbox runtime must GET the sandbox runtime, or be
+	// told it cannot. Silently running the agent directly is the worst of the
+	// three outcomes: the builder offers the choice, the run reports success,
+	// and the isolation the user selected never existed.
+	//
+	// Running an agent inside sbx is not built yet, so the honest answer is a
+	// refusal naming what is missing rather than a quiet downgrade.
+	if node.Runtime() == "sandbox" {
+		return "failed", "", "This node asks for the Docker Sandbox runtime, which is not yet " +
+			"implemented in the Go runner. Switch the node to Direct CLI — agents there are " +
+			"confined by the OS (see `specter status`)."
+	}
+
 	var result exec.Result
 
 	// A containerized backend has no agent binary and no credentials, so it asks
@@ -317,10 +335,34 @@ func (r *Runner) runAgent(ctx context.Context, runID string, node graph.Node, wo
 			env = isolation.ProxyEnv(env, proxy.Addr())
 		}
 
+		// Defence in depth, and the ORDER of the two matters less than the fact
+		// that both are here. The agent's own --permission-mode is advisory: an
+		// agent that shells out ignores it. The OS profile is not.
+		//
+		// This path had neither. A run started from the web app was strictly
+		// less contained than the same run from the terminal — which is
+		// backwards, since the web path is the one used casually.
+		permission := "plan"
+		if r.AllowWrite {
+			permission = "acceptEdits"
+		}
+		argv := []string{agentPath, "--permission-mode", permission, "-p", prompt}
+
+		confined, info, err := isolation.Wrap(argv, workspace)
+		if err != nil {
+			return "failed", "", "could not confine the agent: " + err.Error()
+		}
+		if info.Mechanism == isolation.MechanismNone {
+			// Said out loud rather than left implicit. A run nobody knows is
+			// unconfined is the failure this whole layer exists to prevent.
+			r.writeLog(runID, "warning",
+				"running unconfined — "+info.Reason, nil)
+		}
+
 		result = exec.RunStreaming(ctx, exec.Command{
-			Argv:    []string{agentPath, prompt},
+			Argv:    confined,
 			Dir:     workspace,
-			Env:     env,
+			Env:     isolation.Env(env, workspace),
 			Timeout: timeout,
 		})
 	}

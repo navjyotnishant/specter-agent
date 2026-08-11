@@ -17,6 +17,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -262,5 +263,70 @@ func TestTheAgentRunsInTheWorkspace(t *testing.T) {
 	resolved, _ := filepath.EvalSymlinks(workspace)
 	if !strings.Contains(result.Stdout, resolved) && !strings.Contains(result.Stdout, workspace) {
 		t.Errorf("agent ran in the wrong directory: %q, want %q", strings.TrimSpace(result.Stdout), workspace)
+	}
+}
+
+// A run started through the runner — which is what the web app uses — must be
+// confined exactly as a CLI run is.
+//
+// It was not. confine.Wrap had one caller and it was cmd/specter/run.go, so a
+// run started from the browser could write outside its worktree and read
+// ~/.ssh, while the identical run from the terminal could not. The web path is
+// the one used casually, which made it backwards as well as wrong.
+func TestTheRunnerConfinesTheAgent(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("confinement verified on macOS here")
+	}
+	r, _, runID := testRunner(t)
+	workspace := t.TempDir()
+
+	home, _ := os.UserHomeDir()
+	escape := filepath.Join(home, "Desktop", "specter-runner-escape.txt")
+	os.Remove(escape)
+	t.Cleanup(func() { os.Remove(escape) })
+
+	// The agent tries to write outside its worktree. Confined, it cannot.
+	r.AgentPath = fakeAgent(t, `echo escaped > `+escape+` 2>/dev/null; echo done`)
+	r.RunNode(context.Background(), runID, agentNode(), workspace, "")
+
+	if _, err := os.Stat(escape); err == nil {
+		t.Error("the agent wrote outside its worktree — the runner did not confine it")
+	}
+}
+
+// Read-only unless asked. An agent that can edit by default is one bad prompt
+// away from changing something nobody reviewed.
+func TestTheRunnerPassesTheReadOnlyPermissionByDefault(t *testing.T) {
+	r, _, runID := testRunner(t)
+	r.AgentPath = fakeAgent(t, `echo "ARGS: $@"`)
+
+	result := r.RunNode(context.Background(), runID, agentNode(), t.TempDir(), "")
+	if !strings.Contains(result.Stdout, "plan") {
+		t.Errorf("the agent was not given the read-only permission mode: %s", result.Stdout)
+	}
+
+	r.AllowWrite = true
+	result = r.RunNode(context.Background(), runID, agentNode(), t.TempDir(), "")
+	if !strings.Contains(result.Stdout, "acceptEdits") {
+		t.Errorf("a write run did not get the write permission mode: %s", result.Stdout)
+	}
+}
+
+// A node asking for the sandbox runtime must GET it or be refused. Silently
+// running the agent directly is the worst outcome: the builder offers the
+// choice, the run reports success, and the isolation never existed.
+func TestASandboxNodeIsRefusedRatherThanRunDirectly(t *testing.T) {
+	r, _, runID := testRunner(t)
+	r.AgentPath = fakeAgent(t, `echo ran`)
+
+	node := agentNode()
+	node.Data.RuntimeName = "sandbox"
+
+	result := r.RunNode(context.Background(), runID, node, t.TempDir(), "")
+	if result.Status != "failed" {
+		t.Fatalf("status = %q, want failed — a sandbox node ran unsandboxed", result.Status)
+	}
+	if !strings.Contains(result.Summary, "Docker Sandbox") {
+		t.Errorf("the refusal does not say what was unavailable: %s", result.Summary)
 	}
 }
