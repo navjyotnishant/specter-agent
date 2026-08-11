@@ -24,6 +24,8 @@ const sidebars: SidebarsConfig = {
       label: 'Architecture',
       items: [
         'architecture/project-summary',
+        'architecture/execution-engine',
+        'architecture/graph-runner-port',
       ],
     },
     {

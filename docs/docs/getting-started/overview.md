@@ -16,47 +16,60 @@ delivery workflows from a single workspace. Supervisors coordinate specialist
 agents, approvals keep sensitive actions controlled, and run evidence remains
 available for review.
 
+## Install
+
+One binary, no interpreter and no runtime dependency:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/navjyotnishant/specter-agent/main/install.sh | sh
+```
+
+The installer verifies the published SHA-256 checksum before putting anything on
+your PATH, and refuses to install if it does not match. `SPECTER_INSTALL_DIR`
+chooses where the binary lands; `SPECTER_VERSION` pins a release.
+
+```bash
+specter          # what this machine can do right now
+specter serve    # the API and web UI
+```
+
+`git`, `gh` and the agent CLIs are **not** bundled — they carry your own
+credentials. `specter status` reports which are missing and what each enables.
+
 ## Architecture Notes
 
-- [Local Agent Runtime Architecture](../guides/codex-cli-host-runner.md): local
-  runtime boundary for using a user's authenticated Codex CLI without storing
-  Codex credentials inside Specter Agent.
+- [Local Agent Runtime](../guides/codex-cli-host-runner.md): how a workflow node
+  reaches an agent, and what stands between that agent and the rest of your
+  filesystem.
 
-Run the host runner outside Docker when local runtimes need host access:
-
-```bash
-python3 scripts/specter_host_runner.py
-```
-
-To allow UI-approved Codex CLI install and upgrade actions during setup:
-
-```bash
-SPECTER_HOST_RUNNER_ENABLE_INSTALL=1 python3 scripts/specter_host_runner.py
-```
+Agents run on your machine with your own CLIs and credentials. There is no
+separate host-runner process to start — `specter serve` spawns agents itself.
 
 ## Terminal Workflow Gate
 
-Specter workflows can be triggered from another project terminal for local
-release gates, agent instructions, or project scripts. Use the wrapper for the
-simple path:
+Specter workflows can be run from another project's terminal as a local release
+gate, from agent instructions, or from a project script:
 
 ```bash
-scripts/specter-agent security-review-team --workspace .
+specter run security-review-team --repo .
 ```
 
-The wrapper prompts for Specter login when needed, caches the local token under
-`~/.specter-agent/token.json` with user-only permissions, then starts the
-workflow and waits for the pass/fail result.
+The run executes in that process — no server to reach and no run id to poll —
+and its exit code carries the verdict, so a failing workflow blocks a commit
+without the caller parsing anything. The same run appears in the web UI while it
+happens, because the CLI and the app share one database.
 
-Automation can request final JSON and use the process exit code:
+Automation can request machine-readable output:
 
 ```bash
-scripts/specter-agent security-review-team --workspace . --json
+specter run security-review-team --repo . --json
 ```
 
-With `--json`, color-coded live progress is written to stderr while the final
-machine-readable result stays on stdout. Use `--quiet` to suppress progress in
-strict CI scripts, or `--no-color` to disable ANSI color.
+Colour is emitted only when attached to a terminal and `NO_COLOR` is honoured,
+so piped output is plain without a flag.
+
+The repository must be an approved workspace, or the run is refused before any
+agent is spawned.
 
 Exit code `0` means the workflow completed successfully. A non-zero exit means
 the workflow failed, was cancelled, timed out, hit an approval/policy stop, or

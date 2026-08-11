@@ -6,37 +6,69 @@ sidebar_position: 2
 
 # Local Operations
 
-Runtime state is host-mounted so rebuilding or recreating the app does not wipe
-local work:
+Runtime state lives under your home directory, **not** in the checkout, so
+deleting the repository does not delete your run history or the key that
+decrypts stored credentials:
 
 | Host path | Container path | Purpose |
 |---|---|---|
-| `./data` | `/app/data` | Application data |
-| `./artifacts` | `/app/artifacts` | Generated reports and run artifacts |
-| `./secrets` | `/app/secrets` | Local secret/config files |
+| `~/.specter/data` | `/app/data` | Database — workflows, runs, approvals, audit trail |
+| `~/.specter/artifacts` | `/app/artifacts` | Generated reports and run artifacts |
+| `~/.specter/secrets` | `/app/secrets` | Encryption key and runner token |
 | `./codebases` | `/app/codebases` | Read-only mounted repositories for review |
 
-Before starting Specter Agent, check the host prerequisites:
+`codebases` stays repo-relative because it holds the code being worked on rather
+than application state.
+
+`SPECTER_HOME` relocates the whole state directory. Both Docker and the CLI read
+it, so they always resolve to the same place — set it for one and not the other
+and they would read different databases.
+
+## Checking prerequisites
 
 ```bash
-python3 scripts/check_prerequisites.py
+specter status
 ```
 
-The checker reports missing Docker, Docker Compose, Docker Sandboxes, daemon,
-authentication, and host-runner prerequisites with exact remediation commands.
-Use JSON output when another installer or app flow needs to consume the result:
+It reports the agent CLIs on this machine, whether `git` and `gh` are present
+and what each one enables, which confinement mechanism is active, the state
+directory and database in use, and which repositories are approved.
+
+It works before anything is configured — no database, no server, no container —
+so it is the first thing to run when something is not working.
+
+## Starting the app
 
 ```bash
-python3 scripts/check_prerequisites.py --json
-```
-
-Start the app with:
-
-```bash
-mkdir -p data artifacts secrets codebases
 docker compose up -d --build
 ```
 
-You can rebuild safely with `docker compose up -d --build`; application data
-remains under `./data`. To intentionally reset local state, stop the app and
-delete the relevant host files.
+Or without Docker, since the binary serves the web UI itself:
+
+```bash
+specter serve
+```
+
+Rebuilding is safe: state is outside the checkout and outside the image, so
+`docker compose up -d --build` never touches it. To reset local state
+deliberately, stop the app and remove the relevant files under `~/.specter`.
+
+:::caution Migrating from an older install
+
+State used to live in `./data`, `./artifacts` and `./secrets` inside the
+checkout. To move an existing install:
+
+```bash
+docker compose down
+mkdir -p ~/.specter
+cp -a data artifacts secrets ~/.specter/
+docker compose up -d --build
+```
+
+The key and the database must move **together**. `secrets/integration_secret.key`
+decrypts the stored credentials in the database, and separating them makes every
+stored credential unrecoverable — Fernet fails authentication, with no partial
+recovery. Copy rather than move, and remove the originals only once the app has
+started against the new location.
+
+:::

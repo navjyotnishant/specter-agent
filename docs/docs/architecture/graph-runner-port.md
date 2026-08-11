@@ -1,5 +1,16 @@
 # Porting the graph runner
 
+:::note This is a completed design document
+
+R1–R5 all landed, and the Python implementation this scopes against has since
+been removed. It is kept in the present tense as the record of what was decided
+and why — several sections correct an earlier misreading of the Python code, and
+that correction is the useful part.
+
+For how the engine works now, see [The execution engine](./execution-engine.md).
+
+:::
+
 `graph_runner.py` is the last hard piece of the Go rewrite and the one most
 likely to re-earn bugs already fixed in Python. This document scopes it before
 any of it is written.

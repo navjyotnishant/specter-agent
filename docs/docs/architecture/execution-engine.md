@@ -7,24 +7,28 @@ That is the whole design: **one implementation, two entry points**, with no HTTP
 between a caller and a subprocess it is about to spawn on the same machine.
 
 ```
-NATIVE  (primary — no bridge)        DOCKER  (supported — bridge required)
-
-  specter ──import──► exec            ┌─ container ─────────┐
-                       │              │  server             │
-                       ▼              │  ✗ no agent binary  │
-                    claude            │  ✗ no credentials   │
-                                      └────────┬────────────┘
-                                               │ HTTP :8765
-                                      ┌─ host ─▼────────────┐
-                                      │  shim ──import──► exec ──► claude
-                                      └─────────────────────┘
+  specter run   ──import──► exec ──► claude / codex / cursor / gemini
+  specter serve ──import──►  ▲
+                             │
+                       same package, same process
 ```
 
-A container has no agent binary and no credentials — verified: `which claude`
-inside it returns nothing, and `~/.claude` does not exist there. It **cannot** run
-an agent. `host.docker.internal:8765` is the hole punched through that isolation
-so it can ask the host to do it. Native has no such problem, because the process
-is already on the machine that has everything.
+There used to be a second path. The Python backend ran inside a container, and a
+container has no agent binary and no credentials — verified: `which claude`
+inside it returns nothing, and `~/.claude` does not exist there. It **cannot**
+run an agent. So it posted to a host process on `host.docker.internal:8765`,
+which imported the engine and spawned the agent on its behalf.
+
+That bridge is gone. Not because the constraint changed — a container still has
+no agent binary — but because the constraint moved: the binary that spawns
+agents now runs on the host in the first place. `specter serve` is the server,
+and it is on the machine that has the agents. A containerized deployment is for
+the API and the web UI; agent execution happens where the credentials are.
+
+The bridge was worth removing on its own terms. It was a second process to keep
+alive, a second thing to install, a port to bind, and an entire class of failure
+where the app was running and the runner was not — reported by users as "the
+agent doesn't work" with nothing in the app's own logs.
 
 ---
 

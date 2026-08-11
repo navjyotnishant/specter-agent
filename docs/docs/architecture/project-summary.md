@@ -37,10 +37,10 @@ The intended runtime model is supervisor delegation: a supervisor receives a hig
 
 ### Backend
 
-- Python
-- FastAPI
-- SQLite
-- Local filesystem volumes for data/artifacts/secrets/codebases
+- Go — one binary; `specter serve` is the API and web UI, `specter run` executes
+  a workflow in your terminal
+- SQLite via a pure-Go driver, so the binary is static and needs no cgo
+- State under `~/.specter` (`SPECTER_HOME` to relocate), outside the checkout
 
 ### Deployment Direction
 
@@ -85,7 +85,7 @@ The frontend now includes:
 - Top bar with local runtime indicators
 - Logout control
 - Current user badge
-- Preview-safe auth fallback when the FastAPI backend is not running
+- Preview-safe auth fallback when the backend is not running
 
 ### 2. Dashboard
 
@@ -142,7 +142,7 @@ Implemented reusable frontend components include:
 
 ### 5. Backend SQLite Foundation
 
-A FastAPI backend skeleton was added under `backend/app`.
+A FastAPI backend skeleton was added under `backend/app`. (It was replaced by the Go backend in a later phase; see [The execution engine](./execution-engine.md).)
 
 Implemented backend foundation includes:
 
@@ -359,7 +359,7 @@ This is not a full agent runtime yet. Real model calls, tool calls, graph execut
 
 ### 14. Built-In Security Review Team Assets
 
-Template and skill files were added under `backend/app/templates`.
+Template and skill files were added under `backend/app/templates`. (Built-in skills and workflow templates now live in `internal/seed/` and are seeded on startup.)
 
 Added files include:
 
@@ -375,7 +375,7 @@ These define the intended Security Review Team template and its reusable skills.
 
 The app currently looks and behaves like a polished MVP shell. A user can navigate the product, view the dashboard, inspect the Security Review Team builder, see agent/memory/approval UI, and manage sample or backend-backed models, skills, connectors, and users.
 
-When only the Vite frontend preview is running, the app uses preview-safe sample data and a preview-mode auth session. When the FastAPI backend is available, the CRUD APIs and local auth can persist data into SQLite.
+When only the Vite frontend preview is running, the app uses preview-safe sample data and a preview-mode auth session. When the backend is available, the CRUD APIs and local auth persist data into SQLite.
 
 ## How to Test Current UI
 

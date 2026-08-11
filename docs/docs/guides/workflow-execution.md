@@ -188,7 +188,7 @@ approval request also stores its concrete `expires_at` timestamp in SQLite.
 - Shows the approval expiry deadline. Once expired, the approval can no longer
   be submitted.
 
-### Backend endpoints (`backend/app/routers/runs.py`)
+### Backend endpoints (`internal/api/runs.go`)
 
 All three endpoints accept `{ note: string }` in the request body and persist
 the note to `approval_requests.resolution_comment`.
@@ -213,7 +213,7 @@ requestRevision(token, runId, approvalId, note?)
 
 ---
 
-## Backend Parallel Execution (`backend/app/runtime/graph_runner.py`)
+## Backend Parallel Execution (`internal/runner/`, `internal/graph/levels.go`)
 
 The runner walks the graph **level by level** instead of node by node. Each
 level is a set of nodes whose dependencies are already satisfied, so they have
@@ -258,7 +258,7 @@ Set this in the Builder → select the Supervisor node → Agent tab →
 
 ---
 
-## Smart Supervisor Planning (`backend/app/runtime/supervisor.py`)
+## Smart Supervisor Planning (`internal/planner/`)
 
 Instead of hand-wiring every specialist node, the Supervisor Agent can
 **decompose an objective into a subgraph automatically**, using its own
@@ -276,7 +276,7 @@ configured CLI agent (Codex / Claude Code / Cursor, direct or sandboxed).
    (`layoutGeneratedSubgraph` in `src/lib/graph-layout.ts`, built on the same
    `topoLayout` column math used by the run view) and merges them into the
    canvas. The generated workflow is **auto-saved to the database**, so it's
-   immediately runnable from the UI, `scripts/specter-agent`, or the API —
+   immediately runnable from the UI, `specter run`, or the API —
    no separate "publish" step.
 4. Review/edit the generated nodes like any other node. Two refinement paths:
    - **Refine plan** (on the supervisor): free-text feedback regenerates the
@@ -311,7 +311,7 @@ a `humanApproval` node (gating the risky/final steps) and a `memory` node
 (durable summary) when warranted — both wired downstream of the specialists
 they cover.
 
-### Endpoints (`backend/app/routers/workflows.py`)
+### Endpoints (`internal/api/workflows.go`)
 
 | Endpoint | Purpose |
 |---|---|
@@ -343,7 +343,7 @@ canvas.
 #                        memory synthesis (final)
 
 # 3. Save happens automatically. Trigger it like any other workflow:
-scripts/specter-agent "Full Security Review" --workspace /path/to/target/repo
+specter run "Full Security Review" --repo /path/to/target/repo
 
 # The five specialists run concurrently (parallel_delegation), the report
 # waits for all of them, a human approval gate pauses before the summary is
@@ -371,70 +371,50 @@ the run is active.
 
 ## Terminal Execution
 
-The recommended local entrypoint is the wrapper:
+```bash
+specter run <workflow-id-or-name> --repo .
+```
+
+The run executes **in that process**. There is no server to reach, no token to
+mint, and no run id to poll — the binary reads the database directly and writes
+its progress there, which is why the same run appears in the web UI while it
+happens.
 
 ```bash
-scripts/specter-agent <workflow-id-or-slug> --workspace .
+specter run <workflow-id-or-name> --repo . --json
 ```
 
-The wrapper uses the same local FastAPI auth token as the web app. If
-`SPECTER_TOKEN` is not set and no cached token exists, it prompts for Specter
-email/password, validates the token, and caches it at:
-
-```text
-~/.specter-agent/token.json
-```
-
-The cache file is written with user-only permissions. For non-interactive
-automation, set `SPECTER_TOKEN` explicitly.
-
-```bash
-scripts/specter-agent <workflow-id-or-slug> --workspace . --json
-```
-
-Advanced users can still call the lower-level CLI directly with
-`scripts/specter_cli.py`.
-
-Behavior:
+Behaviour:
 
 - Resolves the workflow by id, exact name, or slugified name.
-- Resolves the requested path to an approved Specter runtime workspace.
-- Prompts for login only when no valid token is available.
-- Starts the workflow via `POST /api/workflow-runs`.
-- Streams run logs while waiting.
-- Prints the web evidence URL for the run.
-- Exits `0` only when the workflow status is `completed`.
-- Exits non-zero for failed, cancelled, timed-out, unapproved workspace, auth,
-  unavailable API, or missing workflow cases.
-- `--json` prints a machine-readable final result on stdout and streams
-  color-coded live progress to stderr.
-- `--quiet` suppresses live progress output for strict automation.
-- `--no-color` disables ANSI color in terminal progress output.
+- Refuses a repository that is not an approved workspace, **before** any agent
+  is spawned.
+- Gives the run its own `git worktree`, so the agent never touches your checkout.
+- Confines the agent to that worktree via `sandbox-exec` or `bwrap`, and says so
+  when no mechanism is available rather than implying one.
+- Read-only unless `--write` is passed; a write run arrives as a pull request
+  rather than as edits already applied to your branch.
+- Exits `0` only when the workflow completes. Non-zero for failed, cancelled,
+  timed out, unapproved workspace, or missing workflow.
+- `--json` prints a machine-readable result; the live tree is used only on a
+  terminal, and `NO_COLOR` is honoured.
+- Ctrl-C cancels the run and kills the agent subprocess rather than orphaning it.
 
 Project-level `CLAUDE.md` or `AGENTS.md` gate example:
 
 ```md
 Before production build, release, or high-risk code change, run:
 
-scripts/specter-agent security-review-team --workspace . --json
+specter run security-review-team --repo . --json
 
 Proceed only if the command exits 0.
 ```
 
-**Caveat for coding-assistant-driven gates**: `scripts/specter-agent` is a
-single long-blocking process (the workflow run itself can take minutes). A
-human running it from a terminal, or a CI job step, blocks on it naturally and
-that's fine. But when a coding assistant's own tool-use loop invokes it as a
-shell command, some harnesses schedule long-running commands in the
-background instead of blocking — so the assistant may not reliably wait for
-the result before proceeding (e.g. committing). For an **assistant-facing**
-gate (as opposed to a plain git hook or CI step), use the
-[pre-commit gate skill](#pre-commit-gate-for-coding-assistants) below instead
-(same page — Docusaurus generates this heading anchor automatically), which
-polls over short HTTP calls rather than one long CLI call.
-
-The backend start-run API also checks that the requested workspace path is
-inside an active approved workspace before launching execution.
+Earlier versions carried a caveat here: the wrapper was a long-blocking process,
+and some coding-assistant harnesses schedule long-running shell commands in the
+background instead of waiting — so an assistant could commit before the gate
+finished. `specter run` is one synchronous command whose exit code is the
+verdict, so the workaround that caveat pointed at is no longer needed.
 
 ---
 
@@ -446,15 +426,17 @@ or by a coding assistant.
 
 | File | Purpose |
 |---|---|
-| `scripts/precommit-gate/SKILL.md` | Copy into a target repo's `.claude/skills/` (or the user's global `~/.claude/skills/`) so a coding assistant runs the gate via short, synchronous HTTP calls instead of one long CLI call. |
-| `scripts/precommit-gate/pre-commit` | Copy into a target repo's `.git/hooks/pre-commit` (`chmod +x`) as the real enforcement layer — calls `scripts/specter-agent` directly, since a git hook is run by git itself and blocks natively regardless of the CLI call's length. |
+| `scripts/precommit-gate/SKILL.md` | Copy into a target repo's `.claude/skills/` (or the user's global `~/.claude/skills/`) so a coding assistant runs the gate. |
+| `scripts/precommit-gate/pre-commit` | Copy into a target repo's `.git/hooks/pre-commit` (`chmod +x`) as the real enforcement layer. |
 
-Both paths call the same backend (`POST /workflow-runs`, `GET
-/workflow-runs/{run_id}`) and require the same setup: the target repo's path
-registered as an approved Specter workspace, plus `SPECTER_TOKEN` /
-`SPECTER_API_BASE_URL` / `SPECTER_WORKFLOW_ID` set in the environment. See
-`scripts/precommit-gate/SKILL.md` for the full setup and step-by-step protocol
-the assistant follows (start run → poll status → report pass/fail).
+Both paths run the same command — `specter run "$SPECTER_WORKFLOW" --repo .` —
+and require the same setup: the target repo registered as an approved Specter
+workspace, and `SPECTER_WORKFLOW` set in the environment. `SPECTER_HOME` must
+match whatever the rest of the install uses, or the gate reads a different
+database and reports that the workflow does not exist.
+
+No token and no API base URL: the binary reads the database directly, so there
+is nothing to authenticate against.
 
 The `pre-commit` hook script skips (exit 0) with a warning if
 `SPECTER_WORKFLOW_ID` is unset, so copying the file speculatively doesn't

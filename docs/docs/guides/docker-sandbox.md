@@ -194,8 +194,8 @@ Specifically:
   any remote server
 - Agent output (stdout, logs, results) is written to local SQLite only
 - The Specter backend runs in Docker on your machine; there is no cloud backend
-- The host runner (`specter_host_runner.py`) is a local HTTP server on
-  `localhost:8765` — it is not exposed to the network
+- `specter serve` binds to localhost by default and spawns agents itself —
+  there is no separate runner process and no second port
 
 The only external network calls made during a run are by the agent itself (e.g.
 to call an LLM API with your prompt). Those calls go from inside the sandbox
@@ -228,8 +228,8 @@ Specter Agent adds its own layer on top:
 
 | File | Role |
 |---|---|
-| `scripts/specter_host_runner.py` | `_SANDBOX_AGENTS`, `docker_sandbox_status()`, `run_sandbox_agent_task()`, `set_docker_sandbox_policy()`, `safe_sandbox_name()` |
-| `backend/app/routers/runtime_adapters.py` | `/docker-sandbox/status` and `/docker-sandbox/policy` routes |
+| `internal/hostops/sandbox.go` | sandbox detection, daemon start, policy, agent templates |
+| `internal/api/runtime.go` | `/docker-sandbox/status` and `/docker-sandbox/policy` routes |
 | `src/pages/Models.tsx` | Status card, agent selector, install dialog, policy selector |
 | `src/lib/api.ts` | `dockerSandboxRuntimeStatus()`, `dockerSandboxPolicy()`, `setDockerSandboxPolicy()` |
 
