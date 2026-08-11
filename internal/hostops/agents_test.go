@@ -202,3 +202,73 @@ func findAgent(t *testing.T, statuses []AgentStatus, key string) AgentStatus {
 	t.Fatalf("no status reported for %q", key)
 	return AgentStatus{}
 }
+
+// Installed and authenticated are different questions, and codex used to answer
+// only the first. Python "checked" its auth by testing that the binary existed —
+// the layer above — then reported "Sign in via: codex" whether or not anyone was
+// signed in. Reading the file `codex login` writes is what separates them.
+func TestCodexSignInIsCheckedSeparatelyFromInstallation(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, binDir, "codex", `echo "codex 1.0"`)
+
+	for _, c := range []struct {
+		name        string
+		credentials string // "" means the file is absent
+		want        bool
+	}{
+		{"signed in", `{"tokens":{"access_token":"x"}}`, true},
+		{"never signed in", "", false},
+		{"credential file present but empty", "   \n", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			if c.credentials != "" {
+				if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(home, ".codex", "auth.json"), []byte(c.credentials), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			probe := &Prober{Roots: []string{binDir}, HomeDir: home}
+			status := findAgent(t, probe.AgentStatus(), "codex")
+
+			if !status.Installed {
+				t.Fatal("codex is on the roots but was reported as not installed")
+			}
+			if status.Authenticated != c.want {
+				t.Errorf("authenticated = %v, want %v", status.Authenticated, c.want)
+			}
+			// Both answers need a reason. A blank note beside either value leaves
+			// the user with nothing to act on.
+			if status.AuthNote == "" {
+				t.Error("no note explaining the sign-in state")
+			}
+		})
+	}
+}
+
+// An agent with no cheap way to check sign-in reports installed=true and says
+// so. Claiming authenticated with a blank note reads as a verified sign-in when
+// nothing was verified.
+func TestAnUncheckableAgentSaysSignInWasNotChecked(t *testing.T) {
+	specs := agentSpecs
+	t.Cleanup(func() { agentSpecs = specs })
+
+	binDir := t.TempDir()
+	writeExecutable(t, binDir, "mystery", `echo "1.0"`)
+	agentSpecs = []agentSpec{{
+		key: "mystery", displayName: "Mystery", binaries: []string{"mystery"},
+	}}
+
+	probe := &Prober{Roots: []string{binDir}, HomeDir: t.TempDir()}
+	status := findAgent(t, probe.AgentStatus(), "mystery")
+
+	if !status.Installed {
+		t.Fatal("not detected")
+	}
+	if status.AuthNote == "" {
+		t.Error("an unchecked agent reported no note, so authenticated=true looks verified")
+	}
+}

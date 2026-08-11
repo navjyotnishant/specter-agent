@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/navjyotnishant/specter-agent/internal/hostops"
+	"github.com/navjyotnishant/specter-agent/internal/models"
 	"github.com/navjyotnishant/specter-agent/internal/secretbox"
 )
 
@@ -542,15 +544,43 @@ func (d *Deps) hostRunnerLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "entries": []any{}, "embedded": true})
 }
 
-func (d *Deps) agentModels(w http.ResponseWriter, _ *http.Request) {
-	status := d.prober().DirectCLIStatus()
-	models := map[string][]string{}
-	for _, agent := range status.AgentStatus {
-		if agent.Installed {
-			models[agent.Key] = []string{}
+// agentModels reports the models each installed CLI actually supports.
+//
+// This used to name the installed agents and hand back an empty list for each,
+// so the Models page was permanently blank. Discovery lives in internal/models
+// and is shared with `specter models` — the previous split, where the real
+// implementation sat behind an HTTP hop, is how it was lost in the port without
+// anything failing to compile.
+func (d *Deps) agentModels(w http.ResponseWriter, r *http.Request) {
+	refresh := r.URL.Query().Get("refresh") == "true"
+
+	// Shaped to the contract the frontend already reads (AgentModelsResult):
+	// `agents` keyed by agent name, each carrying its own count, families and
+	// error. The error travels WITH the set — "signed out" and "no models" are
+	// different states, and collapsing them is what made a working install look
+	// broken.
+	agents := make(map[string]any, len(models.Agents()))
+	for _, c := range models.All(refresh) {
+		seen := map[string]bool{}
+		families := []string{}
+		for _, m := range c.Models {
+			if m.Family != "" && !seen[m.Family] {
+				seen[m.Family] = true
+				families = append(families, m.Family)
+			}
+		}
+		sort.Strings(families)
+
+		agents[c.Agent] = map[string]any{
+			"agent": c.Agent, "source": c.Source, "models": c.Models,
+			"count": len(c.Models), "error": c.Error, "families": families,
+			"cached": !refresh,
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "models": models})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "agents": agents, "ttl_seconds": int(models.CacheTTL.Seconds()),
+	})
 }
 
 // Version is stamped at build time.

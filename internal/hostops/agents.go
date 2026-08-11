@@ -8,6 +8,7 @@
 package hostops
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -94,6 +95,25 @@ var agentSpecs = []agentSpec{
 		key: "codex", displayName: "Codex CLI", binaries: []string{"codex"},
 		docsURL:  "https://developers.openai.com/codex/cli",
 		authHint: "Run `codex login` to sign in.",
+		authProbe: func(p *Prober, _ string) (bool, string) {
+			// The credential file, not the CLI. `codex` has no cheap auth
+			// subcommand, and a real prompt costs a quota call on an endpoint the
+			// UI polls.
+			//
+			// Python "checked" this by testing that the binary existed — which is
+			// the layer above — and then reported "Sign in via: codex" whether or
+			// not the user was signed in. Reading the file the login actually
+			// writes is what makes installed and authenticated different answers.
+			path := filepath.Join(p.home(), ".codex", "auth.json")
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return false, "Not signed in — run `codex login`"
+			}
+			if len(bytes.TrimSpace(body)) == 0 {
+				return false, "The codex credential file is empty — run `codex login`"
+			}
+			return true, "Signed in"
+		},
 	},
 	{
 		key: "cursor", displayName: "Cursor", binaries: []string{"cursor-agent", "cursor"},
@@ -124,7 +144,7 @@ var agentSpecs = []agentSpec{
 				// Present but empty: the file existing is not being signed in.
 				return false, "Run `gemini` once and sign in with your Google account."
 			}
-			return true, ""
+			return true, "Signed in"
 		},
 	},
 }
@@ -223,9 +243,11 @@ func (p *Prober) probeAgent(spec agentSpec) AgentStatus {
 	}
 
 	if spec.authProbe == nil {
-		// Nothing cheap to check. Installed is as much as can be claimed.
+		// Nothing cheap to check, so installed is as much as can be claimed —
+		// and the note has to SAY that. A blank note beside authenticated=true
+		// reads as a verified sign-in, when nothing was verified.
 		status.Authenticated = true
-		status.AuthNote = ""
+		status.AuthNote = "Installed. Sign-in was not checked — this agent offers no cheap way to ask."
 		return status
 	}
 	status.Authenticated, status.AuthNote = spec.authProbe(p, exe)

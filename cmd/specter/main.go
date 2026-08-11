@@ -49,6 +49,11 @@ func main() {
 		fmt.Printf("specter %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
 	case "status":
 		status()
+	case "models":
+		if err := cmdModels(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "  %v\n", err)
+			os.Exit(1)
+		}
 	case "help", "--help", "-h":
 		usage()
 	default:
@@ -144,6 +149,8 @@ func status() {
 	} else {
 		fmt.Printf("    listed in %s\n", shorten(config))
 	}
+
+	modelSummary()
 }
 
 func usage() {
@@ -153,6 +160,7 @@ func usage() {
   specter run <workflow>     run a workflow here
   specter workflows          what you can run
   specter status             agents, confinement, approved repositories
+  specter models             what each installed agent can run
   specter version            build information
 
 Options for run
