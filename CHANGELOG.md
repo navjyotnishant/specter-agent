@@ -13,6 +13,19 @@ produce a commit list rather than a changelog.
 
 ### Added
 
+- **One-command install.** `curl -fsSL …/install.sh | sh` puts a single binary on
+  your PATH — no interpreter, no virtualenv, no package manager. The published
+  SHA-256 is verified before anything is installed and a mismatch refuses rather
+  than warns. Upgrading over a running `specter serve` does not disturb it.
+  `git`, `gh` and the agent CLIs are deliberately not bundled; `specter status`
+  now reports which are missing, what each one enables, and whether agents run
+  confined.
+- **Built-in workflow templates, seeded on startup.** The template gallery ships
+  with Security Review Team, Pre-Push Review, and Release Readiness. Seeding is
+  insert-if-missing, so an edited template survives every restart; a deleted one
+  comes back on the next start. Skills seed the same way, and both backends use
+  the same ids — pointed at one database, the second to start finds the library
+  already there rather than inserting a duplicate set.
 - **Import an agentic-orchestrator repo into a workflow.** Point Specter at a
   local path or a GitHub URL, review a compatibility report, pick which skills
   and agents to bring in, and get real `skills` rows plus a laid-out graph on
@@ -47,8 +60,40 @@ produce a commit list rather than a changelog.
   Re-importing a skill overwrites it with the latest copy; a hand-written or
   seeded skill of the same name is kept separate rather than silently replaced.
 
+### Changed
+
+- **State moved out of the project directory into `~/.specter`.** The run
+  history, artifacts and the key that decrypts stored credentials used to live
+  in the checkout, so deleting the repository deleted them. `SPECTER_HOME`
+  relocates the whole directory and Docker reads the same variable, so the
+  container and the CLI always resolve to one place. **Migrating an existing
+  install:** stop the container, `cp -a data artifacts secrets ~/.specter/`,
+  start it again — the key and the database must move together or stored
+  credentials become unreadable.
+- The CLI no longer picks its database from the working directory. It used to
+  prefer `./data/app.db` whenever that file existed, so the same command
+  answered differently depending on where it was run, and any unrelated project
+  containing that path silently adopted it.
+
+### Removed
+
+- **The Python backend and the standalone host runner.** The Go binary serves
+  every endpoint they did; nothing built or ran them. There is no longer a
+  process on `localhost:8765` to start — `specter serve` spawns agents itself,
+  and the launchd service supervises that same command.
+
 ### Fixed
 
+- A fresh install could not open its own database. SQLite creates the database
+  file but not the directory holding it, so a machine where nothing had already
+  created `~/.specter/data` failed with `unable to open database file (14)`.
+  Only Docker installs escaped it, because the bind mount created the directory
+  as a side effect.
+- `specter run` no longer refuses every workflow that has a trigger node. It
+  required an objective on every node, but only agent nodes carry one — a
+  trigger, approval gate, memory node, or webhook has nothing to ask an agent.
+  The server was unaffected, so the CLI and the server disagreed about which
+  graphs were valid.
 - Opening a saved workflow no longer resets its name and description to a
   template's, which auto-save then persisted over the real values.
 - Clicking a node during a run now shows its prompt and instructions. Previously
