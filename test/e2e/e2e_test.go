@@ -56,15 +56,47 @@ func freePort(t *testing.T) int {
 }
 
 // buildBinary compiles the CLI once per run.
+// The binary is built ONCE for the whole package, in TestMain, rather than once
+// per test. Compiling it ~20 times dominated the runtime of a suite whose actual
+// work is running it, and a suite slow enough to skip is a suite that stops
+// catching things.
+var (
+	sharedBinary   string
+	sharedBuildErr string
+)
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "specter-e2e")
+	if err != nil {
+		sharedBuildErr = err.Error()
+	} else {
+		binary := filepath.Join(dir, "specter")
+		cmd := exec.Command("go", "build", "-o", binary, "./cmd/specter")
+		// TestMain has no *testing.T, and the working directory is the package
+		// directory — test/e2e — so the repo root is two levels up.
+		cmd.Dir = filepath.Join("..", "..")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			sharedBuildErr = fmt.Sprintf("%v\n%s", err, out)
+		} else {
+			sharedBinary = binary
+		}
+	}
+
+	// os.Exit skips deferred functions, so the result is captured and cleanup
+	// runs explicitly before exiting.
+	code := m.Run()
+	if dir != "" {
+		os.RemoveAll(dir)
+	}
+	os.Exit(code)
+}
+
 func buildBinary(t *testing.T) string {
 	t.Helper()
-	binary := filepath.Join(t.TempDir(), "specter")
-	cmd := exec.Command("go", "build", "-o", binary, "./cmd/specter")
-	cmd.Dir = repoRoot(t)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("cannot build the binary, skipping end-to-end tests: %v\n%s", err, out)
+	if sharedBinary == "" {
+		t.Skipf("cannot build the binary, skipping end-to-end tests: %s", sharedBuildErr)
 	}
-	return binary
+	return sharedBinary
 }
 
 func repoRoot(t *testing.T) string {
