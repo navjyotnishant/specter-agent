@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/navjyotnishant/specter-agent/internal/exec"
+	"github.com/navjyotnishant/specter-agent/internal/hostops"
+	"github.com/navjyotnishant/specter-agent/internal/models"
 )
 
 // AddrEnv points a backend at a host-side spawner. Unset means spawn in-process,
@@ -106,4 +108,48 @@ func (c *Client) Reachable(ctx context.Context) error {
 		return fmt.Errorf("%s answered %s", c.BaseURL, resp.Status)
 	}
 	return nil
+}
+
+// Agents asks the host what it has installed and signed in.
+//
+// A backend in a container is asking about a machine it cannot see, so this is
+// the only honest source: probing its own filesystem reports every agent missing
+// while the host beside it has all four working.
+func (c *Client) Agents(ctx context.Context) (hostops.RuntimeStatus, error) {
+	var out hostops.RuntimeStatus
+	err := c.getJSON(ctx, "/agents", &out)
+	return out, err
+}
+
+// Models asks the host which models each of its CLIs supports.
+func (c *Client) Models(ctx context.Context, refresh bool) ([]models.AgentModels, error) {
+	path := "/models"
+	if refresh {
+		path += "?refresh=true"
+	}
+	var out []models.AgentModels
+	err := c.getJSON(ctx, path, &out)
+	return out, err
+}
+
+func (c *Client) getJSON(ctx context.Context, path string, into any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		strings.TrimRight(c.BaseURL, "/")+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	// Bounded, unlike Spawn: these are status probes behind a settings page, and
+	// a hung host must not hold the page open indefinitely.
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("the agent host at %s could not be reached: %w", c.BaseURL, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("the agent host at %s answered %s", c.BaseURL, resp.Status)
+	}
+	return json.NewDecoder(resp.Body).Decode(into)
 }

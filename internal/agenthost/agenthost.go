@@ -33,6 +33,8 @@ import (
 	"time"
 
 	"github.com/navjyotnishant/specter-agent/internal/exec"
+	"github.com/navjyotnishant/specter-agent/internal/hostops"
+	"github.com/navjyotnishant/specter-agent/internal/models"
 )
 
 // DefaultAddr is loopback-only. A host spawner reachable from the network is a
@@ -130,7 +132,24 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("/spawn", s.authenticated(s.spawn))
+
+	// The backend cannot answer these for itself: it is asking about a machine
+	// it cannot see. Without them the Models page reports every agent missing
+	// while the host beside it has all four working — a red UI describing a
+	// healthy system, which is worse than no answer at all.
+	mux.HandleFunc("/agents", s.authenticated(s.agents))
+	mux.HandleFunc("/models", s.authenticated(s.models))
 	return mux
+}
+
+// agents reports what this machine has installed and signed in.
+func (s *Server) agents(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, (&hostops.Prober{}).DirectCLIStatus())
+}
+
+// models reports what each installed CLI here supports.
+func (s *Server) models(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, models.All(r.URL.Query().Get("refresh") == "true"))
 }
 
 // authenticated rejects anything without the shared token.

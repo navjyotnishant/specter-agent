@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/navjyotnishant/specter-agent/internal/agenthost"
 	"github.com/navjyotnishant/specter-agent/internal/hostops"
 	"github.com/navjyotnishant/specter-agent/internal/models"
 	"github.com/navjyotnishant/specter-agent/internal/secretbox"
@@ -308,12 +309,41 @@ func stringSlice(value any) []string {
 
 // --- runtime status ---
 
-func (d *Deps) directCLIStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, d.prober().DirectCLIStatus())
+// directCLIStatus reports which agents are usable.
+//
+// When an agent host is configured, it is ASKED rather than the local filesystem
+// probed: a containerized backend is being asked about a machine it cannot see,
+// and probing itself reports every agent missing while the host beside it has
+// all four working — a red page describing a healthy system.
+func (d *Deps) directCLIStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, d.agentStatus(r))
 }
 
-func (d *Deps) codexCLIStatus(w http.ResponseWriter, _ *http.Request) {
-	status := d.prober().DirectCLIStatus()
+// agentStatus prefers the agent host, falling back to a local probe.
+//
+// A host that is configured but unreachable is REPORTED, not silently replaced
+// by the local answer: "every agent missing" and "the machine that has them is
+// not answering" send an operator to entirely different places.
+func (d *Deps) agentStatus(r *http.Request) hostops.RuntimeStatus {
+	host := agenthost.Configured()
+	if host == "" {
+		return d.prober().DirectCLIStatus()
+	}
+
+	status, err := agenthost.NewClient().Agents(r.Context())
+	if err != nil {
+		return hostops.RuntimeStatus{
+			RuntimeID: "direct-cli", DisplayName: "Direct CLI Runtime",
+			Status: "setup_required",
+			// err already names the host, so this does not repeat it.
+			Message: "Agents run on the agent host, and it is not reachable: " + err.Error(),
+		}
+	}
+	return status
+}
+
+func (d *Deps) codexCLIStatus(w http.ResponseWriter, r *http.Request) {
+	status := d.agentStatus(r)
 	for _, agent := range status.AgentStatus {
 		if agent.Key == "codex" {
 			writeJSON(w, http.StatusOK, map[string]any{
@@ -567,8 +597,23 @@ func (d *Deps) agentModels(w http.ResponseWriter, r *http.Request) {
 	// error. The error travels WITH the set — "signed out" and "no models" are
 	// different states, and collapsing them is what made a working install look
 	// broken.
+	// Asked of the agent host when there is one, for the same reason as agent
+	// status: the container has no CLIs to interrogate.
+	catalogues := models.All(refresh)
+	if agenthost.Configured() != "" {
+		fromHost, err := agenthost.NewClient().Models(r.Context(), refresh)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok": false, "agents": map[string]any{},
+				"error": "Models are listed by the agent host: " + err.Error(),
+			})
+			return
+		}
+		catalogues = fromHost
+	}
+
 	agents := make(map[string]any, len(models.Agents()))
-	for _, c := range models.All(refresh) {
+	for _, c := range catalogues {
 		seen := map[string]bool{}
 		families := []string{}
 		for _, m := range c.Models {
