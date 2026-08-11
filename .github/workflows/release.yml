@@ -1,0 +1,76 @@
+# Builds the specter binary for every supported platform and publishes it with a
+# checksum manifest, which install.sh verifies before putting anything on PATH.
+#
+# WHY ONE JOB AND NOT A MATRIX
+# Go cross-compiles, and CGO is off — that is what makes the Alpine runtime image
+# possible, and it makes every target buildable from one Linux runner. A matrix
+# would add four runners and four checksum files that then have to be merged.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (must already exist)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # A release that ships a failing binary is worse than no release.
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -eu
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          mkdir -p dist
+
+          for target in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
+            GOOS="${target%_*}"
+            GOARCH="${target#*_}"
+            export GOOS GOARCH
+
+            # -s -w drops the symbol table and DWARF: this binary is not
+            # debugged from a user's machine, and it is a third of the size.
+            go build -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "dist/specter" ./cmd/specter
+
+            tar -czf "dist/specter_${target}.tar.gz" -C dist specter
+            rm dist/specter
+          done
+
+          # One manifest covering every archive, which is what install.sh greps.
+          cd dist && sha256sum specter_*.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          # A draft, not a live release. Publishing is a human decision, and the
+          # notes want reading before anyone can curl the install line.
+          gh release create "$VERSION" \
+            --draft \
+            --title "$VERSION" \
+            --generate-notes \
+            dist/specter_*.tar.gz dist/checksums.txt
