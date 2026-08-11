@@ -204,11 +204,22 @@ func (r *Runner) RunNode(ctx context.Context, runID string, node graph.Node, wor
 	return result
 }
 
+// writeMemory records a node's output as background for later nodes.
+//
+// A failure here is LOGGED, not discarded. memory_entries has a foreign key to
+// workflow_runs, so a missing parent row makes the insert fail — and with the
+// error dropped, the only symptom was a later node running blind, which reads
+// as a prompt-building bug rather than a write that never happened. A run is
+// still worth finishing without its memory, so this does not fail the node.
 func (r *Runner) writeMemory(runID, stepID, scope, key, value string) {
-	r.Store.DB().Exec(
+	if _, err := r.Store.DB().Exec(
 		`INSERT INTO memory_entries (id, workflow_run_id, agent_run_id, scope, key, value_text, created_by_agent)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		uuid.NewString(), runID, stepID, scope, key, value, key)
+		uuid.NewString(), runID, stepID, scope, key, value, key,
+	); err != nil {
+		_ = r.Store.AppendLog(context.Background(), runID, "warning",
+			fmt.Sprintf("could not record memory for %q: %v — later nodes will not see this output", key, err))
+	}
 }
 
 // execute dispatches on node type. Only agent nodes are implemented in R2;
