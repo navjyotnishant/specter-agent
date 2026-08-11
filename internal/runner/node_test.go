@@ -15,13 +15,9 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -30,18 +26,6 @@ import (
 )
 
 // fakeAgent writes a script that behaves like an agent CLI and returns its path.
-//
-// It VERIFIES the script actually runs before handing back the path. A temp
-// directory mounted noexec — which some CI runners do — leaves the script
-// present, readable, and mode 0755, but silently unexecutable. The agent then
-// produces no output, and every assertion downstream fails somewhere far from
-// the cause: "the memory node wrote no memory", "the second node did not see
-// the first node's output", a conditional taking the false branch on a reply of
-// "YES". The tell is that the empty-reply case keeps passing, because empty is
-// exactly what a script that never ran produces.
-//
-// Skipping beats failing here: an unexecutable temp dir is a property of the
-// machine, not of the code under test.
 func fakeAgent(t *testing.T, body string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -49,38 +33,7 @@ func fakeAgent(t *testing.T, body string) string {
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	requireExecutableTempDir(t)
 	return path
-}
-
-// requireExecutableTempDir checks ONCE per run that a script written to the
-// temp directory can actually be executed.
-//
-// Probing with a trivial script rather than the caller's: several fake agents
-// sleep or exit non-zero deliberately, so running each one an extra time to
-// prove it starts took the package from 7s to 100s.
-var tempDirExecutable = sync.OnceValue(func() error {
-	dir, err := os.MkdirTemp("", "execcheck")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(dir)
-
-	probe := filepath.Join(dir, "probe")
-	if err := os.WriteFile(probe, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		return err
-	}
-	return exec.Command(probe).Run()
-})
-
-func requireExecutableTempDir(t *testing.T) {
-	t.Helper()
-	if err := tempDirExecutable(); err != nil {
-		if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.ENOEXEC) || errors.Is(err, os.ErrPermission) {
-			t.Skipf("the temp directory is not executable (noexec?), so a fake agent cannot run: %v", err)
-		}
-		t.Fatalf("cannot execute a script from the temp directory: %v", err)
-	}
 }
 
 func testRunner(t *testing.T) (*Runner, *store.Store, string) {

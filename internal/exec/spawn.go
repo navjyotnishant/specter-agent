@@ -133,14 +133,29 @@ func RunStreaming(ctx context.Context, cmd Command) Result {
 	drained := make(chan struct{})
 	go func() { wg.Wait(); close(drained) }()
 
-	waitErr := proc.Wait()
-
+	// Drains FIRST, then Wait. os/exec closes both pipes inside Wait, and its
+	// own documentation says it is incorrect to call Wait before the reads from
+	// those pipes have finished. Calling it first is a race that only loses
+	// under load: a script that writes and exits immediately can have its pipes
+	// closed before the drain goroutines are ever scheduled, and the output is
+	// gone. On an idle machine the drains win and nothing looks wrong.
+	//
+	// That produced failures nowhere near the cause — an agent's reply of "YES"
+	// classified as "no", a memory row never written, a second node running
+	// with no context — all of them "the output was empty", in three different
+	// packages, only on a busy CI runner.
+	//
+	// The deadline stays, for the reason it was added: killing the child does
+	// not close a pipe its own child inherited, so an agent that leaves a
+	// background process behind holds the write end open and the scan never
+	// reaches EOF. Bounding the wait means output already written is still
+	// collected, while a pipe nobody will close cannot hold the run forever.
 	select {
 	case <-drained:
 	case <-time.After(drainGrace):
-		// The process is gone and the pipes are still open. Whatever holds them
-		// is not ours to wait for.
 	}
+
+	waitErr := proc.Wait()
 
 	mu.Lock()
 	outText := strings.Join(stdoutLines, "\n")
