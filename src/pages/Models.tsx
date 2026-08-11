@@ -43,7 +43,10 @@ const codexSigninCommand = "codex";
 // The standalone Python host runner is gone. `specter serve` spawns agents
 // itself, so there is no second process on localhost:8765 to start — this is the
 // server, and the launchd service below supervises this same command.
-const runnerSafeCommand = "specter serve";
+// specter serve is this app itself -- what this card checks for on :8765 is
+// the separate agent-host process (added for containerized deployments,
+// #48/#49), which is `specter agent-host`, not `specter serve`.
+const runnerSafeCommand = "specter agent-host";
 
 const SANDBOX_AGENTS: Record<string, { label: string; authCommand: string; template: string }> = {
   codex:  { label: "Codex",       authCommand: "sbx secret set -g openai --oauth", template: "docker/sandbox-templates:codex" },
@@ -650,7 +653,7 @@ export default function Models() {
                 </span>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2>Host Runner</h2>
+                    <h2>Agent Host</h2>
                     <Badge className={`rounded-full ${hostRunnerOffline ? "bg-slate-100 text-slate-600" : "bg-emerald-100 text-emerald-800"} hover:bg-current/0`}>
                       {hostRunnerOffline ? "Offline" : "Online"}
                     </Badge>
