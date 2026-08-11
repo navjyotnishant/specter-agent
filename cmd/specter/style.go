@@ -37,6 +37,12 @@ func bold(s string) string  { return colourise("1", s) }
 // Attributes are composed into ONE escape rather than nested. bold(violet(s))
 // would emit the inner reset first, ending the bold early and leaving a
 // redundant second reset behind.
+// amber is the THIRD state, and it earns its place: "installed but signed out"
+// and "installed and ready" are both non-failures, but only one of them needs
+// the user to do something. Collapsing them into green hides the action; into
+// red implies breakage.
+func amber(s string) string { return colourise("38;5;214", s) }
+
 func violet(s string) string { return colourise("1;38;5;99", s) }
 func indigo(s string) string { return colourise("1;38;5;62", s) }
 

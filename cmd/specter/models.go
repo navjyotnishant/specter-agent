@@ -73,16 +73,3 @@ func byFamily(in []models.Model) []models.Model {
 	})
 	return out
 }
-
-// modelSummary is the one line `specter status` shows: enough to know whether
-// model selection will work, without printing two hundred rows.
-func modelSummary() {
-	fmt.Println("\n  models")
-	for _, c := range models.All(false) {
-		if c.Error != "" {
-			fmt.Printf("    %-8s %s\n", c.Agent, dim(c.Error))
-			continue
-		}
-		fmt.Printf("    %-8s %d available  %s\n", c.Agent, len(c.Models), dim(c.Source))
-	}
-}
